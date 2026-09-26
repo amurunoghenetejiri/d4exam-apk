@@ -1,0 +1,340 @@
+name: fix-android-apk
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/fix-android-apk.yml"
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply fingerprint + notif + screen-share fixes
+        run: |
+          python3 << 'EOF'
+          from pathlib import Path
+          import re
+
+          # ========== 1. FingerprintLockGate: FP primary on Android ==========
+          p = Path("src/components/security/FingerprintLockGate.tsx")
+          t = p.read_text()
+
+          old_can = '''    const fpEnabled = Boolean(uid && isFingerprintEnabledFor(uid)) || Boolean(pref?.enabled && pref.userId);
+    // Device supports fingerprint (phone/laptop biometric)?
+    // Show FP UI when device supports it AND user has enabled FP in app.
+    // If device supports but user never enabled → password only, then offer enable.
+    // Native + user enabled FP + device not proven without FP → fingerprint first
+    // Web always password. hwState "pending" still allows FP UI so it does not flash away.
+    const canFp = Boolean(
+      native &&
+        fpEnabled &&
+        hwState !== "no",
+    );
+    const unlockConfigured = hasAppPw || fpEnabled;'''
+
+          new_can = '''    const fpEnabled = Boolean(uid && isFingerprintEnabledFor(uid)) || Boolean(pref?.enabled && pref.userId);
+    // On Android APK: if biometric hardware is available, offer fingerprint first
+    // without requiring a saved preference. Password remains fallback.
+    // hwState "pending" still allows FP UI so it does not flash to password-only.
+    const canFp = Boolean(native && hwState !== "no");
+    const unlockConfigured = hasAppPw || fpEnabled || canFp;'''
+
+          if old_can in t:
+              t = t.replace(old_can, new_can)
+              print("fp: evaluateLock canFp")
+          else:
+              t2 = re.sub(
+                  r'const canFp = Boolean\(\s*native &&\s*fpEnabled &&\s*hwState !== "no",\s*\);',
+                  'const canFp = Boolean(native && hwState !== "no");',
+                  t,
+                  count=1,
+              )
+              if t2 != t:
+                  t = t2
+                  print("fp: canFp regex")
+              t = t.replace(
+                  "const unlockConfigured = hasAppPw || fpEnabled;",
+                  "const unlockConfigured = hasAppPw || fpEnabled || canFp;",
+                  1,
+              )
+              print("fp: unlockConfigured")
+
+          old_mode = '''    const fpEnabled = isFingerprintEnabledFor(userId) || Boolean(pref?.enabled && pref.userId);
+    // Only force password when device is known to lack fingerprint
+    const canFp = Boolean(native && fpEnabled && hwState !== "no");
+    if (canFp) setMode("fingerprint");
+    else setMode("password");'''
+          new_mode = '''    // On native: prefer fingerprint whenever hardware is available
+    const canFp = Boolean(native && hwState !== "no");
+    if (canFp) setMode("fingerprint");
+    else setMode("password");'''
+          if old_mode in t:
+              t = t.replace(old_mode, new_mode)
+              print("fp: locked mode effect")
+          else:
+              t = re.sub(
+                  r'const canFp = Boolean\(native && fpEnabled && hwState !== "no"\);',
+                  'const canFp = Boolean(native && hwState !== "no");',
+                  t,
+              )
+              print("fp: canFp mode regex")
+
+          t = t.replace(
+              'const canFp = Boolean(fpEnabled && hwState !== "no");',
+              'const canFp = Boolean(hwState !== "no");',
+          )
+          print("fp: background canFp")
+
+          t = t.replace(
+              '{hwState !== "no" && (isFingerprintEnabledFor(userId) || pref?.enabled) ? (',
+              '{hwState !== "no" ? (',
+          )
+
+          old_bar = '''          {mode === "fingerprint" ? (
+            <button
+              type="button"
+              onClick={showPasswordMode}
+              className="inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-sm font-semibold text-slate-300 transition hover:bg-white/10 hover:text-white md:px-4 md:py-2.5 md:text-base"
+            >
+              Use password
+            </button>
+          ) : (
+            <span />
+          )}'''
+          new_bar = '''          {mode === "fingerprint" ? (
+            <button
+              type="button"
+              onClick={showPasswordMode}
+              className="inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-sm font-semibold text-slate-300 transition hover:bg-white/10 hover:text-white md:px-4 md:py-2.5 md:text-base"
+            >
+              Use password instead
+            </button>
+          ) : hwState !== "no" ? (
+            <button
+              type="button"
+              onClick={showFingerprintMode}
+              className="inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-sm font-semibold text-slate-300 transition hover:bg-white/10 hover:text-white md:px-4 md:py-2.5 md:text-base"
+            >
+              Use fingerprint
+            </button>
+          ) : (
+            <span />
+          )}'''
+          if old_bar in t:
+              t = t.replace(old_bar, new_bar)
+              print("fp: bottom bar toggle")
+          else:
+              t = t.replace(">Use password<", ">Use password instead<")
+              t = t.replace(
+                  '''          ) : (
+            <span />
+          )}''',
+                  '''          ) : hwState !== "no" ? (
+            <button
+              type="button"
+              onClick={showFingerprintMode}
+              className="inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-sm font-semibold text-slate-300 transition hover:bg-white/10 hover:text-white md:px-4 md:py-2.5 md:text-base"
+            >
+              Use fingerprint
+            </button>
+          ) : (
+            <span />
+          )}''',
+                  1,
+              )
+              print("fp: bottom bar softer")
+
+          p.write_text(t)
+          print("FingerprintLockGate", p.stat().st_size)
+
+          # ========== 2. fingerprintAuth cancel note ==========
+          fa = Path("src/native/fingerprintAuth.ts")
+          fat = fa.read_text()
+          if 'code: "cancelled"' in fat and "never sets hw" not in fat:
+              fat = fat.replace(
+                  'if (result?.code === "cancelled") {\n      return { ok: false, code: "cancelled", message: result.message || "Cancelled" };',
+                  'if (result?.code === "cancelled") {\n      // User cancelled — do NOT treat as hardware unavailable\n      return { ok: false, code: "cancelled", message: result.message || "Cancelled" };',
+              )
+              fa.write_text(fat)
+              print("fingerprintAuth cancel note")
+
+          # ========== 3. NotificationPermissionPrompt: no session gate ==========
+          np = Path("src/components/NotificationPermissionPrompt.tsx")
+          nt = np.read_text()
+
+          old_eff = '''  // After login: request REAL Android notification permission (POST_NOTIFICATIONS).
+  // Only mark "asked" after the OS returns granted/denied — never after a failed plugin call.
+  useEffect(() => {
+    const uid = session?.userId;
+    if (!uid) return;
+    let alreadyAsked = false;
+    try {
+      alreadyAsked = localStorage.getItem("d4_native_os_notif_asked_v2") === "1";
+    } catch {
+      alreadyAsked = false;
+    }
+    if (alreadyAsked) return;'''
+
+          new_eff = '''  // App entry (native): request REAL Android notification permission (POST_NOTIFICATIONS)
+  // WITHOUT requiring a logged-in session. Only mark "asked" after OS granted/denied.
+  useEffect(() => {
+    let alreadyAsked = false;
+    try {
+      alreadyAsked = localStorage.getItem("d4_native_os_notif_asked_v2") === "1";
+    } catch {
+      alreadyAsked = false;
+    }
+    if (alreadyAsked) return;'''
+
+          if old_eff in nt:
+              nt = nt.replace(old_eff, new_eff)
+              print("notif: decouple session")
+          else:
+              nt2 = re.sub(
+                  r'useEffect\(\(\) => \{\s*const uid = session\?\.userId;\s*if \(!uid\) return;',
+                  'useEffect(() => {',
+                  nt,
+                  count=1,
+              )
+              if nt2 != nt:
+                  nt = nt2
+                  print("notif: removed uid gate")
+              else:
+                  print("notif: uid gate pattern miss")
+
+          # Only replace first occurrence of deps for the OS permission effect
+          # Find the OS effect block and fix its closing deps
+          if "}, [session?.userId, session?.role]);" in nt:
+              # Replace only the first one (OS effect) — second is soft toast
+              nt = nt.replace(
+                  "}, [session?.userId, session?.role]);",
+                  "}, []); // native OS prompt once on mount — independent of session",
+                  1,
+              )
+              print("notif: deps")
+
+          np.write_text(nt)
+          print("NotificationPermissionPrompt", np.stat().st_size)
+
+          # ========== 4. __root NativeBootstrap notif on entry ==========
+          root = Path("src/routes/__root.tsx")
+          rt = root.read_text()
+          if "requestNotificationPermission" not in rt:
+              inject = '''
+  // Request POST_NOTIFICATIONS on native app entry (before login) so OS dialog appears early.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        let already = false;
+        try {
+          already = localStorage.getItem("d4_native_os_notif_asked_v2") === "1";
+        } catch { /* ignore */ }
+        if (already) return;
+        const { waitForNativeShell, isNativeShell } = await import("@/native/platform");
+        let ready = isNativeShell() || (await waitForNativeShell(12_000));
+        if (!ready) {
+          await new Promise((r) => setTimeout(r, 1500));
+          ready = isNativeShell() || (await waitForNativeShell(6_000));
+        }
+        if (cancelled || !ready) return;
+        await new Promise((r) => setTimeout(r, 800));
+        if (cancelled) return;
+        let display = "default";
+        try {
+          const { registerPlugin } = await import("@capacitor/core");
+          const auth = registerPlugin<{
+            checkNotificationPermission: () => Promise<{ display?: string }>;
+            requestNotificationPermission: () => Promise<{ display?: string }>;
+          }>("D4NativeAuth");
+          const cur = await auth.checkNotificationPermission();
+          display = (cur?.display || "default").toLowerCase();
+          if (display !== "granted" && display !== "denied") {
+            const req = await auth.requestNotificationPermission();
+            display = (req?.display || display).toLowerCase();
+          }
+        } catch {
+          try {
+            const { LocalNotifications } = await import("@capacitor/local-notifications");
+            const cur = await LocalNotifications.checkPermissions();
+            display = (cur.display || "default").toLowerCase();
+            if (display !== "granted" && display !== "denied") {
+              const req = await LocalNotifications.requestPermissions();
+              display = (req.display || display).toLowerCase();
+            }
+          } catch {
+            return; // do not mark asked
+          }
+        }
+        if (display === "granted" || display === "denied") {
+          try {
+            localStorage.setItem("d4_native_os_notif_asked_v2", "1");
+          } catch { /* ignore */ }
+        }
+      } catch (e) {
+        console.warn("[D4EXAM] NativeBootstrap notif permission", e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+'''
+              idx = rt.find("function NativeBootstrap()")
+              if idx >= 0:
+                  sub = rt[idx:]
+                  ridx = sub.find("  return null;\n}")
+                  if ridx >= 0:
+                      abs_pos = idx + ridx
+                      rt = rt[:abs_pos] + inject + "\n" + rt[abs_pos:]
+                      print("root: NativeBootstrap notif inject")
+              root.write_text(rt)
+              print("root", root.stat().st_size)
+          else:
+              print("root: already has notif bootstrap")
+
+          # ========== 5. screen-share stronger native detect ==========
+          ss = Path("src/lib/screen-share.ts")
+          st = ss.read_text()
+          if "/Capacitor/i.test(ua)" not in st:
+              st = st.replace(
+                  'if (/; wv\\)/i.test(ua) && /Android/i.test(ua)) return true;',
+                  'if (/; wv\\)/i.test(ua) && /Android/i.test(ua)) return true;\n    if (/Android/i.test(ua) && /Capacitor/i.test(ua)) return true;',
+              )
+              print("ss: Capacitor UA")
+          if "__d4NativeAndroid" not in st:
+              st = st.replace(
+                  "  return false;\n}\n\n/** Wait for Capacitor",
+                  '''  try {
+    if ((window as unknown as { __d4NativeAndroid?: boolean }).__d4NativeAndroid) return true;
+  } catch {
+    /* ignore */
+  }
+  return false;
+}
+
+/** Wait for Capacitor''',
+              )
+              print("ss: window flag")
+          ss.write_text(st)
+          print("screen-share", ss.stat().st_size)
+
+          svc = Path("android/app/src/main/java/com/d4exam/app/ScreenCaptureService.java")
+          if svc.exists():
+              svt = svc.read_text()
+              if "FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION" in svt:
+                  print("svc: MEDIA_PROJECTION present")
+              else:
+                  print("svc: MISSING MEDIA_PROJECTION")
+
+          print("DONE android apk fixes")
+          EOF
+      - name: Commit
+        run: |
+          git config user.name d4exam-bot
+          git config user.email bot@d4exam.local
+          git add -A
+          git commit -m "fix(android): fingerprint primary, notif on entry, screen-share native detect" || echo nochange
+          git push origin main
