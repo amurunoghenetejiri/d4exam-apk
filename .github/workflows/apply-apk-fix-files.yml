@@ -1,0 +1,15 @@
+name: apply-apk-fix-files
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/apply-apk-fix-files.yml"
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: placeholder
+        run: echo start
