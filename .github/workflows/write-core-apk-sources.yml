@@ -1,0 +1,16 @@
+name: write-core-apk-sources
+on:
+  workflow_dispatch:
+concurrency:
+  group: write-core-apk
+  cancel-in-progress: true
+jobs:
+  write:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Decode and write sources
+        run: echo placeholder-workflow-will-replace
