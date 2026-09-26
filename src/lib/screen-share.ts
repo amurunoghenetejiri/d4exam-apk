@@ -87,7 +87,7 @@ export function isNativeAndroid(): boolean {
       try {
         if (Capacitor.getPlatform() === "android") return true;
       } catch {
-        return true;
+        return true; // native shell on this app is Android-only
       }
     }
   } catch {
@@ -99,6 +99,7 @@ export function isNativeAndroid(): boolean {
     /* ignore */
   }
   try {
+    // Capacitor WebView UA (server.url remote load) even if isNativePlatform lags
     const ua = typeof navigator !== "undefined" ? navigator.userAgent || "" : "";
     if (/; wv\)/i.test(ua) && /Android/i.test(ua)) return true;
     if (/Android/i.test(ua) && /Capacitor/i.test(ua)) return true;
@@ -109,6 +110,7 @@ export function isNativeAndroid(): boolean {
   return false;
 }
 
+/** Wait for Capacitor before MediaProjection calls. */
 export async function waitNativeAndroid(timeoutMs = 12_000): Promise<boolean> {
   if (isNativeAndroid()) return true;
   try {
@@ -171,6 +173,7 @@ function applyNativeJpeg(raw: string | undefined | null, ts?: number): boolean {
   return true;
 }
 
+/** Public: try to keep/restore native MediaProjection while exam is active. */
 export async function ensureScreenShareRunning(): Promise<boolean> {
   if (!isNativeAndroid()) {
     try {
@@ -280,6 +283,9 @@ function handleNativeStopped(data?: { active?: boolean; generation?: number }): 
     void recoverNativeScreenShare("start-grace");
     return;
   }
+  // During live exam hold: NEVER treat native "stopped" as end-of-exam.
+  // Android MediaProjection often fires spurious stopped events (focus, dialogs,
+  // WebView lifecycle). Keep recovering silently until submit releases the hold.
   if (examHoldLock) {
     void (async () => {
       const ok = await recoverNativeScreenShare("hold-active-stopped");
@@ -297,6 +303,7 @@ function handleNativeStopped(data?: { active?: boolean; generation?: number }): 
     })();
     return;
   }
+  // Hold off (student submitted / shutdown) — allow stop callbacks
   console.warn("[screen-share] SCREEN_SHARE_DISCONNECTED native stopped event");
   examHoldLock = false;
   nativeActive = false;
@@ -342,47 +349,6 @@ async function ensureNativeFrameListeners(): Promise<void> {
   listenersReady = Boolean(nativeFrameUnsub);
 }
 
-async function ensureNotifForScreenShare(): Promise<void> {
-  try {
-    if (typeof window === "undefined") return;
-    try {
-      const { registerPlugin } = await import("@capacitor/core");
-      const auth = registerPlugin<{
-        checkNotificationPermission: () => Promise<{ display?: string }>;
-        requestNotificationPermission: () => Promise<{ display?: string }>;
-      }>("D4NativeAuth");
-      let cur = await auth.checkNotificationPermission();
-      let display = (cur?.display || "").toLowerCase();
-      if (display !== "granted") {
-        const req = await auth.requestNotificationPermission();
-        display = (req?.display || display).toLowerCase();
-      }
-      if (display === "granted") return;
-      if (display === "denied") {
-        throw new Error(
-          "Allow notifications for D4EXAM (required for screen monitoring), then start the exam again.",
-        );
-      }
-    } catch (e) {
-      if (e instanceof Error && /Allow notifications/i.test(e.message)) throw e;
-    }
-    const { Capacitor } = await import("@capacitor/core");
-    if (!Capacitor.isNativePlatform?.()) return;
-    const { LocalNotifications } = await import("@capacitor/local-notifications");
-    let st = await LocalNotifications.checkPermissions();
-    if (st.display !== "granted") {
-      st = await LocalNotifications.requestPermissions();
-    }
-    if (st.display !== "granted") {
-      throw new Error(
-        "Allow notifications for D4EXAM (required for screen monitoring), then start the exam again.",
-      );
-    }
-  } catch (e) {
-    if (e instanceof Error && /Allow notifications/i.test(e.message)) throw e;
-  }
-}
-
 async function startNativeScreenShare(): Promise<ScreenShareStartResult> {
   if (startInFlight) return startInFlight;
   const run = (async (): Promise<ScreenShareStartResult> => {
@@ -390,6 +356,7 @@ async function startNativeScreenShare(): Promise<ScreenShareStartResult> {
     try {
       status = "requesting";
       await waitNativeAndroid(12_000);
+      // FGS on Android 13+ needs notification permission BEFORE MediaProjection
       try {
         await ensureNotifForScreenShare();
       } catch (ne) {
@@ -574,58 +541,263 @@ async function startWebScreenShare(): Promise<ScreenShareStartResult> {
   }
 }
 
-export async function startScreenShare(): Promise<ScreenShareStartResult> {
+
+/** Android 13+ requires notification permission for MediaProjection foreground service. */
+async function ensureNotifForScreenShare(): Promise<void> {
+  try {
+    if (typeof window === "undefined") return;
+    // Must complete before MediaProjection (Android 13+ FGS needs notification permission)
+    try {
+      const { registerPlugin } = await import("@capacitor/core");
+      const auth = registerPlugin<{
+        checkNotificationPermission: () => Promise<{ display?: string }>;
+        requestNotificationPermission: () => Promise<{ display?: string }>;
+      }>("D4NativeAuth");
+      let cur = await auth.checkNotificationPermission();
+      let display = (cur?.display || "").toLowerCase();
+      if (display !== "granted") {
+        const req = await auth.requestNotificationPermission();
+        display = (req?.display || display).toLowerCase();
+      }
+      if (display === "granted") return;
+      if (display === "denied") {
+        throw new Error(
+          "Allow notifications for D4EXAM (required for screen monitoring), then start the exam again.",
+        );
+      }
+    } catch (e) {
+      if (e instanceof Error && /Allow notifications/i.test(e.message)) throw e;
+      /* try LocalNotifications fallback */
+    }
+    const { Capacitor } = await import("@capacitor/core");
+    if (!Capacitor.isNativePlatform?.()) return;
+    const { LocalNotifications } = await import("@capacitor/local-notifications");
+    let st = await LocalNotifications.checkPermissions();
+    if (st.display !== "granted") {
+      st = await LocalNotifications.requestPermissions();
+    }
+    if (st.display !== "granted") {
+      throw new Error(
+        "Allow notifications for D4EXAM (required for screen monitoring), then start the exam again.",
+      );
+    }
+  } catch (e) {
+    if (e instanceof Error && /Allow notifications/i.test(e.message)) throw e;
+    /* non-fatal only when native path unavailable */
+  }
+}
+
+export async function startScreenShareStream(): Promise<ScreenShareStartResult> {
   await waitNativeAndroid(12_000);
   if (isNativeAndroid()) return startNativeScreenShare();
   return startWebScreenShare();
 }
 
-export function stopScreenShare(): void {
-  examHoldLock = false;
-  nativeActive = false;
-  status = "stopped";
-  latestNativeScreenJpeg = null;
-  lastFrameAt = 0;
-  try {
-    void D4ScreenShare().stop();
-  } catch {
-    /* ignore */
+export function stopScreenShareStream(stream: MediaStream | null | undefined): void {
+  if (examHoldLock && isNativeAndroid()) {
+    console.warn("[screen-share] stop ignored — exam hold lock active");
+    if (stream && stream !== nativeStream) {
+      try {
+        stream.getTracks().forEach((t) => t.stop());
+      } catch {
+        /* ignore */
+      }
+    }
+    return;
   }
-  try {
-    nativeStream?.getTracks?.().forEach((t) => t.stop());
-  } catch {
-    /* ignore */
+  console.info("[screen-share] SCREEN_SHARE_STOPPED");
+  status = "stopped";
+  examHoldLock = false;
+  sessionGeneration += 1;
+  lastStartAt = 0;
+  if (isNativeAndroid()) {
+    nativeActive = false;
+    latestNativeScreenJpeg = null;
+    lastFrameAt = 0;
+    try {
+      void D4ScreenShare()
+        .setKeepAlive({ hold: false })
+        .then(() => {
+          try {
+            void D4ScreenShare().stop();
+          } catch {
+            /* ignore */
+          }
+        });
+    } catch {
+      try {
+        void D4ScreenShare().stop();
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+  if (nativeFrameUnsub) {
+    try {
+      nativeFrameUnsub.remove();
+    } catch {
+      /* ignore */
+    }
+    nativeFrameUnsub = null;
+  }
+  if (nativeStoppedUnsub) {
+    try {
+      nativeStoppedUnsub.remove();
+    } catch {
+      /* ignore */
+    }
+    nativeStoppedUnsub = null;
+  }
+  listenersReady = false;
+  endedCallbacks = [];
+  if (stream) {
+    try {
+      stream.getTracks().forEach((t) => t.stop());
+    } catch {
+      /* ignore */
+    }
+  }
+  if (nativeStream && nativeStream !== stream) {
+    try {
+      nativeStream.getTracks().forEach((t) => t.stop());
+    } catch {
+      /* ignore */
+    }
   }
   nativeStream = null;
 }
 
-export function getLatestNativeScreenJpeg(): string | null {
-  return latestNativeScreenJpeg;
-}
-
-export async function awaitLatestNativeScreenJpeg(timeoutMs = 3000): Promise<string | null> {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    if (latestNativeScreenJpeg) return latestNativeScreenJpeg;
+export function onScreenShareEnded(stream: MediaStream, onEnded: () => void): () => void {
+  if (isNativeAndroid()) {
+    endedCallbacks.push(onEnded);
+    void ensureNativeFrameListeners();
+    return () => {
+      endedCallbacks = endedCallbacks.filter((c) => c !== onEnded);
+    };
+  }
+  const track = stream?.getVideoTracks?.()?.[0];
+  if (!track) return () => {};
+  const handler = () => {
+    // During exam hold, do not notify pause — ignore spurious ends
+    if (examHoldLock) {
+      console.warn("[screen-share] web track ended while hold — ignored (no pause)");
+      return;
+    }
     try {
-      const fr = await D4ScreenShare().getLatestFrame();
-      if (applyNativeJpeg(fr?.jpeg, fr?.ts) && latestNativeScreenJpeg) return latestNativeScreenJpeg;
+      onEnded();
     } catch {
       /* ignore */
     }
-    await new Promise((r) => setTimeout(r, 200));
+  };
+  track.addEventListener("ended", handler);
+  return () => {
+    try {
+      track.removeEventListener("ended", handler);
+    } catch {
+      /* ignore */
+    }
+  };
+}
+
+export function getLatestNativeScreenJpeg(): string | null {
+  if (isNativeAndroid() && !nativeFramePollInFlight) {
+    nativeFramePollInFlight = true;
+    void (async () => {
+      try {
+        await ensureNativeFrameListeners();
+        const r = await D4ScreenShare().getLatestFrame();
+        applyNativeJpeg(r?.jpeg, r?.ts);
+        if (r?.active) {
+          nativeActive = true;
+          status = "active";
+        }
+      } catch {
+        /* older APK */
+      } finally {
+        nativeFramePollInFlight = false;
+      }
+    })();
   }
   return latestNativeScreenJpeg;
 }
 
-export function onScreenShareEnded(cb: () => void): () => void {
-  endedCallbacks.push(cb);
-  return () => {
-    endedCallbacks = endedCallbacks.filter((x) => x !== cb);
-  };
+export async function awaitLatestNativeScreenJpeg(): Promise<string | null> {
+  if (!isNativeAndroid()) return latestNativeScreenJpeg;
+  try {
+    await ensureNativeFrameListeners();
+    try {
+      const ensured = await D4ScreenShare().ensureRunning();
+      if (ensured?.active) {
+        nativeActive = true;
+        status = "active";
+      }
+    } catch {
+      /* older APK */
+    }
+    const r = await D4ScreenShare().getLatestFrame();
+    applyNativeJpeg(r?.jpeg, r?.ts);
+    if (r?.active) {
+      nativeActive = true;
+      status = "active";
+    }
+  } catch {
+    /* ignore */
+  }
+  return latestNativeScreenJpeg;
+}
+
+export function clearNativeScreenJpeg(): void {
+  latestNativeScreenJpeg = null;
 }
 
 export function isNativeScreenShareActive(): boolean {
-  if (nativeActive && lastFrameAt > 0 && Date.now() - lastFrameAt < 12000) return true;
+  return nativeActive || (lastFrameAt > 0 && Date.now() - lastFrameAt < 8000);
+}
+
+export function isExamScreenShareHold(): boolean {
+  return examHoldLock;
+}
+
+export function getActiveScreenStream(): MediaStream | null {
+  return nativeStream;
+}
+
+export async function refreshNativeScreenShareState(): Promise<boolean> {
+  if (!isNativeAndroid()) return false;
+  try {
+    await ensureNativeFrameListeners();
+    try {
+      const ensured = await D4ScreenShare().ensureRunning();
+      if (ensured?.active) {
+        nativeActive = true;
+        status = "active";
+      }
+    } catch {
+      /* older APK */
+    }
+    try {
+      const fr = await D4ScreenShare().getLatestFrame();
+      if (applyNativeJpeg(fr?.jpeg, fr?.ts)) return true;
+      if (fr?.active) {
+        nativeActive = true;
+        status = "active";
+        return true;
+      }
+    } catch {
+      /* older APK */
+    }
+    const st = await D4ScreenShare().isActive();
+    if (st?.active) {
+      nativeActive = true;
+      status = "active";
+      return true;
+    }
+  } catch {
+    /* ignore */
+  }
+  if (lastFrameAt > 0 && Date.now() - lastFrameAt < 8000) {
+    nativeActive = true;
+    return true;
+  }
   return nativeActive;
 }
