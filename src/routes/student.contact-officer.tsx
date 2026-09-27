@@ -1099,7 +1099,7 @@ function Page() {
             </button>
           ) : (
             <button type="button" className={cn("mb-0.5 grid h-10 w-10 place-items-center rounded-full shadow-md", recording || pendingAudio || pendingAudioUrl ? "bg-[#2563eb] text-white ring-2 ring-white/40" : "bg-white text-[#0b1b3a] ring-2 ring-white/70")} onClick={() => (recording || pendingAudio || pendingAudioUrl ? void sendPendingAudio() : void startRec())} aria-label={recording || pendingAudio || pendingAudioUrl ? "Send voice note" : "Record voice"}>
-              {recording || pendingAudio || pendingAudioUrl ? <Send className="h-5 w-5" /> : <Mic className="h-4 w-4 stroke-[2.5]" />}
+              {recording || pendingAudio || pendingAudioUrl ? <Send className="h-5 w-5" /> : <Mic className="h-7 w-7 stroke-[2.5]" />}
             </button>
           )}
         </div>

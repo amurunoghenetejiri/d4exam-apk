@@ -732,7 +732,7 @@ sendLock.current = true;
                   className={cn("mb-0.5 grid h-10 w-10 place-items-center rounded-full text-white", recording ? "bg-red-500" : "bg-[#0b1b3a]")}
                   onClick={() => { if (!recording) void startRec(); }}
                 >
-                  <Mic className="h-4 w-4" />
+                  <Mic className="h-7 w-7 stroke-[2.5]" />
                 </button>
               )}
             </div>
