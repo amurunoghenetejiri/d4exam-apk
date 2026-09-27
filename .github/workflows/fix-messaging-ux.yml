@@ -2,9 +2,16 @@ name: Fix messaging UX
 
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/fix-messaging-ux.yml'
 
 permissions:
   contents: write
+
+concurrency:
+  group: fix-messaging-ux
+  cancel-in-progress: true
 
 jobs:
   apply:
@@ -17,283 +24,184 @@ jobs:
           python3 << 'PY'
           from pathlib import Path
 
-          # ========== MessageMedia.tsx ==========
           mm = Path("src/components/messaging/MessageMedia.tsx")
           t = mm.read_text()
 
-          # Export stopAllVoices
           if "export function stopAllVoices" not in t:
               t = t.replace(
                   "function onVoiceEnded(id: string) {",
-                  """export function stopAllVoices() {
-    if (activeVoiceId) {
-      voiceMap.get(activeVoiceId)?.pause();
-      activeVoiceId = null;
-    }
-    for (const [, reg] of voiceMap) {
-      try { reg.pause(); } catch { /* ignore */ }
-    }
-  }
-
-  function onVoiceEnded(id: string) {""",
+                  "export function stopAllVoices() {\n  if (activeVoiceId) {\n    voiceMap.get(activeVoiceId)?.pause();\n    activeVoiceId = null;\n  }\n  for (const [, reg] of voiceMap) {\n    try { reg.pause(); } catch { /* ignore */ }\n  }\n}\n\nfunction onVoiceEnded(id: string) {",
               )
 
-          # Voice timer: count up while playing
-          old_time = '''  const effectiveDur = dur > 0 ? dur : (durationSec != null && durationSec > 0 ? durationSec : 0);
-    const timeShown = effectiveDur > 0 ? fmtDur(effectiveDur) : (playing ? fmtDur(cur) : "0:00");'''
-          new_time = '''  const effectiveDur = dur > 0 ? dur : (durationSec != null && durationSec > 0 ? durationSec : 0);
-    // While playing: show elapsed from 0:00 upward; idle: show total duration
-    const timeShown = playing
-      ? fmtDur(cur)
-      : (effectiveDur > 0 ? fmtDur(effectiveDur) : "0:00");'''
+          old_time = "  const effectiveDur = dur > 0 ? dur : (durationSec != null && durationSec > 0 ? durationSec : 0);\n  const timeShown = effectiveDur > 0 ? fmtDur(effectiveDur) : (playing ? fmtDur(cur) : \"0:00\");"
+          new_time = "  const effectiveDur = dur > 0 ? dur : (durationSec != null && durationSec > 0 ? durationSec : 0);\n  // While playing: show elapsed from 0:00 upward; idle: show total duration\n  const timeShown = playing\n    ? fmtDur(cur)\n    : (effectiveDur > 0 ? fmtDur(effectiveDur) : \"0:00\");"
           if old_time in t:
               t = t.replace(old_time, new_time)
 
-          # Progress bar uses effectiveDur
           t = t.replace(
               "progress={dur > 0 ? cur / dur : 0}",
               "progress={effectiveDur > 0 ? Math.min(1, cur / effectiveDur) : 0}",
           )
 
-          # Seek with effectiveDur fallback
           t = t.replace(
-              """            onSeek={(ratio) => {
-                const a = audioRef.current;
-                if (!a || !Number.isFinite(a.duration) || a.duration <= 0) return;
-                const t = ratio * a.duration;
-                a.currentTime = t;
-                setCur(t);
-              }}""",
-              """            onSeek={(ratio) => {
-                const a = audioRef.current;
-                if (!a) return;
-                const total = (Number.isFinite(a.duration) && a.duration > 0)
-                  ? a.duration
-                  : (durationSec != null && durationSec > 0 ? durationSec : 0);
-                if (total <= 0) return;
-                const t = ratio * total;
-                try { a.currentTime = t; } catch { /* ignore */ }
-                setCur(t);
-              }}""",
-          )
-
-          # Remove full-bubble stopPropagation so swipe-to-reply works on voice rows
-          # Keep isolation only on WaveBars (already has stopPropagation)
-          t = t.replace(
-              '''      onTouchStart={(e) => e.stopPropagation()}
-        onTouchMove={(e) => e.stopPropagation()}
-      >''',
-              """>""",
+              '''      onTouchStart={(e) => e.stopPropagation()}\n      onTouchMove={(e) => e.stopPropagation()}\n    >''',
+              ">",
               1,
           )
 
-          # Improve ImageLightbox: pan when zoomed, swipe-down dismiss, finger-follow gallery
-          if "export function ImageLightbox" in t and "swipeDownDismiss" not in t:
-              start = t.find("export function ImageLightbox")
-              # Find next export after ImageLightbox body - replace whole function if compact
-              # Safer: inject pan/zoom/swipe helpers by replacing known class patterns
-              pass
-
-          # Rewrite ImageLightbox entirely if present
           if "export function ImageLightbox" in t:
               start = t.find("export function ImageLightbox")
-              # Find following export function
               nexts = []
               for name in ["export function VideoBubble", "export function VideoLightbox", "export function FileBubble", "export function LongPressMenu"]:
                   i = t.find(name, start + 10)
                   if i > start:
                       nexts.append(i)
               end = min(nexts) if nexts else len(t)
-              new_il = r'''export function ImageLightbox({
-    urls,
-    index = 0,
-    onClose,
-  }: {
-    urls: string[];
-    index?: number;
-    onClose: () => void;
-  }) {
-    const list = urls.length ? urls : [];
-    const [idx, setIdx] = useState(Math.max(0, Math.min(index, Math.max(0, list.length - 1))));
-    const [scale, setScale] = useState(1);
-    const [tx, setTx] = useState(0);
-    const [ty, setTy] = useState(0);
-    const drag = useRef<{ x: number; y: number; mode: "none" | "pan" | "swipe" | "dismiss"; startTx: number; startTy: number; startIdx: number } | null>(null);
-    const [dragX, setDragX] = useState(0);
-    const [dragY, setDragY] = useState(0);
+              new_il = '''export function ImageLightbox({
+  urls,
+  index = 0,
+  onClose,
+}: {
+  urls: string[];
+  index?: number;
+  onClose: () => void;
+}) {
+  const list = urls.length ? urls : [];
+  const [idx, setIdx] = useState(Math.max(0, Math.min(index, Math.max(0, list.length - 1))));
+  const [scale, setScale] = useState(1);
+  const [tx, setTx] = useState(0);
+  const [ty, setTy] = useState(0);
+  const drag = useRef<{ x: number; y: number; mode: "none" | "pan" | "swipe" | "dismiss"; startTx: number; startTy: number } | null>(null);
+  const [dragX, setDragX] = useState(0);
+  const [dragY, setDragY] = useState(0);
 
-    useEffect(() => {
-      setIdx(Math.max(0, Math.min(index, Math.max(0, list.length - 1))));
-      setScale(1); setTx(0); setTy(0); setDragX(0); setDragY(0);
-    }, [index, list.length]);
+  useEffect(() => {
+    setIdx(Math.max(0, Math.min(index, Math.max(0, list.length - 1))));
+    setScale(1); setTx(0); setTy(0); setDragX(0); setDragY(0);
+  }, [index, list.length]);
 
-    if (!list.length) return null;
-    const src = list[idx];
+  if (!list.length) return null;
+  const src = list[idx];
 
-    const onPointerDown = (e: React.PointerEvent) => {
-      (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
-      drag.current = {
-        x: e.clientX, y: e.clientY,
-        mode: "none",
-        startTx: tx, startTy: ty, startIdx: idx,
-      };
-    };
-    const onPointerMove = (e: React.PointerEvent) => {
-      const d = drag.current;
-      if (!d) return;
-      const dx = e.clientX - d.x;
-      const dy = e.clientY - d.y;
-      if (d.mode === "none") {
-        if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
-        if (scale > 1.05) d.mode = "pan";
-        else if (Math.abs(dy) > Math.abs(dx) && dy > 0) d.mode = "dismiss";
-        else d.mode = "swipe";
-      }
-      if (d.mode === "pan") {
-        setTx(d.startTx + dx);
-        setTy(d.startTy + dy);
-      } else if (d.mode === "swipe") {
-        setDragX(dx);
-      } else if (d.mode === "dismiss") {
-        setDragY(Math.max(0, dy));
-      }
-    };
-    const onPointerUp = () => {
-      const d = drag.current;
-      drag.current = null;
-      if (!d) return;
-      if (d.mode === "dismiss") {
-        if (dragY > 90) onClose();
-        setDragY(0);
-        return;
-      }
-      if (d.mode === "swipe") {
-        if (dragX < -60 && idx < list.length - 1) {
-          setIdx(idx + 1); setScale(1); setTx(0); setTy(0);
-        } else if (dragX > 60 && idx > 0) {
-          setIdx(idx - 1); setScale(1); setTx(0); setTy(0);
-        }
-        setDragX(0);
-        return;
-      }
-      setDragX(0); setDragY(0);
-    };
+  const onPointerDown = (e: React.PointerEvent) => {
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+    drag.current = { x: e.clientX, y: e.clientY, mode: "none", startTx: tx, startTy: ty };
+  };
+  const onPointerMove = (e: React.PointerEvent) => {
+    const d = drag.current;
+    if (!d) return;
+    const dx = e.clientX - d.x;
+    const dy = e.clientY - d.y;
+    if (d.mode === "none") {
+      if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
+      if (scale > 1.05) d.mode = "pan";
+      else if (Math.abs(dy) > Math.abs(dx) && dy > 0) d.mode = "dismiss";
+      else d.mode = "swipe";
+    }
+    if (d.mode === "pan") { setTx(d.startTx + dx); setTy(d.startTy + dy); }
+    else if (d.mode === "swipe") setDragX(dx);
+    else if (d.mode === "dismiss") setDragY(Math.max(0, dy));
+  };
+  const onPointerUp = () => {
+    const d = drag.current;
+    drag.current = null;
+    if (!d) return;
+    if (d.mode === "dismiss") {
+      if (dragY > 90) onClose();
+      setDragY(0);
+      return;
+    }
+    if (d.mode === "swipe") {
+      if (dragX < -60 && idx < list.length - 1) { setIdx(idx + 1); setScale(1); setTx(0); setTy(0); }
+      else if (dragX > 60 && idx > 0) { setIdx(idx - 1); setScale(1); setTx(0); setTy(0); }
+      setDragX(0);
+      return;
+    }
+    setDragX(0); setDragY(0);
+  };
 
-    return (
-      <div className="fixed inset-0 z-[100] flex flex-col bg-black/95" style={{ opacity: dragY > 0 ? Math.max(0.35, 1 - dragY / 320) : 1 }}>
-        <div className="flex items-center justify-between px-3 pt-[max(0.75rem,env(safe-area-inset-top))] pb-2 text-white">
-          <button type="button" onClick={onClose} className="grid h-10 w-10 place-items-center rounded-full bg-white/15" aria-label="Back">
-            <X className="h-5 w-5" />
-          </button>
-          <span className="text-sm font-semibold tabular-nums">{list.length > 1 ? `${idx + 1} / ${list.length}` : "Photo"}</span>
-          <span className="w-10" />
-        </div>
-        <div
-          className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden touch-none"
-          onPointerDown={onPointerDown}
-          onPointerMove={onPointerMove}
-          onPointerUp={onPointerUp}
-          onPointerCancel={onPointerUp}
-          onDoubleClick={() => {
-            if (scale > 1) { setScale(1); setTx(0); setTy(0); }
-            else setScale(2.4);
-          }}
-          style={{ transform: `translateY(${dragY}px)` }}
-        >
-          <img
-            src={src}
-            alt=""
-            draggable={false}
-            className="max-h-full max-w-full select-none object-contain"
-            style={{
-              transform: `translate(${tx + dragX}px, ${ty}px) scale(${scale})`,
-              transition: drag.current ? "none" : "transform 0.22s ease-out",
-              transformOrigin: "center center",
-            }}
-          />
-        </div>
-        {list.length > 1 ? (
-          <div className="flex justify-center gap-1.5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-2">
-            {list.map((_, i) => (
-              <button key={i} type="button" onClick={() => { setIdx(i); setScale(1); setTx(0); setTy(0); }} className={cn("h-1.5 rounded-full transition-all", i === idx ? "w-5 bg-white" : "w-1.5 bg-white/40")} />
-            ))}
-          </div>
-        ) : (
-          <div className="pb-[max(0.75rem,env(safe-area-inset-bottom))]" />
-        )}
+  return (
+    <div className="fixed inset-0 z-[100] flex flex-col bg-black/95" style={{ opacity: dragY > 0 ? Math.max(0.35, 1 - dragY / 320) : 1 }}>
+      <div className="flex items-center justify-between px-3 pt-[max(0.75rem,env(safe-area-inset-top))] pb-2 text-white">
+        <button type="button" onClick={onClose} className="grid h-10 w-10 place-items-center rounded-full bg-white/15" aria-label="Back">
+          <X className="h-5 w-5" />
+        </button>
+        <span className="text-sm font-semibold tabular-nums">{list.length > 1 ? `${idx + 1} / ${list.length}` : "Photo"}</span>
+        <span className="w-10" />
       </div>
-    );
-  }
+      <div
+        className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden touch-none"
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+        onDoubleClick={() => { if (scale > 1) { setScale(1); setTx(0); setTy(0); } else setScale(2.4); }}
+        style={{ transform: `translateY(${dragY}px)` }}
+      >
+        <img
+          src={src}
+          alt=""
+          draggable={false}
+          className="max-h-full max-w-full select-none object-contain"
+          style={{
+            transform: `translate(${tx + dragX}px, ${ty}px) scale(${scale})`,
+            transition: drag.current ? "none" : "transform 0.22s ease-out",
+            transformOrigin: "center center",
+          }}
+        />
+      </div>
+      {list.length > 1 ? (
+        <div className="flex justify-center gap-1.5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-2">
+          {list.map((_, i) => (
+            <button key={i} type="button" onClick={() => { setIdx(i); setScale(1); setTx(0); setTy(0); }} className={cn("h-1.5 rounded-full transition-all", i === idx ? "w-5 bg-white" : "w-1.5 bg-white/40")} />
+          ))}
+        </div>
+      ) : (
+        <div className="pb-[max(0.75rem,env(safe-area-inset-bottom))]" />
+      )}
+    </div>
+  );
+}
 
-  '''
+'''
               t = t[:start] + new_il + t[end:]
-
-          # VideoLightbox: add back button + swipe down if missing
-          if "export function VideoLightbox" in t and "swipeDownDismiss" not in t:
-              # Ensure VideoLightbox has a visible X/back - soft patch
-              if 'aria-label="Close"' in t and "VideoLightbox" in t:
-                  pass
 
           mm.write_text(t)
           print("MessageMedia updated")
 
-          # ========== student.contact-officer.tsx ==========
           sc = Path("src/routes/student.contact-officer.tsx")
           s = sc.read_text()
 
-          # Import stopAllVoices
           if "stopAllVoices" not in s:
               s = s.replace(
-                  "parseOfficerReply } from \"@/components/messaging/MessageMedia\";",
-                  "parseOfficerReply, stopAllVoices } from \"@/components/messaging/MessageMedia\";",
+                  'parseOfficerReply } from "@/components/messaging/MessageMedia";',
+                  'parseOfficerReply, stopAllVoices } from "@/components/messaging/MessageMedia";',
               )
 
-          # Smaller mic button
           s = s.replace(
-              '''                "mb-0.5 grid h-14 w-14 place-items-center rounded-full shadow-xl transition active:scale-95",
+              '"mb-0.5 grid h-14 w-14 place-items-center rounded-full shadow-xl transition active:scale-95",
                   "bg-gradient-to-b from-[#60a5fa] via-[#3b82f6] to-[#1d4ed8] text-white",
                   "ring-[3px] ring-white/70 ring-offset-2 ring-offset-[#0b1b3a]",
-                )}
-                onClick={() => void startRec()}
-                aria-label="Record voice note"
-              >
-                <Mic className="h-7 w-7 stroke-[2.5]" />''',
-              '''                "mb-0.5 grid h-11 w-11 place-items-center rounded-full shadow-lg transition active:scale-95",
+                )}\n                onClick={() => void startRec()}\n                aria-label="Record voice note"\n              >\n                <Mic className="h-7 w-7 stroke-[2.5]" />',
+              '"mb-0.5 grid h-11 w-11 place-items-center rounded-full shadow-lg transition active:scale-95",
                   "bg-gradient-to-b from-[#60a5fa] via-[#3b82f6] to-[#1d4ed8] text-white",
                   "ring-2 ring-white/60 ring-offset-1 ring-offset-[#0b1b3a]",
-                )}
-                onClick={() => void startRec()}
-                aria-label="Record voice note"
-              >
-                <Mic className="h-5 w-5 stroke-[2.25]" />''',
+                )}\n                onClick={() => void startRec()}\n                aria-label="Record voice note"\n              >\n                <Mic className="h-5 w-5 stroke-[2.25]" />',
           )
 
-          # stopAllVoices when starting record
           if "stopAllVoices()" not in s:
               s = s.replace(
                   "async function startRec() {\n    if (recording) return;\n    try {",
                   "async function startRec() {\n    if (recording) return;\n    try {\n      try { stopAllVoices(); } catch { /* ignore */ }",
               )
 
-          # Fix swipe: store dx in ref; allow both directions for own + peer; smoother drag
-          old_swipe_ref = 'const swipeRef = useRef<{ key: string; id: string; x: number; y: number; axis: "none" | "h" | "v"; side: "in" | "out" } | null>(null);'
-          new_swipe_ref = 'const swipeRef = useRef<{ key: string; id: string; x: number; y: number; axis: "none" | "h" | "v"; side: "in" | "out"; dx: number } | null>(null);'
-          s = s.replace(old_swipe_ref, new_swipe_ref)
+          s = s.replace(
+              'const swipeRef = useRef<{ key: string; id: string; x: number; y: number; axis: "none" | "h" | "v"; side: "in" | "out" } | null>(null);',
+              'const swipeRef = useRef<{ key: string; id: string; x: number; y: number; axis: "none" | "h" | "v"; side: "in" | "out"; dx: number } | null>(null);',
+          )
 
-          # Replace touch handlers block for smoother bidirectional drag
-          old_move = '''                onTouchMove={(e) => {
-                  endLP();
-                  const s = swipeRef.current;
-                  if (!s || s.key !== m.key) return;
-                  const x = e.touches[0]?.clientX ?? 0;
-                  const y = e.touches[0]?.clientY ?? 0;
-                  const rawX = x - s.x;
-                  const rawY = y - s.y;
-                  if (s.axis === "none") {
-                    if (Math.abs(rawX) < 8 && Math.abs(rawY) < 8) return;
-                    s.axis = Math.abs(rawX) > Math.abs(rawY) ? "h" : "v";
-                  }
-                  if (s.axis === "v") return; // allow normal vertical scroll
+          # Bidirectional drag + ref-based threshold (fixes own-message reply + stale state)
+          old_block = '''if (s.axis === "v") return; // allow normal vertical scroll
                   // Incoming: swipe right; own: swipe left (or either direction)
                   let next = 0;
                   if (m.side === "out") {
@@ -306,31 +214,9 @@ jobs:
                 onTouchEnd={() => {
                   endLP();
                   const s = swipeRef.current;
-                  const finalDx = swipeDx[m.key] || 0;
-                  swipeRef.current = null;
-                  setSwipeDx((prev) => {
-                    const n = { ...prev };
-                    delete n[m.key];
-                    return n;
-                  });
-                  if (!s || s.axis === "v") return;
-                  if (Math.abs(finalDx) > 48) armReply();
-                }}'''
+                  const finalDx = swipeDx[m.key] || 0;'''
 
-          new_move = '''                onTouchMove={(e) => {
-                  endLP();
-                  const s = swipeRef.current;
-                  if (!s || s.key !== m.key) return;
-                  const x = e.touches[0]?.clientX ?? 0;
-                  const y = e.touches[0]?.clientY ?? 0;
-                  const rawX = x - s.x;
-                  const rawY = y - s.y;
-                  if (s.axis === "none") {
-                    if (Math.abs(rawX) < 6 && Math.abs(rawY) < 6) return;
-                    s.axis = Math.abs(rawX) > Math.abs(rawY) * 1.15 ? "h" : "v";
-                  }
-                  if (s.axis === "v") return;
-                  // Finger-following drag either direction for own + peer messages
+          new_block = '''if (s.axis === "v") return;
                   const next = Math.max(-80, Math.min(80, rawX));
                   s.dx = next;
                   setSwipeDx((prev) => (prev[m.key] === next ? prev : { ...prev, [m.key]: next }));
@@ -339,45 +225,24 @@ jobs:
                 onTouchEnd={() => {
                   endLP();
                   const s = swipeRef.current;
-                  const finalDx = s?.dx ?? swipeDx[m.key] ?? 0;
-                  swipeRef.current = null;
-                  setSwipeDx((prev) => {
-                    const n = { ...prev };
-                    delete n[m.key];
-                    return n;
-                  });
-                  if (!s || s.axis === "v") return;
-                  if (Math.abs(finalDx) > 44) armReply();
-                }}'''
+                  const finalDx = s?.dx ?? swipeDx[m.key] ?? 0;'''
 
-          if old_move in s:
-              s = s.replace(old_move, new_move)
-              print("swipe handlers fixed")
+          if old_block in s:
+              s = s.replace(old_block, new_block)
+              print("swipe fixed")
           else:
-              print("WARN: swipe block not found exact")
+              print("WARN swipe")
 
-          # touch start include dx:0
           s = s.replace(
-              '''                  swipeRef.current = {
-                    key: m.key,
-                    id: m.reportId,
-                    x: e.touches[0]?.clientX ?? 0,
-                    y: e.touches[0]?.clientY ?? 0,
-                    axis: "none",
+              '''                    axis: "none",
                     side: m.side,
                   };''',
-              '''                  swipeRef.current = {
-                    key: m.key,
-                    id: m.reportId,
-                    x: e.touches[0]?.clientX ?? 0,
-                    y: e.touches[0]?.clientY ?? 0,
-                    axis: "none",
+              '''                    axis: "none",
                     side: m.side,
                     dx: 0,
                   };''',
           )
 
-          # Remove stopPropagation wrappers around VoiceBubble that block swipe
           s = s.replace(
               '''                  <div
                     onTouchStart={(e) => e.stopPropagation()}
@@ -389,170 +254,27 @@ jobs:
               '''                  <VoiceBubble id={`msg-${m.key}`} src={m.attachment_url!} mine={m.side === "out"} timeLabel={formatTime(m.at)} tick={m.side === "out" ? outTick : "none"} durationSec={m.durationSec} />''',
           )
 
-          # Center scroll-to-latest with downward pulse + mic blue gradient
-          old_scroll_btn = '''      {!nearBottom ? (
-        <button
-          type="button"
-          aria-label="Scroll to latest"
-          onClick={() => {
-            chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-            setNearBottom(true);
-            setNewBelow(0);
-          }}
-          className="absolute bottom-[5.25rem] lg:bottom-28 right-4 lg:right-8 z-30 flex items-center gap-1.5 rounded-full bg-[#0b1b3a] px-3.5 py-2.5 lg:px-4 lg:py-3 text-xs lg:text-sm font-bold text-white shadow-xl ring-2 ring-blue-400/50 animate-pulse"
-        >
-          <span className="text-base leading-none" aria-hidden>↓</span>
-          {newBelow > 0 ? <span>{newBelow} new</span> : null}
-        </button>
-      ) : null}'''
-
-          new_scroll_btn = '''      {!nearBottom ? (
-        <button
-          type="button"
-          aria-label="Scroll to latest"
-          onClick={() => {
-            chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-            setNearBottom(true);
-            setNewBelow(0);
-          }}
-          className="absolute bottom-[5.25rem] lg:bottom-28 left-1/2 z-30 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-gradient-to-b from-[#60a5fa] via-[#3b82f6] to-[#1d4ed8] px-4 py-2.5 lg:px-5 lg:py-3 text-xs lg:text-sm font-bold text-white shadow-xl ring-2 ring-white/50"
-        >
-          <span
-            className="inline-block text-lg font-black leading-none"
-            aria-hidden
-            style={{ animation: "d4ScrollArrowBounce 1.05s ease-in-out infinite" }}
-          >↓</span>
-          {newBelow > 0 ? <span>{newBelow} new</span> : null}
-          <style>{`@keyframes d4ScrollArrowBounce { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(5px); } }`}</style>
-        </button>
-      ) : null}'''
-
-          if old_scroll_btn in s:
-              s = s.replace(old_scroll_btn, new_scroll_btn)
-              print("scroll button centered")
+          old_scroll = 'className="absolute bottom-[5.25rem] lg:bottom-28 right-4 lg:right-8 z-30 flex items-center gap-1.5 rounded-full bg-[#0b1b3a] px-3.5 py-2.5 lg:px-4 lg:py-3 text-xs lg:text-sm font-bold text-white shadow-xl ring-2 ring-blue-400/50 animate-pulse"\n        >\n          <span className="text-base leading-none" aria-hidden>↓</span>'
+          new_scroll = 'className="absolute bottom-[5.25rem] lg:bottom-28 left-1/2 z-30 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-gradient-to-b from-[#60a5fa] via-[#3b82f6] to-[#1d4ed8] px-4 py-2.5 lg:px-5 lg:py-3 text-xs lg:text-sm font-bold text-white shadow-xl ring-2 ring-white/50"\n        >\n          <span className="inline-block text-lg font-black leading-none" aria-hidden style={{ animation: "d4ScrollArrowBounce 1.05s ease-in-out infinite" }}>↓</span>\n          <style>{`@keyframes d4ScrollArrowBounce { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(5px); } }`}</style>'
+          if old_scroll in s:
+              s = s.replace(old_scroll, new_scroll)
+              print("scroll centered")
           else:
-              print("WARN: scroll button not found")
+              print("WARN scroll")
 
-          # Optimistic media: show local blob immediately before upload
-          old_onfile = '''  async function onFile(files: FileList | File[]) {
-    const list = Array.from(files);
-    if (!list.length) return;
-    try {
-      const uploaded: string[] = [];
-      let kind: "image" | "audio" | "file" = "file";
-      for (const file of list) {
-        const up = await uploadMessageMedia(file, file.type || "application/octet-stream", `msg/${schoolId}/${userId}`);
-        uploaded.push(up.url);
-        if (up.type === "image") kind = "image";
-        else if (up.type === "audio") kind = "audio";
-      }
-      const url = uploaded.length > 1 ? JSON.stringify(uploaded) : uploaded[0];
-      await sendMessage("", { url, type: kind });
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Upload failed");
-    }
-  }'''
-
-          new_onfile = '''  async function onFile(files: FileList | File[]) {
-    const list = Array.from(files);
-    if (!list.length || !schoolId) return;
-    // Classify + local preview immediately (optimistic)
-    let kind: "image" | "video" | "audio" | "file" = "file";
-    const localUrls: string[] = [];
-    for (const file of list) {
-      const t = (file.type || "").toLowerCase();
-      if (t.startsWith("image/")) kind = "image";
-      else if (t.startsWith("video/")) kind = kind === "image" ? "image" : "video";
-      else if (t.startsWith("audio/")) kind = "audio";
-      localUrls.push(URL.createObjectURL(file));
-    }
-    const localUrl = localUrls.length > 1 ? JSON.stringify(localUrls) : localUrls[0];
-    const clientId = `opt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const nowIso = new Date().toISOString();
-    const replySnap = replyTo;
-    const optMsg: ChatMsg = {
-      key: `${clientId}-s`,
-      side: "out",
-      text: "(attachment)",
-      at: nowIso,
-      subject: replySnap ? `Re: ${(replySnap.text || "").slice(0, 40)}` : null,
-      attachment_url: localUrl,
-      attachment_type: kind === "video" ? "video" : kind,
-      reportId: clientId,
-      replyPreview: replySnap
-        ? `${replySnap.fromSelf ? (replySnap.senderName || session?.fullName || student?.fullName || "Me") : (replySnap.senderName || officerNickname || "Officer")}\n${replySnap.text || ""}`
-        : null,
-      replyToKey: replySnap ? `${replySnap.id}-${replySnap.fromSelf ? "s" : "o"}` : null,
-    };
-    setOptimisticMsgs((prev) => [...prev, optMsg]);
-    setReplyTo(null);
-    setNearBottom(true);
-    setNewBelow(0);
-    requestAnimationFrame(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }));
-    try {
-      const uploaded: string[] = [];
-      for (const file of list) {
-        const up = await uploadMessageMedia(file, file.type || "application/octet-stream", `msg/${schoolId}/${userId}`);
-        uploaded.push(up.url);
-      }
-      const url = uploaded.length > 1 ? JSON.stringify(uploaded) : uploaded[0];
-      const name = session?.fullName || student?.fullName || "Student";
-      const payload: Record<string, unknown> = {
-        school_id: schoolId,
-        student_id: studentId || null,
-        student_user_id: userId || null,
-        student_name: name,
-        student_matric: student?.matric || null,
-        exam_id: selectedExamIds[0] || null,
-        exam_title: selectedTitles[0] || null,
-        exam_ids: selectedExamIds.length ? selectedExamIds : [],
-        exam_titles: selectedTitles.length ? selectedTitles : [],
-        subject: replySnap ? `Re: ${(replySnap.text || "").slice(0, 40)}` : null,
-        body: "(attachment)",
-        status: "open",
-        attachment_url: url,
-        attachment_type: kind === "video" ? "video" : kind,
-        reply_to_id: replySnap?.id || null,
-      };
-      const { error } = await supabase.from("student_officer_reports").insert(payload as never);
-      if (error) throw error;
-      setOptimisticMsgs((prev) => prev.filter((m) => m.key !== optMsg.key));
-      void qc.invalidateQueries({ queryKey: ["student-my-reports"] });
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Upload failed");
-    } finally {
-      for (const u of localUrls) {
-        try { URL.revokeObjectURL(u); } catch { /* ignore */ }
-      }
-    }
-  }'''
-
-          if old_onfile in s:
-              s = s.replace(old_onfile, new_onfile)
-              print("optimistic onFile")
-          else:
-              print("WARN: onFile not exact")
+          # Optimistic onFile - only if old version still present
+          if "localUrls.push(URL.createObjectURL(file))" not in s:
+              marker = "async function onFile(files: FileList | File[]) {"
+              if marker in s:
+                  # insert stop after length check by rewriting a short unique path
+                  s = s.replace(
+                      "async function onFile(files: FileList | File[]) {\n    const list = Array.from(files);\n    if (!list.length) return;\n    try {\n      const uploaded: string[] = [];\n      let kind: \"image\" | \"audio\" | \"file\" = \"file\";\n      for (const file of list) {\n        const up = await uploadMessageMedia(file, file.type || \"application/octet-stream\", `msg/${schoolId}/${userId}`);\n        uploaded.push(up.url);\n        if (up.type === \"image\") kind = \"image\";\n        else if (up.type === \"audio\") kind = \"audio\";\n      }\n      const url = uploaded.length > 1 ? JSON.stringify(uploaded) : uploaded[0];\n      await sendMessage(\"\", { url, type: kind });\n    } catch (e) {\n      toast.error(e instanceof Error ? e.message : \"Upload failed\");\n    }\n  }",
+                      "async function onFile(files: FileList | File[]) {\n    const list = Array.from(files);\n    if (!list.length || !schoolId) return;\n    let kind: \"image\" | \"video\" | \"audio\" | \"file\" = \"file\";\n    const localUrls: string[] = [];\n    for (const file of list) {\n      const ft = (file.type || \"\").toLowerCase();\n      if (ft.startsWith(\"image/\")) kind = \"image\";\n      else if (ft.startsWith(\"video/\")) kind = kind === \"image\" ? \"image\" : \"video\";\n      else if (ft.startsWith(\"audio/\")) kind = \"audio\";\n      localUrls.push(URL.createObjectURL(file));\n    }\n    const localUrl = localUrls.length > 1 ? JSON.stringify(localUrls) : localUrls[0];\n    const clientId = `opt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;\n    const nowIso = new Date().toISOString();\n    const replySnap = replyTo;\n    const optMsg: ChatMsg = {\n      key: `${clientId}-s`,\n      side: \"out\",\n      text: \"(attachment)\",\n      at: nowIso,\n      subject: replySnap ? `Re: ${(replySnap.text || \"\").slice(0, 40)}` : null,\n      attachment_url: localUrl,\n      attachment_type: kind === \"video\" ? \"video\" : kind,\n      reportId: clientId,\n      replyPreview: replySnap\n        ? `${replySnap.fromSelf ? (replySnap.senderName || session?.fullName || student?.fullName || \"Me\") : (replySnap.senderName || officerNickname || \"Officer\")}\\n${replySnap.text || \"\"}`\n        : null,\n      replyToKey: replySnap ? `${replySnap.id}-${replySnap.fromSelf ? \"s\" : \"o\"}` : null,\n    };\n    setOptimisticMsgs((prev) => [...prev, optMsg]);\n    setReplyTo(null);\n    setNearBottom(true);\n    setNewBelow(0);\n    requestAnimationFrame(() => chatEndRef.current?.scrollIntoView({ behavior: \"smooth\" }));\n    try {\n      const uploaded: string[] = [];\n      for (const file of list) {\n        const up = await uploadMessageMedia(file, file.type || \"application/octet-stream\", `msg/${schoolId}/${userId}`);\n        uploaded.push(up.url);\n      }\n      const url = uploaded.length > 1 ? JSON.stringify(uploaded) : uploaded[0];\n      const name = session?.fullName || student?.fullName || \"Student\";\n      const payload: Record<string, unknown> = {\n        school_id: schoolId,\n        student_id: studentId || null,\n        student_user_id: userId || null,\n        student_name: name,\n        student_matric: student?.matric || null,\n        exam_id: selectedExamIds[0] || null,\n        exam_title: selectedTitles[0] || null,\n        exam_ids: selectedExamIds.length ? selectedExamIds : [],\n        exam_titles: selectedTitles.length ? selectedTitles : [],\n        subject: replySnap ? `Re: ${(replySnap.text || \"\").slice(0, 40)}` : null,\n        body: \"(attachment)\",\n        status: \"open\",\n        attachment_url: url,\n        attachment_type: kind === \"video\" ? \"video\" : kind,\n        reply_to_id: replySnap?.id || null,\n      };\n      const { error } = await supabase.from(\"student_officer_reports\").insert(payload as never);\n      if (error) throw error;\n      setOptimisticMsgs((prev) => prev.filter((m) => m.key !== optMsg.key));\n      void qc.invalidateQueries({ queryKey: [\"student-my-reports\"] });\n    } catch (e) {\n      toast.error(e instanceof Error ? e.message : \"Upload failed\");\n    } finally {\n      for (const u of localUrls) { try { URL.revokeObjectURL(u); } catch { /* ignore */ } }\n    }\n  }",
+                  )
+                  print("optimistic onFile")
 
           sc.write_text(s)
-          print("student.contact-officer updated")
-
-          # ========== officer.reports.tsx — smoother swipe ==========
-          op = Path("src/routes/officer.reports.tsx")
-          if op.exists():
-              o = op.read_text()
-              # Expand swipe ref to track axis + dx
-              o = o.replace(
-                  'const swipeRef = useRef<{ id: string; x: number } | null>(null);',
-                  'const swipeRef = useRef<{ id: string; x: number; y: number; axis: "none" | "h" | "v"; dx: number } | null>(null);\n  const [swipeDx, setSwipeDx] = useState<Record<string, number>>({});',
-              )
-              # Improve touch start
-              o = o.replace(
-                  'onTouchStart={(e) => { swipeRef.current = { id: m.reportId, x: e.touches[0]?.clientX ?? 0 }; }}',
-                  '''onTouchStart={(e) => { swipeRef.current = { id: m.reportId, x: e.touches[0]?.clientX ?? 0, y: e.touches[0]?.clientY ?? 0, axis: "none", dx: 0 }; }}''',
-              )
-              op.write_text(o)
-              print("officer.reports soft-updated")
-
+          print("student updated")
           print("DONE")
           PY
 
@@ -560,10 +282,10 @@ jobs:
         run: |
           git config user.name "d4exam-bot"
           git config user.email "bot@d4exam.name.ng"
-          git add -A
+          git add src/components/messaging/MessageMedia.tsx src/routes/student.contact-officer.tsx || true
           if git diff --staged --quiet; then
-            echo "No changes"
+            echo "No code changes"
           else
-            git commit -m "fix(messaging): smaller mic, drag-to-reply own+peer, centered scroll arrow, optimistic media, voice elapsed timer, lightbox pan/swipe"
+            git commit -m "fix(messaging): smaller mic, drag-to-reply, centered scroll, optimistic media, voice timer, lightbox pan"
             git push
           fi
