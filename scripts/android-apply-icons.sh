@@ -94,4 +94,21 @@ else
   echo "WARN: icon generation failed; Cap default icon kept"
 fi
 
+
+# Native launch splash logo (navy screen + centered brand mark from first frame)
+# Written AFTER drawable XML cleanup in CI so PNG is not deleted by basename loop.
+for dest in \
+  "android/app/src/main/res/drawable/d4exam_splash_logo.png" \
+  "native-android/app/src/main/res/drawable/d4exam_splash_logo.png"; do
+  mkdir -p "$(dirname "$dest")"
+  if resize_icon "$ICON_SRC" 240 "$dest" 90; then
+    echo "OK: splash logo -> $dest"
+  elif command -v convert >/dev/null 2>&1; then
+    convert "$ICON_SRC" -resize 216x216 -background none -gravity center -extent 240x240 "$dest" \
+      && echo "OK: splash logo (convert) -> $dest" || true
+  else
+    echo "WARN: could not write $dest"
+  fi
+done
+
 exit 0

@@ -19,6 +19,7 @@ import { LocalDbBootstrap } from "@/components/LocalDbBootstrap";
 import { OfflineStatusPill } from "@/components/OfflineStatusPill";
 import { NotificationLiveListener } from "@/components/NotificationLiveListener";
 import { NotificationPermissionPrompt } from "@/components/NotificationPermissionPrompt";
+import { hideSplashSafely } from "@/native/statusBar";
 import { AppUpdateGate } from "@/components/AppUpdateGate";
 import { FingerprintLockGate } from "@/components/security/FingerprintLockGate";
 import { AppUnlockSetupGate } from "@/components/security/AppUnlockSetupGate";
@@ -413,6 +414,7 @@ function RootComponent() {
   useEffect(() => {
     installGlobalErrorHandlers();
     startAccountVaultKeepAlive();
+    void hideSplashSafely();
     try {
       window.dispatchEvent(new Event("d4-hide-boot-splash"));
       const el = document.getElementById("d4-boot-splash");

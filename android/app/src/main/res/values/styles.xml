@@ -20,13 +20,13 @@
     </style>
 
     <!--
-      System launch splash = solid app theme navy only (no centered logo).
-      Avoids blank/icon intermediate; AnimatedSplash is the only branded screen
-      (logo + SMART. SECURE. SEAMLESS.).
+      System launch splash = navy + centered D4EXAM logo from first frame.
+      Capacitor SplashScreen keeps this visible until React calls hideSplashSafely().
     -->
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
         <item name="windowSplashScreenBackground">@color/splash_background</item>
-        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_blank</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/d4exam_splash_logo</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/d4exam_splash_logo</item>
         <item name="windowSplashScreenIconBackgroundColor">@color/splash_background</item>
         <item name="windowSplashScreenAnimationDuration">0</item>
         <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>

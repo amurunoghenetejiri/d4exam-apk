@@ -50,6 +50,20 @@ def main() -> int:
     ]
 
     d["server"] = server
+
+    plugins = dict(d.get("plugins") or {})
+    plugins["SplashScreen"] = {
+        "launchShowDuration": 15000,
+        "launchAutoHide": False,
+        "backgroundColor": "#0b1b3a",
+        "androidSplashResourceName": "splash",
+        "androidScaleType": "CENTER",
+        "showSpinner": False,
+        "splashFullScreen": True,
+        "splashImmersive": True,
+        "launchFadeOutDuration": 300,
+    }
+    d["plugins"] = plugins
     d["webDir"] = "dist"
     d["appId"] = d.get("appId") or "com.d4exam.app"
     d["appName"] = d.get("appName") or "D4EXAM"

@@ -29,15 +29,15 @@
   },
   "plugins": {
     "SplashScreen": {
-      "launchShowDuration": 2500,
-      "launchAutoHide": true,
+      "launchShowDuration": 15000,
+      "launchAutoHide": false,
       "backgroundColor": "#0b1b3a",
       "androidSplashResourceName": "splash",
-      "androidScaleType": "CENTER_CROP",
+      "androidScaleType": "CENTER",
       "showSpinner": false,
       "splashFullScreen": true,
       "splashImmersive": true,
-      "launchFadeOutDuration": 250
+      "launchFadeOutDuration": 300
     },
     "StatusBar": {
       "style": "DARK",

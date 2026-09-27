@@ -111,6 +111,10 @@ jobs:
           for xml in "$DRAW"/*.xml; do
             [ -f "$xml" ] || continue
             base="$(basename "$xml" .xml)"
+            # Never delete branded splash logo PNG
+            if [ "$base" = "d4exam_splash_logo" ]; then
+              continue
+            fi
             for ext in png jpg jpeg webp gif; do
               rm -f "$DRAW/${base}.${ext}"
             done
