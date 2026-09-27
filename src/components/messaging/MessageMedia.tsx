@@ -70,7 +70,7 @@ function WaveBars({
   return (
     <div
       ref={trackRef}
-      className={cn("relative flex h-7 w-full items-center gap-[1.5px] overflow-visible", onSeek && "cursor-pointer touch-none")}
+      className={cn("relative flex h-7 w-full items-center gap-[1.5px] overflow-visible px-1", onSeek && "cursor-pointer touch-none")}
       onPointerDown={(e) => {
         if (!onSeek) return;
         e.stopPropagation();
@@ -115,7 +115,7 @@ function WaveBars({
       {onSeek ? (
         <span
           className={cn(
-            "pointer-events-none absolute top-1/2 z-10 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full shadow-md ring-2 ring-white",
+            "pointer-events-none absolute top-1/2 z-10 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full shadow ring-2 ring-white",
             light ? "bg-white" : "bg-[#2563eb]",
           )}
           style={{ left: `${pct * 100}%`, transition: active ? "none" : "left 50ms linear" }}
@@ -255,7 +255,8 @@ export function VoiceBubble({
   };
 
   const own = mine;
-  const timeShown = dur > 0 ? (playing ? fmtDur(cur) + " / " + fmtDur(dur) : fmtDur(dur)) : (playing ? fmtDur(cur) : "...");
+  // Show total duration only (never "0:00 / 0:07" countdown while playing)
+  const timeShown = dur > 0 ? fmtDur(dur) : (playing ? fmtDur(cur) : "0:00");
 
   return (
     <div
@@ -264,24 +265,26 @@ export function VoiceBubble({
     >
       <div
         className={cn(
-          "relative flex w-full items-center gap-2 rounded-2xl px-2.5 py-2 shadow-sm",
+          "relative flex w-full flex-col rounded-2xl px-2.5 py-2.5 shadow-sm",
           own ? "border border-slate-200 bg-white text-slate-800" : "bg-[#2563eb] text-white",
         )}
         onCopy={(e) => e.preventDefault()}
         onContextMenu={(e) => e.preventDefault()}
       >
+        {/* Row: play + waves + speed — vertically centered together */}
+        <div className="flex w-full items-center gap-2.5">
         <button
           type="button"
           onClick={toggle}
           className={cn(
-            "grid h-9 w-9 shrink-0 place-items-center rounded-full shadow-sm",
+            "grid h-9 w-9 shrink-0 place-items-center self-center rounded-full shadow-sm",
             own ? "bg-[#2563eb] text-white" : "bg-white text-[#2563eb]",
           )}
           aria-label={playing ? "Pause" : "Play"}
         >
           {playing ? <Pause className="h-3.5 w-3.5" /> : <Play className="ml-0.5 h-3.5 w-3.5" />}
         </button>
-        <div className="flex min-w-0 flex-1 flex-col items-stretch justify-center gap-0.5">
+        <div className="flex min-w-0 flex-1 items-center self-center pl-0.5">
           <WaveBars
             active={playing}
             light={!own}
@@ -294,14 +297,6 @@ export function VoiceBubble({
               setCur(t);
             }}
           />
-          <div
-            className={cn(
-              "text-center text-[10px] font-medium tabular-nums leading-none",
-              own ? "text-slate-400" : "text-white/80",
-            )}
-          >
-            {timeShown}
-          </div>
         </div>
         <div className="relative shrink-0 self-center">
           <button
@@ -339,6 +334,16 @@ export function VoiceBubble({
               ))}
             </div>
           ) : null}
+        </div>
+        </div>
+        {/* Duration sits below the centered play / waves / speed row */}
+        <div
+          className={cn(
+            "mt-1 text-center text-[10px] font-medium tabular-nums leading-none",
+            own ? "text-slate-400" : "text-white/80",
+          )}
+        >
+          {timeShown}
         </div>
       </div>
       <div className={cn("flex items-center gap-1 px-1 text-[10px]", own ? "text-slate-400" : "text-slate-400")}>
@@ -382,16 +387,20 @@ export function VoiceRecorderBar({
 }) {
   const mm = String(Math.floor(seconds / 60)).padStart(2, "0");
   const ss = String(seconds % 60).padStart(2, "0");
+  // Animate fill across bars while recording
+  const recProgress = recording && !paused ? Math.min(0.95, (seconds % 12) / 12) : paused ? 0.35 : 0;
   return (
-    <div className="mb-0 select-none rounded-xl border border-blue-200/80 bg-gradient-to-b from-[#eff6ff] to-white px-2.5 py-2 shadow-sm">
-      <div className="mb-2 flex flex-col items-center gap-0.5">
-        <WaveBars active={recording && !paused} />
+    <div className="mb-0 select-none rounded-xl border border-blue-200/80 bg-gradient-to-b from-[#eff6ff] to-white px-3 py-2.5 shadow-sm">
+      <div className="mb-2 flex flex-col items-center gap-1">
+        <div className="w-full max-w-[200px] mx-auto">
+          <WaveBars active={recording && !paused} progress={recProgress} />
+        </div>
         <p className="text-sm font-bold tabular-nums text-slate-800">
           {mm}:{ss}
         </p>
-        <p className="text-[10px] font-medium text-slate-500">
-          {recording && !paused ? "Recording…" : paused ? "Paused" : "Voice note"}
-        </p>
+        {paused ? (
+          <p className="text-[10px] font-medium text-slate-500">Paused</p>
+        ) : null}
       </div>
       <div className="flex items-center justify-center gap-4">
         <button type="button" onClick={onCancel} className="flex flex-col items-center gap-0.5 text-slate-500">

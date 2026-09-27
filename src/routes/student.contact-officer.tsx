@@ -110,7 +110,7 @@ function Page() {
   const [recSecs, setRecSecs] = useState(0);
   const [pendingAudio, setPendingAudio] = useState<Blob | null>(null);
   const [pendingAttach, setPendingAttach] = useState<{ url: string; type: string } | null>(null);
-  const [replyTo, setReplyTo] = useState<{ id: string; text: string; fromSelf?: boolean } | null>(null);
+  const [replyTo, setReplyTo] = useState<{ id: string; text: string; fromSelf?: boolean; isVoice?: boolean } | null>(null);
   const [chatMenuOpen, setChatMenuOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
   const [clearOpen, setClearOpen] = useState(false);
@@ -262,10 +262,15 @@ function Page() {
         const parent = byId.get(r.reply_to_id)!;
         // Prefer linking to the officer bubble if that report was answered, else student body
         if ((parent.officer_reply || "").trim()) {
-          replyPreview = parent.officer_reply;
+          const pr = parseOfficerReply(parent.officer_reply);
+          const isV = (pr.mediaType || "").toLowerCase().includes("audio") || /\.(webm|m4a|ogg|mp3|wav)(\?|$)/i.test(pr.mediaUrl || "");
+          replyPreview = `${officerNickname || "Officer"}\n${isV ? "🎤 Voice note" : (pr.text || parent.officer_reply || "").slice(0, 100)}`;
           replyToKey = `${parent.id}-o`;
         } else {
-          replyPreview = parent.body;
+          const isV =
+            (parent.attachment_type || "").toLowerCase().includes("audio") ||
+            /\.(webm|m4a|ogg|mp3|wav)(\?|$)/i.test(parent.attachment_url || "");
+          replyPreview = `You\n${isV ? "🎤 Voice note" : (parent.body || "").slice(0, 100)}`;
           replyToKey = `${parent.id}-s`;
         }
       }
@@ -466,7 +471,7 @@ function Page() {
       if (!text.trim() && !attach) return;
       const clientId = `opt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const nowIso = new Date().toISOString();
-      const optMsg: ChatMsg = { key: `${clientId}-s`, side: "out", text: text.trim() || (attach ? "(attachment)" : ""), at: nowIso, subject: replyTo ? `Re: ${(replyTo.text || "").slice(0, 40)}` : subject.trim() || null, attachment_url: attach?.url || null, attachment_type: attach?.type || null, reportId: clientId, replyPreview: replyTo?.text || null, replyToKey: replyTo ? `${replyTo.id}-s` : null };
+      const optMsg: ChatMsg = { key: `${clientId}-s`, side: "out", text: text.trim() || (attach ? "(attachment)" : ""), at: nowIso, subject: replyTo ? `Re: ${(replyTo.text || "").slice(0, 40)}` : subject.trim() || null, attachment_url: attach?.url || null, attachment_type: attach?.type || null, reportId: clientId, replyPreview: replyTo ? `${replyTo.fromSelf ? "You" : (officerNickname || "Officer")}\n${replyTo.isVoice ? "🎤 Voice note" : replyTo.text}` : null, replyToKey: replyTo ? `${replyTo.id}-s` : null };
       setOptimisticMsgs((prev) => [...prev, optMsg]);
       setReplyText(""); setPendingAttach(null); setReplyTo(null); setComposeOpen(false); setInChat(true);
       requestAnimationFrame(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }));
@@ -609,6 +614,7 @@ function Page() {
     setRecording(false);
     setRecPaused(false);
     presenceApi.current?.setRecording(false, studentId || userId);
+    window.setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }), 120);
     try {
       if (wasRecording && mediaRec.current && mediaRec.current.state !== "inactive") {
         await new Promise<void>((resolve) => {
@@ -791,7 +797,7 @@ function Page() {
           <img
             src={schoolLogoUrl}
             alt=""
-            className="h-[min(55vh,420px)] w-auto max-w-[70%] select-none object-contain opacity-[0.08]"
+            className="h-[min(50vh,380px)] w-auto max-w-[65%] select-none object-contain opacity-[0.11]"
             style={{ filter: "grayscale(1) brightness(0.95)" }}
             loading="eager"
             decoding="async"
@@ -800,7 +806,7 @@ function Page() {
           <img
             src="/logo.png"
             alt=""
-            className="h-[min(55vh,420px)] w-auto max-w-[70%] select-none object-contain opacity-[0.07]"
+            className="h-[min(50vh,380px)] w-auto max-w-[65%] select-none object-contain opacity-[0.10]"
             style={{ filter: "grayscale(1) brightness(0.9)" }}
             loading="eager"
             decoding="async"
@@ -919,11 +925,23 @@ function Page() {
                   if (!s) return;
                   const x = e.changedTouches[0]?.clientX ?? 0;
                   if (x - s.x > 56 || finalDx > 48) {
-                    setReplyTo({
-                      id: m.reportId,
-                      text: (m.text && m.text !== "(attachment)" ? m.text : attachmentLabel(m.attachment_type, m.attachment_url)).slice(0, 120),
-                      fromSelf: m.side === "out",
-                    });
+                    {
+                      const isVoice =
+                        (m.attachment_type || "").toLowerCase().includes("audio") ||
+                        /\.(webm|m4a|ogg|mp3|wav)(\?|$)/i.test(m.attachment_url || "");
+                      const label = isVoice
+                        ? "Voice note"
+                        : (m.text && m.text !== "(attachment)"
+                            ? m.text
+                            : attachmentLabel(m.attachment_type, m.attachment_url)
+                          ).slice(0, 120);
+                      setReplyTo({
+                        id: m.reportId,
+                        text: label,
+                        fromSelf: m.side === "out",
+                        isVoice,
+                      });
+                    }
                   }
                 }}
                 onTouchCancel={() => {
@@ -991,7 +1009,17 @@ function Page() {
                         scrollToMessage(parentId);
                       }}
                     >
-                      {m.replyPreview.slice(0, 100)}
+                      {(() => {
+                        const lines = String(m.replyPreview || "").split("\n");
+                        const title = lines[0] || "";
+                        const body = lines.slice(1).join(" ") || lines[0] || "";
+                        return (
+                          <>
+                            <span className="block font-bold opacity-90">{title}</span>
+                            {lines.length > 1 ? <span className="block opacity-80">{body.slice(0, 90)}</span> : null}
+                          </>
+                        );
+                      })()}
                     </button>
                   ) : null}
 {m.text && m.text !== "(attachment)" && m.text !== "Open attachment" ? <p className="whitespace-pre-wrap break-words">{m.text}</p> : null}
@@ -1013,11 +1041,17 @@ function Page() {
         {replyTo ? (
           <div className="mb-2 flex items-start gap-2 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2">
             <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[#0b1b3a] text-white">
-              <User className="h-4 w-4" />
+              {replyTo.isVoice ? <Mic className="h-4 w-4" /> : <Reply className="h-4 w-4" />}
             </span>
             <div className="min-w-0 flex-1">
               <p className="text-[11px] font-bold text-blue-800">{replyTo.fromSelf ? "You" : officerNickname}</p>
-              <p className="line-clamp-2 text-xs text-slate-700">{replyTo.text}</p>
+              <p className="line-clamp-2 text-xs text-slate-700">
+                {replyTo.isVoice ? (
+                  <span className="inline-flex items-center gap-1"><Mic className="h-3 w-3 shrink-0" /> Voice note</span>
+                ) : (
+                  replyTo.text
+                )}
+              </p>
             </div>
             <button type="button" onClick={() => setReplyTo(null)} className="text-slate-400" aria-label="Cancel reply">
               <X className="h-4 w-4" />
