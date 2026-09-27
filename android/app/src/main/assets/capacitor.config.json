@@ -3,11 +3,16 @@
   "appName": "D4EXAM",
   "webDir": "dist",
   "server": {
+    "url": "https://d4exam-platform.vercel.app",
     "androidScheme": "https",
     "cleartext": false,
+    "errorPath": "offline.html",
     "hostname": "localhost",
-    "errorPath": "index.html",
     "allowNavigation": [
+      "d4exam.name.ng",
+      "*.d4exam.name.ng",
+      "d4exam-platform.vercel.app",
+      "*.vercel.app",
       "*.supabase.co",
       "*.googleapis.com",
       "*.gstatic.com",

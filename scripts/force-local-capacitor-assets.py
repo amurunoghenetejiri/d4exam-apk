@@ -18,7 +18,7 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 CFG = ROOT / "android" / "app" / "src" / "main" / "assets" / "capacitor.config.json"
 
-LIVE_URL = "https://d4exam.name.ng"
+LIVE_URL = "https://d4exam-platform.vercel.app"
 
 
 def main() -> int:

@@ -42,7 +42,7 @@ async function showNativeLocalTray(title: string, body: string, link?: string | 
           body: body || "",
           schedule: { at: new Date(Date.now() + 250) },
           extra: { link: link || "/" },
-          smallIcon: "ic_stat_icon_config_sample",
+          smallIcon: "ic_stat_d4exam",
           iconColor: "#2563eb",
         },
       ],
