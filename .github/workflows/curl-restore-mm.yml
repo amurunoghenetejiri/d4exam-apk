@@ -1,0 +1,40 @@
+name: curl-restore-mm
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/curl-restore-mm.yml
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: curl restore MessageMedia
+        run: |
+          set -euo pipefail
+          curl -fsSL "https://raw.githubusercontent.com/amurunoghenetejiri/d4exam-web/10bfb17c1a1705b0cbc23d642857105bcbaa13ff/src/components/messaging/MessageMedia.tsx" -o src/components/messaging/MessageMedia.tsx
+          wc -c src/components/messaging/MessageMedia.tsx
+          head -2 src/components/messaging/MessageMedia.tsx
+          # declare pinchRef if missing
+          if ! grep -q 'const pinchRef = useRef' src/components/messaging/MessageMedia.tsx; then
+            python3 -c "
+from pathlib import Path
+t=Path('src/components/messaging/MessageMedia.tsx').read_text()
+old='  const touchRef = useRef<{ x: number; y: number; dist?: number } | null>(null);\n'
+new=old+'  const pinchRef = useRef<{ dist: number; scale: number } | null>(null);\n'
+if old in t:
+  Path('src/components/messaging/MessageMedia.tsx').write_text(t.replace(old,new,1))
+  print('added pinchRef')
+else:
+  print('anchor missing')
+"
+          fi
+          git config user.name d4exam-bot
+          git config user.email bot@d4exam.name.ng
+          git add src/components/messaging/MessageMedia.tsx
+          git commit -m 'fix(messaging): restore MessageMedia from 10bfb17 + pinchRef' || echo nochanges
+          git push
