@@ -19,11 +19,12 @@ function isApkShell(): boolean {
   }
 }
 
-/** APK: navy + animated D4EXAM text. Website: keep light spinner. */
+/** Navy theme loading — matches app splash branding (no white flash). */
 function DefaultPending() {
-  if (isApkShell()) {
+  if (true) {
     return (
       <div className="flex min-h-dvh flex-col items-center justify-center bg-[#0b1b3a] px-6 py-16">
+        <img src="/logo.png" alt="" className="mb-5 h-16 w-16 object-contain opacity-90" />
         <p
           className="select-none text-2xl font-extrabold tracking-[0.2em] text-white"
           style={{
@@ -37,7 +38,7 @@ function DefaultPending() {
         >
           D4EXAM
         </p>
-        <p className="mt-3 text-[10px] font-semibold tracking-[0.28em] text-slate-500">
+        <p className="mt-3 text-[10px] font-semibold tracking-[0.28em] text-slate-400">
           SMART. SECURE. SEAMLESS.
         </p>
         <style>{`@keyframes d4LoadShine { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }`}</style>
@@ -45,9 +46,9 @@ function DefaultPending() {
     );
   }
   return (
-    <div className="flex min-h-[50vh] flex-col items-center justify-center gap-3 bg-white py-12">
-      <div className="h-9 w-9 animate-spin rounded-full border-[3px] border-slate-200 border-t-blue-600" />
-      <p className="text-sm font-medium text-slate-500">Loading…</p>
+    <div className="flex min-h-dvh flex-col items-center justify-center gap-3 bg-[#0b1b3a] px-6 py-16">
+      <div className="h-9 w-9 animate-spin rounded-full border-[3px] border-white/20 border-t-blue-400" />
+      <p className="text-sm font-medium text-slate-300">Loading…</p>
     </div>
   );
 }

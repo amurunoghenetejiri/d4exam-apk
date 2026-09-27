@@ -129,7 +129,7 @@ function WebPushBootstrap() {
 
 function NotFoundComponent() {
   return (
-    <div className="flex min-h-dvh items-center justify-center bg-background px-4">
+    <div className="flex min-h-dvh items-center justify-center bg-[#0b1b3a] px-4">
       <div className="max-w-md text-center">
         <h1 className="text-7xl font-bold text-foreground">404</h1>
         <h2 className="mt-4 text-xl font-semibold text-foreground">Page not found</h2>
@@ -157,7 +157,7 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   }, [error]);
 
   return (
-    <div className="flex min-h-dvh items-center justify-center bg-background px-4">
+    <div className="flex min-h-dvh items-center justify-center bg-[#0b1b3a] px-4">
       <div className="max-w-md text-center">
         <h1 className="text-xl font-semibold tracking-tight text-foreground">
           Something went wrong
@@ -279,22 +279,17 @@ const BOOT_SPLASH_SCRIPT = `
     } catch(e){}
     var el = document.getElementById('d4-boot-splash');
     if (!el) return;
-    if (!shell) {
-      // Website: brief light loader only
-      el.className = (el.className || '') + ' d4-web-loading';
-      el.style.display = 'flex';
-      try { document.documentElement.style.backgroundColor = '#ffffff'; } catch(e){}
-      try { document.body.style.backgroundColor = '#ffffff'; } catch(e){}
-    } else {
-      // App: full navy branding splash (logo + D4EXAM + slogan)
-      if (sessionStorage.getItem('d4exam_splash_shown_v6') === '1') return;
-      el.style.display = 'flex';
-      try { document.documentElement.style.backgroundColor = '#0b1b3a'; } catch(e){}
-      try { document.body.style.backgroundColor = '#0b1b3a'; } catch(e){}
-      try {
-        var mt = document.querySelector('meta[name="theme-color"]');
-        if (mt) mt.setAttribute('content', '#0b1b3a');
-      } catch(e){}
+    // Always brand navy on APK; same brand on web first paint (no white flash)
+    el.style.display = 'flex';
+    try { document.documentElement.style.backgroundColor = '#0b1b3a'; } catch(e){}
+    try { document.body.style.backgroundColor = '#0b1b3a'; } catch(e){}
+    try {
+      var mt = document.querySelector('meta[name="theme-color"]');
+      if (mt) mt.setAttribute('content', '#0b1b3a');
+    } catch(e){}
+    if (!shell && sessionStorage.getItem('d4exam_splash_shown_v6') === '1') {
+      el.style.display = 'none';
+      return;
     }
     var hidden = false;
     function hideBoot(){
@@ -304,15 +299,15 @@ const BOOT_SPLASH_SCRIPT = `
         try { sessionStorage.setItem('d4exam_splash_shown_v6', '1'); } catch(e){}
         var b = document.getElementById('d4-boot-splash');
         if (!b) return;
-        b.style.transition = 'opacity 0.28s ease-out';
+        b.style.transition = 'opacity 0.32s ease-out';
         b.style.opacity = '0';
         b.style.pointerEvents = 'none';
-        setTimeout(function(){ try { b.remove(); } catch(e){} }, 300);
+        setTimeout(function(){ try { b.remove(); } catch(e){} }, 340);
       } catch(e){}
     }
     window.addEventListener('d4-hide-boot-splash', hideBoot);
-    // Fallback hide if React controller is slow
-    setTimeout(hideBoot, shell ? 5000 : 1500);
+    // Hard safety only — AnimatedSplash hides when app is ready
+    setTimeout(hideBoot, shell ? 12000 : 4000);
   } catch(e){}
 })();
 `;
@@ -353,37 +348,28 @@ function RootShell({ children }: { children: ReactNode }) {
         <style
           dangerouslySetInnerHTML={{
             __html: `
-#d4-boot-splash{display:none;position:fixed;inset:0;z-index:2147483646;flex-direction:column;align-items:center;justify-content:center;background:#0b1b3a;color:#fff;font-family:system-ui,sans-serif}
-#d4-boot-splash .boot-main{display:flex;flex:1;flex-direction:column;align-items:center;justify-content:center;padding:0 1.5rem}
-#d4-boot-splash img{width:min(40vw,160px);height:min(40vw,160px);object-fit:contain}
-#d4-boot-splash .t{margin-top:1.25rem;font-weight:800;letter-spacing:.14em;font-size:clamp(1.5rem,6vw,2.25rem)}
-#d4-boot-splash .t span.b{color:#2563eb}
-#d4-boot-splash .s{margin-top:.5rem;font-size:10px;letter-spacing:.28em;color:#94a3b8;font-weight:600}
-#d4-boot-splash .slogan{position:absolute;bottom:max(1.5rem,env(safe-area-inset-bottom));left:0;right:0;text-align:center;font-size:10px;letter-spacing:.28em;color:#94a3b8;font-weight:600;padding:0 2rem}
+#d4-boot-splash{display:none;position:fixed;inset:0;z-index:2147483646;flex-direction:column;align-items:center;justify-content:center;background:#0b1b3a;color:#fff;font-family:system-ui,-apple-system,sans-serif}
+#d4-boot-splash .boot-main{display:flex;flex:1;flex-direction:column;align-items:center;justify-content:center;padding:0 1.5rem;width:100%}
+#d4-boot-splash img{width:min(42vw,168px);height:min(42vw,168px);object-fit:contain;display:block}
+#d4-boot-splash .t{margin-top:1.35rem;font-weight:800;letter-spacing:.18em;font-size:clamp(1.35rem,5.5vw,1.85rem);color:#ffffff}
+#d4-boot-splash .t span.b{color:#3b82f6}
+#d4-boot-splash .s{margin-top:.55rem;font-size:10px;letter-spacing:.32em;color:#94a3b8;font-weight:600;text-transform:none}
+#d4-boot-splash .slogan{position:absolute;bottom:max(1.75rem,env(safe-area-inset-bottom));left:0;right:0;text-align:center;font-size:10px;letter-spacing:.32em;color:#94a3b8;font-weight:600;padding:0 2rem}
 #d4-boot-splash .slogan span.hi{color:#60a5fa}
-#d4-boot-splash.d4-web-loading{background:#ffffff;color:#0f172a}
-#d4-boot-splash.d4-web-loading .boot-brand{display:none!important}
-#d4-boot-splash.d4-web-loading .slogan{display:none!important}
-#d4-boot-splash.d4-web-loading .boot-spinner-wrap{display:flex!important}
-#d4-boot-splash .boot-spinner-wrap{display:none;flex-direction:column;align-items:center;justify-content:center;gap:0.75rem}
-#d4-boot-splash .boot-spinner{width:2.25rem;height:2.25rem;border-radius:9999px;border:3px solid #e2e8f0;border-top-color:#2563eb;animation:d4-boot-spin 0.7s linear infinite}
-@keyframes d4-boot-spin{to{transform:rotate(360deg)}}
+#d4-boot-splash .boot-spinner-wrap{display:none!important}
+
 `,
           }}
         />
       </head>
-      <body className="min-h-dvh text-foreground antialiased" style={{ backgroundColor: "#ffffff" }}>
+      <body className="min-h-dvh text-foreground antialiased" style={{ backgroundColor: "#0b1b3a" }}>
         <div id="d4-boot-splash" aria-hidden="true">
           <div className="boot-main boot-brand">
-            <img src="/logo.png" alt="" width="160" height="160" />
+            <img src="/logo.png" alt="D4EXAM" width="168" height="168" decoding="async" />
             <div className="t">
               D<span className="b">4</span>EXAM
             </div>
             <div className="s">Smart Examination System</div>
-          </div>
-          <div className="boot-spinner-wrap" aria-label="Loading">
-            <div className="boot-spinner" />
-            <div style={{ fontSize: "0.8125rem", fontWeight: 600, color: "#64748b" }}>Loading…</div>
           </div>
           <div className="slogan">
             SMART. <span className="hi">SECURE.</span> SEAMLESS.
@@ -420,30 +406,9 @@ function RootComponent() {
   useEffect(() => {
     installGlobalErrorHandlers();
     startAccountVaultKeepAlive();
-    // Web: dismiss light loader promptly. Native APK: AnimatedSplash shows branding splash.
-    const native = isNativeShell();
-    if (!native) {
-      void hideSplashSafely();
-      try {
-        window.dispatchEvent(new Event("d4-hide-boot-splash"));
-      } catch { /* ignore */ }
-      try {
-        const el = document.getElementById("d4-boot-splash");
-        if (el) {
-          el.style.opacity = "0";
-          el.style.pointerEvents = "none";
-          el.style.display = "none";
-        }
-      } catch { /* ignore */ }
-    }
+    // Splash dismiss is owned by AnimatedSplash (waits until app is ready).
+    // Only clear lock overlays here — never force-hide branding splash on native.
     try {
-      // Always clear lock overlays; do not force-hide native branding splash here
-      const el = document.getElementById("d4-boot-splash");
-      if (el && !native) {
-        el.style.opacity = "0";
-        el.style.pointerEvents = "none";
-        el.style.display = "none";
-      }
       document.body.style.overflow = "";
       document.documentElement.style.overflow = "";
       document.body.classList.remove("d4-fp-lock-active", "d4-setup-lock-active");

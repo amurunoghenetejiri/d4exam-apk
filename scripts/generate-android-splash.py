@@ -1,13 +1,5 @@
 #!/usr/bin/env python3
-"""
-Generate D4EXAM native Android splash drawables.
-
-System / Capacitor launch layer is solid app-theme navy (#0b1b3a) only.
-No centered logo icon — the real branded splash is AnimatedSplash in the WebView.
-
-IMPORTANT: do NOT write drawable/splash.png when drawable/splash.xml exists
-(native-android overlay). Android fails the build with Duplicate resources.
-"""
+"""Generate D4EXAM native Android splash: navy + centered logo."""
 from __future__ import annotations
 
 import sys
@@ -21,67 +13,66 @@ except ImportError:
 
 ROOT = Path(__file__).resolve().parents[1]
 RES = ROOT / "android" / "app" / "src" / "main" / "res"
-
-# App theme navy (#0b1b3a)
+NATIVE = ROOT / "native-android" / "app" / "src" / "main" / "res"
 NAVY = (11, 27, 58, 255)
+LOGO_SRC = ROOT / "public" / "logo.png"
 
 
-def write_png(im: Image.Image, path: Path) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    im.save(path, format="PNG", optimize=True)
+def write_logo(dest: Path, size: int, src: Image.Image) -> None:
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    fg = src.copy()
+    fg.thumbnail((size, size), Image.Resampling.LANCZOS)
+    canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    off = ((size - fg.size[0]) // 2, (size - fg.size[1]) // 2)
+    canvas.paste(fg, off, fg)
+    canvas.save(dest, format="PNG", optimize=True)
 
 
 def main() -> None:
-    print("theme navy solid splash assets (no logo icon)")
+    if not LOGO_SRC.is_file():
+        print("WARN: public/logo.png missing", file=sys.stderr)
+        sys.exit(0)
+    logo = Image.open(LOGO_SRC).convert("RGBA")
 
-    drawable = RES / "drawable"
-    drawable.mkdir(parents=True, exist_ok=True)
-
-    # Solid XML shapes — preferred (no PNG conflict)
-    solid_xml = """<?xml version="1.0" encoding="utf-8"?>
+    splash_xml = """<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/splash_background" />
+    <item
+        android:width="160dp"
+        android:height="160dp"
+        android:gravity="center"
+        android:drawable="@drawable/d4exam_splash_logo" />
+</layer-list>
+"""
+    blank_xml = """<?xml version="1.0" encoding="utf-8"?>
 <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
     <solid android:color="@color/splash_background" />
 </shape>
 """
-    (drawable / "splash.xml").write_text(solid_xml, encoding="utf-8")
-    (drawable / "splash_blank.xml").write_text(solid_xml, encoding="utf-8")
 
-    # Remove any PNG that would conflict with splash.xml / splash_blank.xml
-    for name in ("splash.png", "splash_blank.png"):
-        p = drawable / name
-        if p.is_file():
-            p.unlink()
-            print("removed conflicting", p)
+    for base in (RES, NATIVE):
+        if not base.parent.exists() and base == RES:
+            continue
+        drawable = base / "drawable"
+        drawable.mkdir(parents=True, exist_ok=True)
+        (drawable / "splash.xml").write_text(splash_xml, encoding="utf-8")
+        (drawable / "splash_blank.xml").write_text(blank_xml, encoding="utf-8")
+        for name in ("splash.png", "splash_blank.png"):
+            p = drawable / name
+            if p.is_file():
+                p.unlink()
+        write_logo(drawable / "d4exam_splash_logo.png", 420, logo)
+        for dens, px in [
+            ("mdpi", 140),
+            ("hdpi", 210),
+            ("xhdpi", 280),
+            ("xxhdpi", 420),
+            ("xxxhdpi", 560),
+        ]:
+            write_logo(base / f"drawable-{dens}" / "d4exam_splash_logo.png", px, logo)
+        print("splash assets →", base)
 
-    # Density-specific solid PNGs are OK (different resource folders than drawable/)
-    # but not required when XML exists — skip to keep build simple.
-    for folder in (
-        "drawable-mdpi",
-        "drawable-hdpi",
-        "drawable-xhdpi",
-        "drawable-xxhdpi",
-        "drawable-xxxhdpi",
-    ):
-        d = RES / folder
-        if d.is_dir():
-            for name in ("splash.png",):
-                p = d / name
-                if p.is_file():
-                    p.unlink()
-                    print("removed", p)
-
-    # Android 12+ animated icon: solid navy PNG (blends into background)
-    for folder, px in [
-        ("drawable-mdpi", 144),
-        ("drawable-hdpi", 192),
-        ("drawable-xhdpi", 288),
-        ("drawable-xxhdpi", 384),
-        ("drawable-xxxhdpi", 432),
-    ]:
-        write_png(Image.new("RGBA", (px, px), NAVY), RES / folder / "splash_icon.png")
-    write_png(Image.new("RGBA", (288, 288), NAVY), drawable / "splash_icon.png")
-
-    print("Splash drawables written under", RES)
+    print("OK: navy + logo splash")
 
 
 if __name__ == "__main__":

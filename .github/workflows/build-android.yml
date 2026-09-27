@@ -125,6 +125,8 @@ jobs:
 
           chmod +x scripts/android-apply-icons.sh || true
           bash scripts/android-apply-icons.sh || echo "WARN: icon script failed (non-fatal)"
+          python3 scripts/generate-android-splash.py || echo "WARN: splash script failed (non-fatal)"
+          test -f android/app/src/main/res/drawable/d4exam_splash_logo.png || echo "WARN: splash logo missing"
 
           MAN="android/app/src/main/AndroidManifest.xml"
           if ! grep -q 'ScreenCaptureService' "$MAN"; then
