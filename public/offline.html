@@ -35,7 +35,6 @@
   </style>
 </head>
 <body>
-  <!-- In-app offline page only. NEVER navigate to https://d4exam.name.ng (opens Chrome). -->
   <div class="icon-circle" aria-hidden="true">
     <svg width="56" height="56" viewBox="0 0 24 24" fill="none">
       <path d="M5 12.5a7 7 0 0 1 11.9-5" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
@@ -50,18 +49,27 @@
   <p class="foot">D4EXAM will reconnect automatically once you're back online.</p>
   <script>
     (function () {
-      function retry() {
+      var LIVE = "https://d4exam-platform.vercel.app";
+      function goApp() {
         try {
-          // Stay in-app: local index only — never absolute production URL
+          // Hybrid APK: return to live shell (keeps Capacitor bridge when server.url is set)
+          if (navigator.onLine) {
+            location.replace(LIVE + "/?boot=" + Date.now());
+            return;
+          }
+        } catch (e) {}
+        try {
           location.replace("./index.html?boot=" + Date.now());
-        } catch (e) {
-          try { location.reload(); } catch (e2) {}
+        } catch (e2) {
+          try { location.reload(); } catch (e3) {}
         }
       }
-      document.getElementById("retry").addEventListener("click", retry);
-      window.addEventListener("online", function () {
-        try { location.replace("./index.html?online=1&boot=" + Date.now()); } catch (e) { retry(); }
-      });
+      document.getElementById("retry").addEventListener("click", goApp);
+      window.addEventListener("online", goApp);
+      // Auto-recover quickly if device is already online (false offline flash after app lock)
+      setTimeout(function () {
+        if (navigator.onLine) goApp();
+      }, 600);
     })();
   </script>
 </body>
