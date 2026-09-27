@@ -654,6 +654,7 @@ export function ImageLightbox({
   const [i, setI] = useState(index);
   const [scale, setScale] = useState(1);
   const touchRef = useRef<{ x: number; y: number; dist?: number } | null>(null);
+  const pinchRef = useRef<{ dist: number; scale: number } | null>(null);
 
   useEffect(() => setI(index), [index]);
   useEffect(() => setScale(1), [i]);
