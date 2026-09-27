@@ -141,6 +141,7 @@ function Page() {
   const chatEndRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const swipeRef = useRef<{ key: string; id: string; x: number } | null>(null);
+  const cancelRecFlag = useRef(false);
   const [swipeDx, setSwipeDx] = useState<Record<string, number>>({});
   const [highlightKey, setHighlightKey] = useState<string | null>(null);
   const [optimisticMsgs, setOptimisticMsgs] = useState<ChatMsg[]>([])
@@ -548,6 +549,19 @@ function Page() {
       rec.onstop = () => {
         stream.getTracks().forEach((t) => t.stop());
         presenceApi.current?.setRecording(false, studentId || userId);
+        if (cancelRecFlag.current) {
+          cancelRecFlag.current = false;
+          chunks.current = [];
+          setPendingAudio(null);
+          setPendingAudioUrl((prev) => {
+            if (prev) URL.revokeObjectURL(prev);
+            return null;
+          });
+          setRecording(false);
+          setRecPaused(false);
+          setRecSecs(0);
+          return;
+        }
         const blob = new Blob(chunks.current, { type: "audio/webm" });
         if (blob.size >= 200) {
           setPendingAudio(blob);
@@ -560,6 +574,7 @@ function Page() {
         setRecPaused(false);
       };
       mediaRec.current = rec;
+      cancelRecFlag.current = false;
       // timeslice so pause captures data up to the pause point
       rec.start(250);
       setRecording(true);
@@ -577,6 +592,7 @@ function Page() {
   }
 
   function cancelRec() {
+    cancelRecFlag.current = true;
     try {
       if (mediaRec.current && mediaRec.current.state !== "inactive") {
         mediaRec.current.stop();
@@ -790,28 +806,28 @@ function Page() {
   const schoolName = (student as { schoolName?: string | null } | null | undefined)?.schoolName || null;
 
   const chatPane = inChat ? (
-    <div className="relative flex h-full min-h-0 w-full flex-1 flex-col select-none" style={{ background: "linear-gradient(180deg, #f0f7ff 0%, #f8fafc 40%, #eef6ff 100%)" }}>
-      {/* School logo watermark — soft, non-interactive */}
+    <div className="relative flex h-full min-h-0 w-full flex-1 flex-col select-none" style={{ background: "linear-gradient(180deg, #e0f2fe 0%, #f0f9ff 45%, #e0f2fe 100%)" }}>
+      {/* Brand watermark — soft sky backdrop + gentle light sweep (does not clash with bubbles) */}
       <div aria-hidden className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center overflow-hidden">
-        {schoolLogoUrl ? (
+        <div className="relative">
           <img
-            src={schoolLogoUrl}
+            src={schoolLogoUrl || "/logo.png"}
             alt=""
-            className="h-[min(50vh,380px)] w-auto max-w-[65%] select-none object-contain opacity-[0.11]"
-            style={{ filter: "grayscale(1) brightness(0.95)" }}
+            className="h-[min(48vh,360px)] w-auto max-w-[60%] select-none object-contain opacity-[0.09]"
+            style={{ filter: "grayscale(0.35) brightness(1.05)" }}
             loading="eager"
             decoding="async"
           />
-        ) : (
-          <img
-            src="/logo.png"
-            alt=""
-            className="h-[min(50vh,380px)] w-auto max-w-[65%] select-none object-contain opacity-[0.10]"
-            style={{ filter: "grayscale(1) brightness(0.9)" }}
-            loading="eager"
-            decoding="async"
+          <span
+            className="pointer-events-none absolute inset-0 overflow-hidden"
+            style={{
+              background: "linear-gradient(105deg, transparent 40%, rgba(255,255,255,0.35) 50%, transparent 60%)",
+              backgroundSize: "200% 100%",
+              animation: "d4WatermarkShine 7s ease-in-out infinite",
+            }}
           />
-        )}
+        </div>
+        <style>{`@keyframes d4WatermarkShine { 0%, 100% { background-position: 120% 0; } 50% { background-position: -20% 0; } }`}</style>
       </div>
       <div className="relative z-30 flex shrink-0 items-center gap-3 border-b border-white/10 bg-[#0b1b3a] px-3 py-3 pt-[max(0.75rem,env(safe-area-inset-top))] text-white lg:pt-3">
         <button type="button" onClick={() => setInChat(false)} className="grid h-9 w-9 place-items-center rounded-full text-white hover:bg-white/10 lg:hidden">
@@ -845,7 +861,7 @@ function Page() {
           ) : null}
         </div>
       </div>
-      <div ref={chatScrollRef} onScroll={() => { const el = chatScrollRef.current; if (!el) return; const dist = el.scrollHeight - el.scrollTop - el.clientHeight; const near = dist < 140; setNearBottom(near); if (near) setNewBelow(0); }} className="relative z-10 min-h-0 flex-1 space-y-4 overflow-y-auto px-3 py-3">
+      <div ref={chatScrollRef} onScroll={() => { const el = chatScrollRef.current; if (!el) return; const dist = el.scrollHeight - el.scrollTop - el.clientHeight; const near = dist < 140; setNearBottom(near); if (near) setNewBelow(0); }} className="relative z-10 min-h-0 flex-1 space-y-4 overflow-y-auto bg-transparent px-3 py-3">
         {chatMessages.map((m) => {
           const tick =
             m.side === "out"
@@ -1038,7 +1054,7 @@ function Page() {
       </div>
       {!nearBottom ? (<button type="button" aria-label="Scroll to latest" onClick={() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); setNearBottom(true); setNewBelow(0); }} className="absolute bottom-[4.5rem] right-4 z-30 flex items-center gap-1.5 rounded-full bg-[#0b1b3a] px-3 py-2 text-xs font-bold text-white shadow-lg ring-2 ring-white/20"><span className="text-sm leading-none">v</span>{newBelow > 0 ? <span>{newBelow} new</span> : null}</button>) : null}
 <div className="relative z-10 shrink-0 border-t border-white/10 bg-[#0b1b3a] px-2 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] text-white">
-        {replyTo ? (
+        {!recording && !pendingAudio && !pendingAudioUrl && replyTo ? (
           <div className="mb-2 flex items-start gap-2 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2">
             <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[#0b1b3a] text-white">
               {replyTo.isVoice ? <Mic className="h-4 w-4" /> : <Reply className="h-4 w-4" />}
@@ -1058,7 +1074,7 @@ function Page() {
             </button>
           </div>
         ) : null}
-        {pendingAttach ? (
+        {!recording && !pendingAudio && !pendingAudioUrl && pendingAttach ? (
           <div className="mb-2 flex items-center gap-2 rounded-xl border bg-slate-50 px-3 py-2 text-xs">
             {pendingAttach.type === "image" ? <img src={pendingAttach.url} alt="" className="h-12 w-12 rounded object-cover" /> : <span>Attachment ready</span>}
             <button type="button" onClick={() => setPendingAttach(null)} className="ml-auto text-slate-500">
@@ -1132,8 +1148,16 @@ function Page() {
               <Send className="h-4 w-4" />
             </button>
           ) : (
-            <button type="button" className={cn("mb-0.5 grid h-10 w-10 place-items-center rounded-full shadow-md", recording || pendingAudio || pendingAudioUrl ? "bg-[#2563eb] text-white ring-2 ring-white/40" : "bg-white text-[#0b1b3a] ring-2 ring-white/70")} onClick={() => (recording || pendingAudio || pendingAudioUrl ? void sendPendingAudio() : void startRec())} aria-label={recording || pendingAudio || pendingAudioUrl ? "Send voice note" : "Record voice"}>
-              {recording || pendingAudio || pendingAudioUrl ? <Send className="h-5 w-5" /> : <Mic className="h-4 w-4 stroke-[2.5]" />}
+            <button
+              type="button"
+              className={cn(
+                "mb-0.5 grid h-12 w-12 place-items-center rounded-full shadow-lg transition active:scale-95",
+                "bg-gradient-to-b from-[#3b82f6] to-[#1d4ed8] text-white ring-2 ring-white/50",
+              )}
+              onClick={() => void startRec()}
+              aria-label="Record voice note"
+            >
+              <Mic className="h-6 w-6 stroke-[2.5]" />
             </button>
           )}
         </div>

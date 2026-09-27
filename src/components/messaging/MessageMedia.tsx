@@ -387,13 +387,12 @@ export function VoiceRecorderBar({
 }) {
   const mm = String(Math.floor(seconds / 60)).padStart(2, "0");
   const ss = String(seconds % 60).padStart(2, "0");
-  // Animate fill across bars while recording
-  const recProgress = recording && !paused ? Math.min(0.95, (seconds % 12) / 12) : paused ? 0.35 : 0;
   return (
     <div className="mb-0 select-none rounded-xl border border-blue-200/80 bg-gradient-to-b from-[#eff6ff] to-white px-3 py-2.5 shadow-sm">
       <div className="mb-2 flex flex-col items-center gap-1">
         <div className="w-full max-w-[200px] mx-auto">
-          <WaveBars active={recording && !paused} progress={recProgress} />
+          {/* Live wave motion only — no navy progress fill sweeping across bars */}
+          <WaveBars active={recording && !paused} />
         </div>
         <p className="text-sm font-bold tabular-nums text-slate-800">
           {mm}:{ss}
