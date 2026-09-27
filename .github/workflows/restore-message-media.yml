@@ -13,44 +13,40 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Restore MessageMedia from 10bfb17 and apply pinchRef fix
+      - name: Restore MessageMedia from good commit
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          git show 10bfb17c1a1705b0cbc23d642857105bcbaa13ff:src/components/messaging/MessageMedia.tsx > src/components/messaging/MessageMedia.tsx
-          python3 << 'PY'
+          git fetch --all
+          git show 10bfb17c1a1705b0cbc23d642857105bcbaa13ff:src/components/messaging/MessageMedia.tsx > /tmp/mm.tsx
+          wc -c /tmp/mm.tsx
+          # declare pinchRef in ImageLightbox (was missing)
+          python3 - <<'PY'
           from pathlib import Path
-          p = Path("src/components/messaging/MessageMedia.tsx")
-          t = p.read_text()
+          t = Path("/tmp/mm.tsx").read_text()
           old = """  const [scale, setScale] = useState(1);
   const touchRef = useRef<{ x: number; y: number; dist?: number } | null>(null);
 """
           new = """  const [scale, setScale] = useState(1);
-  const [tx, setTx] = useState(0);
-  const [ty, setTy] = useState(0);
-  const [dismissY, setDismissY] = useState(0);
   const touchRef = useRef<{ x: number; y: number; dist?: number } | null>(null);
   const pinchRef = useRef<{ dist: number; scale: number } | null>(null);
-  const panRef = useRef<{ x: number; y: number; tx: number; ty: number; mode: \"none\" | \"pan\" | \"dismiss\" } | null>(null);
 """
           if old not in t:
-              raise SystemExit("anchor not found")
-          t = t.replace(old, new, 1)
-          t = t.replace(
-              "useEffect(() => setScale(1), [i]);",
-              "useEffect(() => { setScale(1); setTx(0); setTy(0); setDismissY(0); }, [i]);",
-              1,
-          )
-          # Swipe-down + pan: enhance inner touch handlers lightly
-          p.write_text(t)
-          print("patched", len(t))
+              print("WARN: anchor missing; writing unpatched")
+          else:
+              t = t.replace(old, new, 1)
+              print("patched pinchRef")
+          Path("src/components/messaging/MessageMedia.tsx").write_text(t)
+          print("wrote", len(t))
           PY
           git config user.name "d4exam-bot"
           git config user.email "bot@d4exam.name.ng"
           git add src/components/messaging/MessageMedia.tsx
+          git status
           if git diff --cached --quiet; then
-            echo "No changes"
+            echo "No changes to commit"
           else
-            git commit -m "fix(messaging): restore MessageMedia + pinchRef/pan state"
-            git push
+            git commit -m "fix(messaging): restore MessageMedia from 10bfb17 + pinchRef declare"
+            git push origin HEAD:main
           fi
