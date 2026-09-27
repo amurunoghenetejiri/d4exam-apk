@@ -1,0 +1,30 @@
+name: assemble-message-media
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/assemble-message-media.yml
+      - scripts/mm_parts/**
+jobs:
+  assemble:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Assemble and commit MessageMedia.tsx
+        run: |
+          set -euo pipefail
+          mkdir -p src/components/messaging
+          cat scripts/mm_parts/part*.txt > src/components/messaging/MessageMedia.tsx
+          wc -c src/components/messaging/MessageMedia.tsx
+          head -3 src/components/messaging/MessageMedia.tsx
+          git config user.name "d4exam-bot"
+          git config user.email "bot@d4exam.name.ng"
+          git add src/components/messaging/MessageMedia.tsx
+          if git diff --cached --quiet; then
+            echo "No changes"
+          else
+            git commit -m "fix(messaging): restore full MessageMedia with lightbox pan/zoom/swipe-down"
+            git push
+          fi
