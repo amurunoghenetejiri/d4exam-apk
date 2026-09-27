@@ -12,30 +12,32 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Restore MessageMedia from good commit
+      - name: Patch ImageLightbox pinchRef
         run: |
           set -euo pipefail
-          curl -fsSL "https://raw.githubusercontent.com/amurunoghenetejiri/d4exam-web/10bfb17c1a1705b0cbc23d642857105bcbaa13ff/src/components/messaging/MessageMedia.tsx" -o src/components/messaging/MessageMedia.tsx
-          wc -c src/components/messaging/MessageMedia.tsx
-          head -3 src/components/messaging/MessageMedia.tsx
           python3 << 'PY'
           from pathlib import Path
           p = Path("src/components/messaging/MessageMedia.tsx")
           t = p.read_text()
-          old = "  const touchRef = useRef<{ x: number; y: number; dist?: number } | null>(null);\n"
-          new = old + "  const pinchRef = useRef<{ dist: number; scale: number } | null>(null);\n"
-          if "const pinchRef = useRef" not in t and old in t:
-              t = t.replace(old, new, 1)
-              p.write_text(t)
-              print("added pinchRef")
+          # Only patch ImageLightbox block (before VideoLightbox)
+          a = t.find("export function ImageLightbox")
+          b = t.find("export function VideoLightbox")
+          assert a > 0 and b > a, (a, b)
+          head, mid, tail = t[:a], t[a:b], t[b:]
+          if "const pinchRef = useRef" not in mid:
+              old = "  const touchRef = useRef<{ x: number; y: number; dist?: number } | null>(null);\n"
+              new = old + "  const pinchRef = useRef<{ dist: number; scale: number } | null>(null);\n"
+              if old not in mid:
+                  raise SystemExit("touchRef anchor missing in ImageLightbox")
+              mid = mid.replace(old, new, 1)
+              print("patched ImageLightbox pinchRef")
           else:
-              print("pinchRef already present or anchor missing")
-          print("final size", p.stat().st_size)
+              print("ImageLightbox already has pinchRef")
+          p.write_text(head + mid + tail)
+          print("size", p.stat().st_size)
           PY
           git config user.name "d4exam-bot"
           git config user.email "bot@d4exam.name.ng"
           git add src/components/messaging/MessageMedia.tsx
-          git status
-          git commit -m "fix(messaging): restore MessageMedia from 10bfb17 + pinchRef declare" || echo "no changes"
+          git commit -m "fix(messaging): declare pinchRef inside ImageLightbox" || echo nochange
           git push origin HEAD:main
