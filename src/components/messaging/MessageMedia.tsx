@@ -115,7 +115,7 @@ function WaveBars({
       {onSeek ? (
         <span
           className={cn(
-            "pointer-events-none absolute top-1/2 z-10 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full shadow ring-2 ring-white",
+            "pointer-events-none absolute top-1/2 z-10 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full shadow-md ring-2 ring-white",
             light ? "bg-white" : "bg-[#2563eb]",
           )}
           style={{ left: `${pct * 100}%`, transition: active ? "none" : "left 50ms linear" }}
@@ -420,7 +420,7 @@ export function VoiceRecorderBar({
               <span className="grid h-11 w-11 place-items-center rounded-full bg-[#2563eb] text-white shadow-md">
                 <Mic className="h-5 w-5" />
               </span>
-              <span className="text-[9px] font-semibold text-slate-600">Continue</span>
+              <span className="text-[9px] font-semibold text-slate-600">Resume</span>
             </button>
           </>
         ) : (

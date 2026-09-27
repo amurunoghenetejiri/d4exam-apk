@@ -80,6 +80,45 @@ function formatTime(iso: string) {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? "" : d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
+
+function fmtVoiceDur(sec: number | null | undefined): string {
+  if (sec == null || !Number.isFinite(sec) || sec < 0) return "";
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+function classifyMedia(type?: string | null, url?: string | null): "audio" | "image" | "video" | "file" | "text" {
+  const t = (type || "").toLowerCase();
+  const u = (url || "").toLowerCase();
+  if (t.includes("audio") || /\.(webm|m4a|ogg|mp3|wav)(\?|$)/i.test(u)) return "audio";
+  if (t.includes("image") || /\.(jpg|jpeg|png|gif|webp)(\?|$)/i.test(u)) return "image";
+  if (t.includes("video") || /\.(mp4|webm|mov)(\?|$)/i.test(u)) return "video";
+  if (t.includes("pdf") || u.endsWith(".pdf")) return "file";
+  if (t.includes("file") || t.includes("document")) return "file";
+  if (url) return "file";
+  return "text";
+}
+
+function buildReplySnippet(opts: {
+  kind: "text" | "audio" | "image" | "video" | "file";
+  text?: string;
+  durationSec?: number | null;
+}): string {
+  if (opts.kind === "audio") {
+    const d = fmtVoiceDur(opts.durationSec);
+    return d ? `🎤 Voice note • ${d}` : "🎤 Voice note";
+  }
+  if (opts.kind === "image") return "📷 Photo";
+  if (opts.kind === "video") return "🎥 Video";
+  if (opts.kind === "file") {
+    const t = (opts.text || "").toLowerCase();
+    if (t.includes("pdf")) return "📄 PDF";
+    return "📎 File";
+  }
+  return (opts.text || "").trim().slice(0, 120) || "Message";
+}
+
 function Ticks({ state }: { state: "none" | "sent" | "delivered" | "read" }) {
   if (state === "none") return null;
   if (state === "sent") return <Check className="inline h-3.5 w-3.5 text-slate-400" aria-label="Sent" />;
@@ -110,7 +149,15 @@ function Page() {
   const [recSecs, setRecSecs] = useState(0);
   const [pendingAudio, setPendingAudio] = useState<Blob | null>(null);
   const [pendingAttach, setPendingAttach] = useState<{ url: string; type: string } | null>(null);
-  const [replyTo, setReplyTo] = useState<{ id: string; text: string; fromSelf?: boolean; isVoice?: boolean } | null>(null);
+  const [replyTo, setReplyTo] = useState<{
+    id: string;
+    text: string;
+    fromSelf?: boolean;
+    isVoice?: boolean;
+    mediaKind?: "text" | "audio" | "image" | "video" | "file";
+    durationSec?: number | null;
+    senderName?: string;
+  } | null>(null);
   const [chatMenuOpen, setChatMenuOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
   const [clearOpen, setClearOpen] = useState(false);
@@ -264,14 +311,14 @@ function Page() {
         // Prefer linking to the officer bubble if that report was answered, else student body
         if ((parent.officer_reply || "").trim()) {
           const pr = parseOfficerReply(parent.officer_reply);
-          const isV = (pr.mediaType || "").toLowerCase().includes("audio") || /\.(webm|m4a|ogg|mp3|wav)(\?|$)/i.test(pr.mediaUrl || "");
-          replyPreview = `${officerNickname || "Officer"}\n${isV ? "🎤 Voice note" : (pr.text || parent.officer_reply || "").slice(0, 100)}`;
+          const kind = classifyMedia(pr.mediaType, pr.mediaUrl);
+          const snip = buildReplySnippet({ kind, text: pr.text || parent.officer_reply || "" });
+          replyPreview = `${officerNickname || "Officer"}\n${snip}`;
           replyToKey = `${parent.id}-o`;
         } else {
-          const isV =
-            (parent.attachment_type || "").toLowerCase().includes("audio") ||
-            /\.(webm|m4a|ogg|mp3|wav)(\?|$)/i.test(parent.attachment_url || "");
-          replyPreview = `You\n${isV ? "🎤 Voice note" : (parent.body || "").slice(0, 100)}`;
+          const kind = classifyMedia(parent.attachment_type, parent.attachment_url);
+          const snip = buildReplySnippet({ kind, text: parent.body || "" });
+          replyPreview = `Me\n${snip}`;
           replyToKey = `${parent.id}-s`;
         }
       }
@@ -307,7 +354,16 @@ function Page() {
     const base = out.filter((m) => !hiddenKeys.has(m.key));
     const serverKeys = new Set(base.map((m) => m.key));
     const pending = optimisticMsgs.filter((m) => !serverKeys.has(m.key) && !hiddenKeys.has(m.key));
-    return [...base, ...pending].sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
+    return [...base, ...pending].sort((a, b) => {
+      const ta = new Date(a.at).getTime();
+      const tb = new Date(b.at).getTime();
+      if (ta !== tb) return ta - tb;
+      // Same timestamp: optimistic (opt-) after server; then key order
+      const ao = a.key.startsWith("opt-") || a.reportId.startsWith("opt-") ? 1 : 0;
+      const bo = b.key.startsWith("opt-") || b.reportId.startsWith("opt-") ? 1 : 0;
+      if (ao !== bo) return ao - bo;
+      return a.key.localeCompare(b.key);
+    });
   }, [rows, hiddenKeys, optimisticMsgs]);
 
   const latest = rows.length ? rows[rows.length - 1] : null;
@@ -471,11 +527,37 @@ function Page() {
       if (!schoolId) return;
       if (!text.trim() && !attach) return;
       const clientId = `opt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      const nowIso = new Date().toISOString();
-      const optMsg: ChatMsg = { key: `${clientId}-s`, side: "out", text: text.trim() || (attach ? "(attachment)" : ""), at: nowIso, subject: replyTo ? `Re: ${(replyTo.text || "").slice(0, 40)}` : subject.trim() || null, attachment_url: attach?.url || null, attachment_type: attach?.type || null, reportId: clientId, replyPreview: replyTo ? `${replyTo.fromSelf ? "You" : (officerNickname || "Officer")}\n${replyTo.isVoice ? "🎤 Voice note" : replyTo.text}` : null, replyToKey: replyTo ? `${replyTo.id}-s` : null };
+      // Always latest wall-clock time so replies never jump to the top of the thread
+      const nowIso = new Date(Date.now()).toISOString();
+      const replySnap = replyTo;
+      const replyName = replySnap
+        ? (replySnap.fromSelf ? "Me" : (replySnap.senderName || officerNickname || "Officer"))
+        : "";
+      const replyBody = replySnap
+        ? (replySnap.text || buildReplySnippet({ kind: replySnap.mediaKind || "text", text: replySnap.text, durationSec: replySnap.durationSec }))
+        : "";
+      const optMsg: ChatMsg = {
+        key: `${clientId}-s`,
+        side: "out",
+        text: text.trim() || (attach ? "(attachment)" : ""),
+        at: nowIso,
+        subject: replySnap ? `Re: ${(replySnap.text || "").slice(0, 40)}` : subject.trim() || null,
+        attachment_url: attach?.url || null,
+        attachment_type: attach?.type || null,
+        reportId: clientId,
+        replyPreview: replySnap ? `${replyName}\n${replyBody}` : null,
+        replyToKey: replySnap ? `${replySnap.id}-s` : null,
+      };
       setOptimisticMsgs((prev) => [...prev, optMsg]);
-      setReplyText(""); setPendingAttach(null); setReplyTo(null); setComposeOpen(false); setInChat(true);
+      setReplyText("");
+      setPendingAttach(null);
+      setReplyTo(null);
+      setComposeOpen(false);
+      setInChat(true);
+      setNearBottom(true);
+      setNewBelow(0);
       requestAnimationFrame(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }));
+      window.setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }), 80);
       sendLock.current = true;
       setSending(true);
       try {
@@ -490,12 +572,12 @@ function Page() {
           exam_title: selectedTitles[0] || null,
           exam_ids: selectedExamIds.length ? selectedExamIds : [],
           exam_titles: selectedTitles.length ? selectedTitles : [],
-          subject: replyTo ? `Re: ${(replyTo.text || "").slice(0, 40)}` : subject.trim() || null,
+          subject: replySnap ? `Re: ${(replySnap.text || "").slice(0, 40)}` : subject.trim() || null,
           body: text.trim() || (attach ? "(attachment)" : ""),
           status: "open",
           attachment_url: attach?.url || null,
           attachment_type: attach?.type || null,
-          reply_to_id: replyTo?.id || null,
+          reply_to_id: replySnap?.id || null,
         };
         let { error } = await supabase.from("student_officer_reports").insert(payload as never);
         if (error) {
@@ -627,25 +709,20 @@ function Page() {
     if (sendLock.current) return;
     if (!pendingAudio && !recording && !(mediaRec.current && mediaRec.current.state !== "inactive")) return;
     const wasRecording = recording || Boolean(mediaRec.current && mediaRec.current.state !== "inactive");
+    const durationSnap = recSecs;
+    const replySnap = replyTo;
     setRecording(false);
     setRecPaused(false);
     presenceApi.current?.setRecording(false, studentId || userId);
-    window.setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }), 120);
     try {
       if (wasRecording && mediaRec.current && mediaRec.current.state !== "inactive") {
+        cancelRecFlag.current = false;
         await new Promise<void>((resolve) => {
           const rec = mediaRec.current!;
-          const prev = rec.onstop;
-          rec.onstop = (ev) => {
-            try {
-              if (typeof prev === "function") (prev as (this: MediaRecorder, ev: Event) => void).call(rec, ev);
-            } finally {
-              resolve();
-            }
-          };
+          rec.onstop = () => resolve();
           try { rec.stop(); } catch { resolve(); }
         });
-        await new Promise((r) => setTimeout(r, 80));
+        await new Promise((r) => setTimeout(r, 60));
       }
       const blob =
         pendingAudio ||
@@ -661,8 +738,66 @@ function Page() {
       });
       mediaRec.current = null;
       chunks.current = [];
-      const up = await uploadMessageMedia(blob, "audio/webm", `msg/${schoolId}/${userId}`);
-      await sendMessage("", { url: up.url, type: "audio" });
+
+      const clientId = `opt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const nowIso = new Date().toISOString();
+      const localUrl = URL.createObjectURL(blob);
+      const replyName = replySnap
+        ? (replySnap.fromSelf ? "Me" : (replySnap.senderName || officerNickname || "Officer"))
+        : "";
+      const replyBody = replySnap?.text || "";
+      const optMsg: ChatMsg = {
+        key: `${clientId}-s`,
+        side: "out",
+        text: "(attachment)",
+        at: nowIso,
+        subject: replySnap ? `Re: ${(replySnap.text || "").slice(0, 40)}` : null,
+        attachment_url: localUrl,
+        attachment_type: "audio",
+        reportId: clientId,
+        replyPreview: replySnap ? `${replyName}
+${replyBody}` : null,
+        replyToKey: replySnap ? `${replySnap.id}-s` : null,
+      };
+      setOptimisticMsgs((prev) => [...prev, optMsg]);
+      setReplyTo(null);
+      setNearBottom(true);
+      setNewBelow(0);
+      requestAnimationFrame(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }));
+
+      sendLock.current = true;
+      setSending(true);
+      try {
+        const up = await uploadMessageMedia(blob, "audio/webm", `msg/${schoolId}/${userId}`);
+        const name = session?.fullName || student?.fullName || "Student";
+        const payload: Record<string, unknown> = {
+          school_id: schoolId,
+          student_id: studentId || null,
+          student_user_id: userId || null,
+          student_name: name,
+          student_matric: student?.matric || null,
+          exam_id: selectedExamIds[0] || null,
+          exam_title: selectedTitles[0] || null,
+          exam_ids: selectedExamIds.length ? selectedExamIds : [],
+          exam_titles: selectedTitles.length ? selectedTitles : [],
+          subject: replySnap ? `Re: ${(replySnap.text || "").slice(0, 40)}` : null,
+          body: "(attachment)",
+          status: "open",
+          attachment_url: up.url,
+          attachment_type: "audio",
+          reply_to_id: replySnap?.id || null,
+        };
+        const { error } = await supabase.from("student_officer_reports").insert(payload as never);
+        if (error) throw error;
+        setOptimisticMsgs((prev) => prev.filter((m) => m.key !== optMsg.key));
+        void qc.invalidateQueries();
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Could not send voice note");
+      } finally {
+        sendLock.current = false;
+        setSending(false);
+        try { URL.revokeObjectURL(localUrl); } catch { /* ignore */ }
+      }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not send voice note");
     }
@@ -813,7 +948,7 @@ function Page() {
           <img
             src={schoolLogoUrl || "/logo.png"}
             alt=""
-            className="h-[min(48vh,360px)] w-auto max-w-[60%] select-none object-contain opacity-[0.09]"
+            className="h-[min(52vh,400px)] w-auto max-w-[70%] select-none object-contain opacity-[0.16]"
             style={{ filter: "grayscale(0.35) brightness(1.05)" }}
             loading="eager"
             decoding="async"
@@ -821,9 +956,9 @@ function Page() {
           <span
             className="pointer-events-none absolute inset-0 overflow-hidden"
             style={{
-              background: "linear-gradient(105deg, transparent 40%, rgba(255,255,255,0.35) 50%, transparent 60%)",
+              background: "linear-gradient(105deg, transparent 30%, rgba(255,255,255,0.55) 50%, transparent 70%)",
               backgroundSize: "200% 100%",
-              animation: "d4WatermarkShine 7s ease-in-out infinite",
+              animation: "d4WatermarkShine 4.5s ease-in-out infinite",
             }}
           />
         </div>
@@ -905,8 +1040,9 @@ function Page() {
                 )}
                 aria-hidden
               >
-                <span className="grid h-8 w-8 place-items-center rounded-full bg-[#2563eb] text-white shadow">
+                <span className="flex items-center gap-1.5 rounded-full bg-[#2563eb] px-2.5 py-1.5 text-white shadow-lg">
                   <Reply className="h-4 w-4" />
+                  <span className="text-[11px] font-bold">Reply</span>
                 </span>
               </div>
               <div
@@ -942,20 +1078,20 @@ function Page() {
                   const x = e.changedTouches[0]?.clientX ?? 0;
                   if (x - s.x > 56 || finalDx > 48) {
                     {
-                      const isVoice =
-                        (m.attachment_type || "").toLowerCase().includes("audio") ||
-                        /\.(webm|m4a|ogg|mp3|wav)(\?|$)/i.test(m.attachment_url || "");
-                      const label = isVoice
-                        ? "Voice note"
-                        : (m.text && m.text !== "(attachment)"
-                            ? m.text
-                            : attachmentLabel(m.attachment_type, m.attachment_url)
-                          ).slice(0, 120);
+                      const kind = classifyMedia(m.attachment_type, m.attachment_url);
+                      const snippet = buildReplySnippet({
+                        kind,
+                        text: m.text && m.text !== "(attachment)" ? m.text : attachmentLabel(m.attachment_type, m.attachment_url),
+                        durationSec: (m as { durationSec?: number }).durationSec ?? null,
+                      });
                       setReplyTo({
                         id: m.reportId,
-                        text: label,
+                        text: snippet,
                         fromSelf: m.side === "out",
-                        isVoice,
+                        isVoice: kind === "audio",
+                        mediaKind: kind,
+                        durationSec: (m as { durationSec?: number }).durationSec ?? null,
+                        senderName: m.side === "out" ? "Me" : officerNickname,
                       });
                     }
                   }
@@ -979,7 +1115,35 @@ function Page() {
                 </span>
               ) : null}
               {m.attachment_type === "audio" && m.attachment_url ? (
-                <VoiceBubble id={`msg-${m.key}`} src={m.attachment_url} mine={m.side === "out"} timeLabel={formatTime(m.at)} tick={m.side === "out" ? outTick : "none"} />
+                <div className="flex flex-col gap-1">
+                  {m.replyPreview ? (
+                    <div
+                      className={cn(
+                        "rounded-lg border-l-2 px-2 py-1 text-left text-[11px]",
+                        m.side === "out" ? "border-blue-400 bg-white/90 text-slate-600" : "border-white/50 bg-white/15 text-blue-50",
+                      )}
+                    >
+                      {(() => {
+                        const lines = String(m.replyPreview || "").split("\n");
+                        const title = lines[0] || "";
+                        const body = lines.slice(1).join(" ") || "";
+                        return (
+                          <>
+                            <span className="block font-bold opacity-90">{title}</span>
+                            {body ? <span className="block opacity-80">{body.slice(0, 90)}</span> : null}
+                          </>
+                        );
+                      })()}
+                    </div>
+                  ) : null}
+                  <div
+                    onTouchStart={(e) => e.stopPropagation()}
+                    onTouchMove={(e) => e.stopPropagation()}
+                    onPointerDown={(e) => e.stopPropagation()}
+                  >
+                    <VoiceBubble id={`msg-${m.key}`} src={m.attachment_url!} mine={m.side === "out"} timeLabel={formatTime(m.at)} tick={m.side === "out" ? outTick : "none"} />
+                  </div>
+                </div>
               ) : (m.attachment_type === "image" || m.attachment_type === "images") && m.attachment_url ? (
                 (() => {
                   const urls = parseMediaUrls(m.attachment_url);
@@ -1052,7 +1216,21 @@ function Page() {
         {officerTyping ? <p className="text-center text-xs text-slate-500">Officer is typing…</p> : null}
         <div ref={chatEndRef} />
       </div>
-      {!nearBottom ? (<button type="button" aria-label="Scroll to latest" onClick={() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); setNearBottom(true); setNewBelow(0); }} className="absolute bottom-[4.5rem] right-4 z-30 flex items-center gap-1.5 rounded-full bg-[#0b1b3a] px-3 py-2 text-xs font-bold text-white shadow-lg ring-2 ring-white/20"><span className="text-sm leading-none">v</span>{newBelow > 0 ? <span>{newBelow} new</span> : null}</button>) : null}
+      {!nearBottom ? (
+        <button
+          type="button"
+          aria-label="Scroll to latest"
+          onClick={() => {
+            chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+            setNearBottom(true);
+            setNewBelow(0);
+          }}
+          className="absolute bottom-[5.25rem] right-4 z-30 flex items-center gap-1.5 rounded-full bg-[#0b1b3a] px-3.5 py-2.5 text-xs font-bold text-white shadow-xl ring-2 ring-blue-400/40 animate-pulse"
+        >
+          <span className="text-base leading-none" aria-hidden>↓</span>
+          {newBelow > 0 ? <span>{newBelow} new</span> : null}
+        </button>
+      ) : null}
 <div className="relative z-10 shrink-0 border-t border-white/10 bg-[#0b1b3a] px-2 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] text-white">
         {!recording && !pendingAudio && !pendingAudioUrl && replyTo ? (
           <div className="mb-2 flex items-start gap-2 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2">
@@ -1060,13 +1238,9 @@ function Page() {
               {replyTo.isVoice ? <Mic className="h-4 w-4" /> : <Reply className="h-4 w-4" />}
             </span>
             <div className="min-w-0 flex-1">
-              <p className="text-[11px] font-bold text-blue-800">{replyTo.fromSelf ? "You" : officerNickname}</p>
+              <p className="text-[11px] font-bold text-blue-800">{replyTo.fromSelf ? "Me" : (replyTo.senderName || officerNickname)}</p>
               <p className="line-clamp-2 text-xs text-slate-700">
-                {replyTo.isVoice ? (
-                  <span className="inline-flex items-center gap-1"><Mic className="h-3 w-3 shrink-0" /> Voice note</span>
-                ) : (
-                  replyTo.text
-                )}
+                {replyTo.text}
               </p>
             </div>
             <button type="button" onClick={() => setReplyTo(null)} className="text-slate-400" aria-label="Cancel reply">
@@ -1151,13 +1325,14 @@ function Page() {
             <button
               type="button"
               className={cn(
-                "mb-0.5 grid h-12 w-12 place-items-center rounded-full shadow-lg transition active:scale-95",
-                "bg-gradient-to-b from-[#3b82f6] to-[#1d4ed8] text-white ring-2 ring-white/50",
+                "mb-0.5 grid h-14 w-14 place-items-center rounded-full shadow-xl transition active:scale-95",
+                "bg-gradient-to-b from-[#60a5fa] via-[#3b82f6] to-[#1d4ed8] text-white",
+                "ring-[3px] ring-white/70 ring-offset-2 ring-offset-[#0b1b3a]",
               )}
               onClick={() => void startRec()}
               aria-label="Record voice note"
             >
-              <Mic className="h-6 w-6 stroke-[2.5]" />
+              <Mic className="h-7 w-7 stroke-[2.5]" />
             </button>
           )}
         </div>
