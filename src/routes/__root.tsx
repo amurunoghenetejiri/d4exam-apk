@@ -87,58 +87,8 @@ function NativeBootstrap() {
     };
   }, [session?.userId, session?.role]);
 
-  // Request POST_NOTIFICATIONS on native app entry (before login).
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        try {
-          if (localStorage.getItem("d4_native_os_notif_asked_v2") === "1") return;
-        } catch { /* ignore */ }
-        const { waitForNativeShell, isNativeShell } = await import("@/native/platform");
-        let ready = isNativeShell() || (await waitForNativeShell(12_000));
-        if (!ready) {
-          await new Promise((r) => setTimeout(r, 1500));
-          ready = isNativeShell() || (await waitForNativeShell(6_000));
-        }
-        if (cancelled || !ready) return;
-        await new Promise((r) => setTimeout(r, 800));
-        if (cancelled) return;
-        let display = "default";
-        try {
-          const { registerPlugin } = await import("@capacitor/core");
-          const auth = registerPlugin<{
-            checkNotificationPermission: () => Promise<{ display?: string }>;
-            requestNotificationPermission: () => Promise<{ display?: string }>;
-          }>("D4NativeAuth");
-          const cur = await auth.checkNotificationPermission();
-          display = (cur?.display || "default").toLowerCase();
-          if (display !== "granted" && display !== "denied") {
-            const req = await auth.requestNotificationPermission();
-            display = (req?.display || display).toLowerCase();
-          }
-        } catch {
-          try {
-            const { LocalNotifications } = await import("@capacitor/local-notifications");
-            const cur = await LocalNotifications.checkPermissions();
-            display = (cur.display || "default").toLowerCase();
-            if (display !== "granted" && display !== "denied") {
-              const req = await LocalNotifications.requestPermissions();
-              display = (req.display || display).toLowerCase();
-            }
-          } catch {
-            return;
-          }
-        }
-        if (display === "granted" || display === "denied") {
-          try { localStorage.setItem("d4_native_os_notif_asked_v2", "1"); } catch { /* ignore */ }
-        }
-      } catch (e) {
-        console.warn("[D4EXAM] NativeBootstrap notif", e);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, []);
+  // Notification OS prompt is handled by NotificationPermissionPrompt after login
+  // (when the user enters their room/dashboard) — not on cold app home/login screen.
 
   return null;
 }

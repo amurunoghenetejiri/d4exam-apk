@@ -1004,7 +1004,7 @@ export function FingerprintLockGate() {
               onClick={showPasswordMode}
               className="inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-sm font-semibold text-slate-300 transition hover:bg-white/10 hover:text-white md:px-4 md:py-2.5 md:text-base"
             >
-              Use password instead
+              Use password
             </button>
           ) : hwState !== "no" ? (
             <button

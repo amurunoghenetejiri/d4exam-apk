@@ -49,10 +49,12 @@ export function NotificationPermissionPrompt() {
   const [busy, setBusy] = useState(false);
 
 
-  // App entry: request REAL Android notification permission (POST_NOTIFICATIONS).
+  // After successful login (session present): request REAL Android notification permission.
+  // Fires when user lands on their room/dashboard — not on the cold app home/login screen.
   // Only mark "asked" after the OS returns granted/denied — never after a failed plugin call.
-  // WITHOUT requiring a logged-in session.
   useEffect(() => {
+    // Wait until the user is logged in (dashboard / room context).
+    if (!session?.userId) return;
     let alreadyAsked = false;
     try {
       alreadyAsked = localStorage.getItem("d4_native_os_notif_asked_v2") === "1";
@@ -140,7 +142,7 @@ export function NotificationPermissionPrompt() {
     return () => {
       cancelled = true;
     };
-  }, []); // OS notif prompt independent of session
+  }, [session?.userId]); // OS notif only after login (dashboard/room)
 
 
   useEffect(() => {
