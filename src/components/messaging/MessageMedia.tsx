@@ -33,6 +33,16 @@ function playVoice(id: string) {
   activeVoiceId = id;
   voiceMap.get(id)?.play();
 }
+export function stopAllVoices() {
+  if (activeVoiceId) {
+    voiceMap.get(activeVoiceId)?.pause();
+    activeVoiceId = null;
+  }
+  for (const [, reg] of voiceMap) {
+    try { reg.pause(); } catch { /* ignore */ }
+  }
+}
+
 function onVoiceEnded(id: string) {
   if (activeVoiceId !== id) return;
   activeVoiceId = null;
@@ -260,7 +270,9 @@ export function VoiceBubble({
   const own = mine;
   // Prefer real audio duration; fall back to recorded durationSec
   const effectiveDur = dur > 0 ? dur : (durationSec != null && durationSec > 0 ? durationSec : 0);
-  const timeShown = effectiveDur > 0 ? fmtDur(effectiveDur) : (playing ? fmtDur(cur) : "0:00");
+  const timeShown = playing
+    ? fmtDur(cur)
+    : (effectiveDur > 0 ? fmtDur(effectiveDur) : "0:00");
 
   return (
     <div
@@ -270,8 +282,6 @@ export function VoiceBubble({
         "w-[min(78vw,280px)] sm:min-w-[240px] md:w-[min(52vw,360px)] lg:w-[min(40vw,420px)] lg:min-w-[280px]",
         own ? "items-end" : "items-start",
       )}
-      onTouchStart={(e) => e.stopPropagation()}
-      onTouchMove={(e) => e.stopPropagation()}
     >
       <div
         className={cn(
@@ -298,7 +308,7 @@ export function VoiceBubble({
           <WaveBars
             active={playing}
             light={!own}
-            progress={dur > 0 ? cur / dur : 0}
+            progress={effectiveDur > 0 ? Math.min(1, cur / effectiveDur) : 0}
             onSeek={(ratio) => {
               const a = audioRef.current;
               if (!a || !Number.isFinite(a.duration) || a.duration <= 0) return;

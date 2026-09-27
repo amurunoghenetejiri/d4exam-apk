@@ -25,7 +25,7 @@ import { isOnlineNow } from "@/lib/offline-sync";
 import { enqueueOutbox, listOutbox, removeOutbox, markOutboxFailed, markOutboxUploading, blobToDataUrlIfSmall, dataUrlToBlob, canRetry, subscribeOutbox, notifyOutbox } from "@/lib/message-outbox";
 import { joinMessagingPresence, ticksFor } from "@/lib/messaging-presence";
 import { uploadMessageMedia } from "@/lib/message-media";
-import { VoiceBubble, ImageBubble, ImageLightbox, VideoBubble, FileBubble, VideoLightbox, LongPressMenu, VoiceRecorderBar, lastSeenLabel, parseMediaUrls, attachmentLabel, parseOfficerReply } from "@/components/messaging/MessageMedia";
+import { VoiceBubble, ImageBubble, ImageLightbox, VideoBubble, FileBubble, VideoLightbox, LongPressMenu, VoiceRecorderBar, lastSeenLabel, parseMediaUrls, attachmentLabel, parseOfficerReply, stopAllVoices } from "@/components/messaging/MessageMedia";
 
 export const Route = createFileRoute("/student/contact-officer")({
   head: () => ({ meta: [{ title: "Messages — D4EXAM" }] }),
@@ -188,7 +188,7 @@ function Page() {
   const sendLock = useRef(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
-  const swipeRef = useRef<{ key: string; id: string; x: number; y: number; axis: "none" | "h" | "v"; side: "in" | "out" } | null>(null);
+  const swipeRef = useRef<{ key: string; id: string; x: number; y: number; axis: "none" | "h" | "v"; side: "in" | "out"; dx: number } | null>(null);
   const cancelRecFlag = useRef(false);
   const [swipeDx, setSwipeDx] = useState<Record<string, number>>({});
   const [highlightKey, setHighlightKey] = useState<string | null>(null);
@@ -635,6 +635,7 @@ function Page() {
   async function startRec() {
     if (recording) return;
     try {
+      try { stopAllVoices(); } catch { /* ignore */ }
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const rec = new MediaRecorder(stream);
       chunks.current = [];
@@ -1120,6 +1121,7 @@ ${replyBody}`
                     y: e.touches[0]?.clientY ?? 0,
                     axis: "none",
                     side: m.side,
+                    dx: 0,
                   };
                   startLP();
                 }}
@@ -1135,20 +1137,16 @@ ${replyBody}`
                     if (Math.abs(rawX) < 8 && Math.abs(rawY) < 8) return;
                     s.axis = Math.abs(rawX) > Math.abs(rawY) ? "h" : "v";
                   }
-                  if (s.axis === "v") return; // allow normal vertical scroll
-                  // Incoming: swipe right; own: swipe left (or either direction)
-                  let next = 0;
-                  if (m.side === "out") {
-                    next = Math.max(-72, Math.min(0, rawX));
-                  } else {
-                    next = Math.min(72, Math.max(0, rawX));
-                  }
+                  if (s.axis === "v") return;
+                  const next = Math.max(-80, Math.min(80, rawX));
+                  s.dx = next;
                   setSwipeDx((prev) => (prev[m.key] === next ? prev : { ...prev, [m.key]: next }));
+                  try { e.preventDefault(); } catch { /* ignore */ }
                 }}
                 onTouchEnd={() => {
                   endLP();
                   const s = swipeRef.current;
-                  const finalDx = swipeDx[m.key] || 0;
+                  const finalDx = s?.dx ?? swipeDx[m.key] ?? 0;
                   swipeRef.current = null;
                   setSwipeDx((prev) => {
                     const n = { ...prev };
@@ -1198,13 +1196,7 @@ ${replyBody}`
                       })()}
                     </div>
                   ) : null}
-                  <div
-                    onTouchStart={(e) => e.stopPropagation()}
-                    onTouchMove={(e) => e.stopPropagation()}
-                    onPointerDown={(e) => e.stopPropagation()}
-                  >
-                    <VoiceBubble id={`msg-${m.key}`} src={m.attachment_url!} mine={m.side === "out"} timeLabel={formatTime(m.at)} tick={m.side === "out" ? outTick : "none"} durationSec={m.durationSec} />
-                  </div>
+                  <VoiceBubble id={`msg-${m.key}`} src={m.attachment_url!} mine={m.side === "out"} timeLabel={formatTime(m.at)} tick={m.side === "out" ? outTick : "none"} durationSec={m.durationSec} />
                 </div>
               ) : (m.attachment_type === "image" || m.attachment_type === "images") && m.attachment_url ? (
                 (() => {
@@ -1287,9 +1279,10 @@ ${replyBody}`
             setNearBottom(true);
             setNewBelow(0);
           }}
-          className="absolute bottom-[5.25rem] lg:bottom-28 right-4 lg:right-8 z-30 flex items-center gap-1.5 rounded-full bg-[#0b1b3a] px-3.5 py-2.5 lg:px-4 lg:py-3 text-xs lg:text-sm font-bold text-white shadow-xl ring-2 ring-blue-400/50 animate-pulse"
+          className="absolute bottom-[5.25rem] lg:bottom-28 left-1/2 z-30 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-gradient-to-b from-[#60a5fa] via-[#3b82f6] to-[#1d4ed8] px-4 py-2.5 lg:px-5 lg:py-3 text-xs lg:text-sm font-bold text-white shadow-xl ring-2 ring-white/50"
         >
-          <span className="text-base leading-none" aria-hidden>↓</span>
+          <span className="inline-block text-lg font-black leading-none" aria-hidden style={{ animation: "d4ScrollArrowBounce 1.05s ease-in-out infinite" }}>↓</span>
+          <style>{`@keyframes d4ScrollArrowBounce { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(5px); } }`}</style>
           {newBelow > 0 ? <span>{newBelow} new</span> : null}
         </button>
       ) : null}
@@ -1391,14 +1384,14 @@ ${replyBody}`
             <button
               type="button"
               className={cn(
-                "mb-0.5 grid h-14 w-14 place-items-center rounded-full shadow-xl transition active:scale-95",
+                "mb-0.5 grid h-11 w-11 place-items-center rounded-full shadow-lg transition active:scale-95",
                 "bg-gradient-to-b from-[#60a5fa] via-[#3b82f6] to-[#1d4ed8] text-white",
-                "ring-[3px] ring-white/70 ring-offset-2 ring-offset-[#0b1b3a]",
+                "ring-2 ring-white/60 ring-offset-1 ring-offset-[#0b1b3a]",
               )}
               onClick={() => void startRec()}
               aria-label="Record voice note"
             >
-              <Mic className="h-7 w-7 stroke-[2.5]" />
+              <Mic className="h-5 w-5 stroke-[2.25]" />
             </button>
           )}
         </div>
