@@ -1,6 +1,8 @@
 import { useEffect } from "react";
 import { hideSplashSafely } from "@/native/statusBar";
+import { isNativeShell } from "@/native/platform";
 
+/** Marks splash already dismissed for this app process / tab session. */
 const SESSION_KEY = "d4exam_splash_shown_v6";
 
 function markSplashShown(): void {
@@ -15,14 +17,17 @@ function removeBootSplashDom(): void {
   try {
     const el = document.getElementById("d4-boot-splash");
     if (el) {
-      el.style.display = "none";
       el.style.opacity = "0";
       el.style.pointerEvents = "none";
-      try {
-        el.remove();
-      } catch {
-        /* ignore */
-      }
+      el.style.transition = "opacity 0.28s ease-out";
+      window.setTimeout(() => {
+        try {
+          el.style.display = "none";
+          el.remove();
+        } catch {
+          /* ignore */
+        }
+      }, 280);
     }
   } catch {
     /* ignore */
@@ -35,18 +40,30 @@ function removeBootSplashDom(): void {
 }
 
 /**
- * No branded loading screen — hide native + DOM splash immediately.
+ * D4EXAM branding splash controller.
+ * Native APK: show navy logo + D4EXAM + slogan for a short time, then fade.
+ * Web: dismiss quickly (light loader only if boot script showed it).
  */
 export function AnimatedSplash(_props?: { force?: boolean }) {
   useEffect(() => {
-    markSplashShown();
-    removeBootSplashDom();
-    void hideSplashSafely();
+    const native = isNativeShell();
+    // Branding moment on app open (~2.2s); never leave it stuck
+    const minMs = native ? 2200 : 400;
+    const hardMs = native ? 5000 : 2500;
     const t = window.setTimeout(() => {
+      markSplashShown();
       removeBootSplashDom();
       void hideSplashSafely();
-    }, 50);
-    return () => window.clearTimeout(t);
+    }, minMs);
+    const hard = window.setTimeout(() => {
+      markSplashShown();
+      removeBootSplashDom();
+      void hideSplashSafely();
+    }, hardMs);
+    return () => {
+      window.clearTimeout(t);
+      window.clearTimeout(hard);
+    };
   }, []);
 
   return null;

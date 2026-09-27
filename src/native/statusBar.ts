@@ -109,7 +109,7 @@ export async function hideSplashSafely(): Promise<void> {
   if (!isNativeShell()) return;
   try {
     const { SplashScreen } = await import("@capacitor/splash-screen");
-    await SplashScreen.hide({ fadeOutDuration: 0 });
+    await SplashScreen.hide({ fadeOutDuration: 280 });
   } catch {
     /* ignore */
   }

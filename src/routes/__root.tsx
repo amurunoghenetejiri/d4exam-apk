@@ -264,20 +264,55 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 const BOOT_SPLASH_SCRIPT = `
 (function(){
   try {
-    try { sessionStorage.setItem('d4exam_splash_shown_v6', '1'); } catch(e){}
+    var shell = false;
+    try {
+      var c = window.Capacitor;
+      if (c && (c.isNativePlatform && c.isNativePlatform() || c.getPlatform && (c.getPlatform()==='android'||c.getPlatform()==='ios'))) shell = true;
+    } catch(e){}
+    try {
+      var ua = navigator.userAgent || '';
+      if (/Android/i.test(ua) && (/; wv\)/i.test(ua) || /Capacitor/i.test(ua))) shell = true;
+    } catch(e){}
+    try {
+      if (window.matchMedia && (window.matchMedia('(display-mode: standalone)').matches || window.matchMedia('(display-mode: fullscreen)').matches)) shell = true;
+      if (navigator.standalone === true) shell = true;
+    } catch(e){}
     var el = document.getElementById('d4-boot-splash');
-    if (el) {
-      try { el.style.display = 'none'; } catch(e){}
-      try { el.remove(); } catch(e){}
-    }
-    function hideBoot(){
+    if (!el) return;
+    if (!shell) {
+      // Website: brief light loader only
+      el.className = (el.className || '') + ' d4-web-loading';
+      el.style.display = 'flex';
+      try { document.documentElement.style.backgroundColor = '#ffffff'; } catch(e){}
+      try { document.body.style.backgroundColor = '#ffffff'; } catch(e){}
+    } else {
+      // App: full navy branding splash (logo + D4EXAM + slogan)
+      if (sessionStorage.getItem('d4exam_splash_shown_v6') === '1') return;
+      el.style.display = 'flex';
+      try { document.documentElement.style.backgroundColor = '#0b1b3a'; } catch(e){}
+      try { document.body.style.backgroundColor = '#0b1b3a'; } catch(e){}
       try {
+        var mt = document.querySelector('meta[name="theme-color"]');
+        if (mt) mt.setAttribute('content', '#0b1b3a');
+      } catch(e){}
+    }
+    var hidden = false;
+    function hideBoot(){
+      if (hidden) return;
+      hidden = true;
+      try {
+        try { sessionStorage.setItem('d4exam_splash_shown_v6', '1'); } catch(e){}
         var b = document.getElementById('d4-boot-splash');
-        if (b) { b.style.display = 'none'; try { b.remove(); } catch(e){} }
+        if (!b) return;
+        b.style.transition = 'opacity 0.28s ease-out';
+        b.style.opacity = '0';
+        b.style.pointerEvents = 'none';
+        setTimeout(function(){ try { b.remove(); } catch(e){} }, 300);
       } catch(e){}
     }
     window.addEventListener('d4-hide-boot-splash', hideBoot);
-    hideBoot();
+    // Fallback hide if React controller is slow
+    setTimeout(hideBoot, shell ? 5000 : 1500);
   } catch(e){}
 })();
 `;
@@ -318,7 +353,7 @@ function RootShell({ children }: { children: ReactNode }) {
         <style
           dangerouslySetInnerHTML={{
             __html: `
-#d4-boot-splash{display:none!important;visibility:hidden!important;opacity:0!important;pointer-events:none!important;position:fixed;inset:0;z-index:-1}
+#d4-boot-splash{display:none;position:fixed;inset:0;z-index:2147483646;flex-direction:column;align-items:center;justify-content:center;background:#0b1b3a;color:#fff;font-family:system-ui,sans-serif}
 #d4-boot-splash .boot-main{display:flex;flex:1;flex-direction:column;align-items:center;justify-content:center;padding:0 1.5rem}
 #d4-boot-splash img{width:min(40vw,160px);height:min(40vw,160px);object-fit:contain}
 #d4-boot-splash .t{margin-top:1.25rem;font-weight:800;letter-spacing:.14em;font-size:clamp(1.5rem,6vw,2.25rem)}
@@ -338,7 +373,22 @@ function RootShell({ children }: { children: ReactNode }) {
         />
       </head>
       <body className="min-h-dvh text-foreground antialiased" style={{ backgroundColor: "#ffffff" }}>
-        <div id="d4-boot-splash" aria-hidden="true" style={{ display: "none" }} />
+        <div id="d4-boot-splash" aria-hidden="true">
+          <div className="boot-main boot-brand">
+            <img src="/logo.png" alt="" width="160" height="160" />
+            <div className="t">
+              D<span className="b">4</span>EXAM
+            </div>
+            <div className="s">Smart Examination System</div>
+          </div>
+          <div className="boot-spinner-wrap" aria-label="Loading">
+            <div className="boot-spinner" />
+            <div style={{ fontSize: "0.8125rem", fontWeight: 600, color: "#64748b" }}>Loading…</div>
+          </div>
+          <div className="slogan">
+            SMART. <span className="hi">SECURE.</span> SEAMLESS.
+          </div>
+        </div>
         <script dangerouslySetInnerHTML={{ __html: BOOT_SPLASH_SCRIPT }} />
         {children}
         <script
@@ -370,18 +420,29 @@ function RootComponent() {
   useEffect(() => {
     installGlobalErrorHandlers();
     startAccountVaultKeepAlive();
-    // No branded loading screen — dismiss immediately on every platform
-    void hideSplashSafely();
+    // Web: dismiss light loader promptly. Native APK: AnimatedSplash shows branding splash.
+    const native = isNativeShell();
+    if (!native) {
+      void hideSplashSafely();
+      try {
+        window.dispatchEvent(new Event("d4-hide-boot-splash"));
+      } catch { /* ignore */ }
+      try {
+        const el = document.getElementById("d4-boot-splash");
+        if (el) {
+          el.style.opacity = "0";
+          el.style.pointerEvents = "none";
+          el.style.display = "none";
+        }
+      } catch { /* ignore */ }
+    }
     try {
-      window.dispatchEvent(new Event("d4-hide-boot-splash"));
-    } catch { /* ignore */ }
-    try {
+      // Always clear lock overlays; do not force-hide native branding splash here
       const el = document.getElementById("d4-boot-splash");
-      if (el) {
+      if (el && !native) {
         el.style.opacity = "0";
         el.style.pointerEvents = "none";
         el.style.display = "none";
-        try { el.remove(); } catch { /* ignore */ }
       }
       document.body.style.overflow = "";
       document.documentElement.style.overflow = "";

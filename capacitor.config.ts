@@ -37,7 +37,7 @@ const config: CapacitorConfig = {
   },
   plugins: {
     SplashScreen: {
-      launchShowDuration: 0,
+      launchShowDuration: 2200,
       launchAutoHide: true,
       backgroundColor: "#0b1b3a",
       androidSplashResourceName: "splash",
@@ -45,7 +45,7 @@ const config: CapacitorConfig = {
       showSpinner: false,
       splashFullScreen: true,
       splashImmersive: true,
-      launchFadeOutDuration: 0,
+      launchFadeOutDuration: 280,
     },
     StatusBar: {
       style: "DARK",
