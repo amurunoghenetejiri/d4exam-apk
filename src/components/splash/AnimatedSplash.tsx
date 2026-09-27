@@ -1,8 +1,6 @@
 import { useEffect } from "react";
 import { hideSplashSafely } from "@/native/statusBar";
-import { isNativeShell } from "@/native/platform";
 
-/** Marks splash already dismissed for this app process / tab session. */
 const SESSION_KEY = "d4exam_splash_shown_v6";
 
 function markSplashShown(): void {
@@ -17,16 +15,14 @@ function removeBootSplashDom(): void {
   try {
     const el = document.getElementById("d4-boot-splash");
     if (el) {
+      el.style.display = "none";
       el.style.opacity = "0";
       el.style.pointerEvents = "none";
-      el.style.display = "none";
-      window.setTimeout(() => {
-        try {
-          el.remove();
-        } catch {
-          /* ignore */
-        }
-      }, 180);
+      try {
+        el.remove();
+      } catch {
+        /* ignore */
+      }
     }
   } catch {
     /* ignore */
@@ -39,30 +35,18 @@ function removeBootSplashDom(): void {
 }
 
 /**
- * Splash controller.
- * APK: keep full branded #d4-boot-splash (logo + D4EXAM + slogan) visible
- * for a short minimum time, then fade — never show a white icon tile.
- * Web: tear down quickly (web uses its own light loader class).
+ * No branded loading screen — hide native + DOM splash immediately.
  */
 export function AnimatedSplash(_props?: { force?: boolean }) {
   useEffect(() => {
-    const native = isNativeShell();
-    const minMs = native ? 1800 : 120;
+    markSplashShown();
+    removeBootSplashDom();
+    void hideSplashSafely();
     const t = window.setTimeout(() => {
-      markSplashShown();
       removeBootSplashDom();
       void hideSplashSafely();
-    }, minMs);
-    // Hard fallback so splash never sticks
-    const hard = window.setTimeout(() => {
-      markSplashShown();
-      removeBootSplashDom();
-      void hideSplashSafely();
-    }, native ? 4500 : 2000);
-    return () => {
-      window.clearTimeout(t);
-      window.clearTimeout(hard);
-    };
+    }, 50);
+    return () => window.clearTimeout(t);
   }, []);
 
   return null;
