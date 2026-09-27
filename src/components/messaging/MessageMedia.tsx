@@ -131,12 +131,15 @@ export function VoiceBubble({
   timeLabel,
   tick,
   id,
+  durationSec,
 }: {
   src: string;
   mine: boolean;
   timeLabel: string;
   tick?: "none" | "sent" | "delivered" | "read" | "pending";
   id?: string;
+  /** Known duration (seconds) from recording — used until audio metadata loads */
+  durationSec?: number | null;
 }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const rafRef = useRef<number | null>(null);
@@ -255,13 +258,20 @@ export function VoiceBubble({
   };
 
   const own = mine;
-  // Show total duration only (never "0:00 / 0:07" countdown while playing)
-  const timeShown = dur > 0 ? fmtDur(dur) : (playing ? fmtDur(cur) : "0:00");
+  // Prefer real audio duration; fall back to recorded durationSec
+  const effectiveDur = dur > 0 ? dur : (durationSec != null && durationSec > 0 ? durationSec : 0);
+  const timeShown = effectiveDur > 0 ? fmtDur(effectiveDur) : (playing ? fmtDur(cur) : "0:00");
 
   return (
     <div
       id={id}
-      className={cn("flex w-[min(78vw,280px)] min-w-[220px] flex-col gap-0.5 select-none", own ? "items-end" : "items-start")}
+      className={cn(
+        "flex min-w-[200px] flex-col gap-0.5 select-none",
+        "w-[min(78vw,280px)] sm:min-w-[240px] md:w-[min(52vw,360px)] lg:w-[min(40vw,420px)] lg:min-w-[280px]",
+        own ? "items-end" : "items-start",
+      )}
+      onTouchStart={(e) => e.stopPropagation()}
+      onTouchMove={(e) => e.stopPropagation()}
     >
       <div
         className={cn(
@@ -277,7 +287,7 @@ export function VoiceBubble({
           type="button"
           onClick={toggle}
           className={cn(
-            "grid h-9 w-9 shrink-0 place-items-center self-center rounded-full shadow-sm",
+            "grid h-9 w-9 lg:h-11 lg:w-11 shrink-0 place-items-center self-center rounded-full shadow-sm",
             own ? "bg-[#2563eb] text-white" : "bg-white text-[#2563eb]",
           )}
           aria-label={playing ? "Pause" : "Play"}
@@ -509,7 +519,7 @@ export function ImageBubble({
       id={id}
       type="button"
       onClick={() => onOpen(0)}
-      className="relative block max-w-[min(72vw,280px)] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
+      className="relative block max-w-[min(72vw,280px)] md:max-w-[min(48vw,380px)] lg:max-w-[min(36vw,440px)] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
       onContextMenu={(e) => e.preventDefault()}
     >
       <img src={src} alt="" className="max-h-72 w-full object-cover" draggable={false} />
@@ -551,7 +561,7 @@ export function VideoBubble({
       id={id}
       type="button"
       onClick={onOpen}
-      className="relative block max-w-[min(72vw,280px)] overflow-hidden rounded-2xl border border-slate-200 bg-black shadow-sm"
+      className="relative block max-w-[min(72vw,280px)] md:max-w-[min(48vw,380px)] lg:max-w-[min(36vw,440px)] overflow-hidden rounded-2xl border border-slate-200 bg-black shadow-sm"
       onContextMenu={(e) => e.preventDefault()}
     >
       <video src={src} className="max-h-72 w-full object-cover" muted playsInline preload="metadata" />
@@ -596,7 +606,7 @@ export function FileBubble({
       href={src}
       target="_blank"
       rel="noopener noreferrer"
-      className="flex w-[min(72vw,260px)] items-center gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-2.5 shadow-sm"
+      className="flex w-[min(72vw,260px)] md:w-[min(48vw,340px)] lg:w-[min(36vw,400px)] items-center gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-2.5 lg:px-4 lg:py-3 shadow-sm"
       onContextMenu={(e) => e.preventDefault()}
     >
       <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-slate-100 text-slate-600">

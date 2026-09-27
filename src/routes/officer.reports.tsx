@@ -119,7 +119,7 @@ function Page() {
   const [listPct, setListPct] = useState(36);
   const dragRef = useRef<{ startX: number; startPct: number } | null>(null);
   const swipeRef = useRef<{ id: string; x: number } | null>(null);
-  const [replyTo, setReplyTo] = useState<{ id: string; text: string } | null>(null);
+  const [replyTo, setReplyTo] = useState<{ id: string; text: string; fromSelf?: boolean; senderName?: string; isVoice?: boolean } | null>(null);
   const mediaRec = useRef<MediaRecorder | null>(null);
   const chunks = useRef<Blob[]>([]);
   const presenceApi = useRef<ReturnType<typeof joinMessagingPresence> | null>(null);
@@ -479,7 +479,7 @@ sendLock.current = true;
         className={cn(
           "flex min-h-0 flex-col bg-white",
           threadKey ? "hidden lg:flex" : "flex w-full flex-1",
-          "lg:w-[min(var(--lp),48%)] lg:min-w-[280px] lg:max-w-[48%] lg:flex-none lg:border-r lg:border-slate-200",
+          "lg:w-[min(var(--lp),42%)] lg:min-w-[300px] lg:max-w-[42%] xl:max-w-[38%] lg:flex-none lg:border-r lg:border-slate-200",
         )}
         style={{ ["--lp"]: `${listPct}%` } as Record<string, string>}
       >
@@ -636,7 +636,7 @@ sendLock.current = true;
                     if (!s) return;
                     const x = e.changedTouches[0]?.clientX ?? 0;
                     if (x - s.x > 56) {
-                      setReplyTo({ id: m.reportId, text: (m.text && m.text !== "(attachment)" ? m.text : attachmentLabel(m.attachment_type, m.attachment_url)).slice(0, 120) });
+                      setReplyTo({ id: m.reportId, text: (m.text && m.text !== "(attachment)" ? m.text : attachmentLabel(m.attachment_type, m.attachment_url)), fromSelf: m.side === "out", senderName: m.side === "out" ? "Me" : (active?.student_name || "Student"), isVoice: (m.attachment_type || "").includes("audio") });
                     }
                   }}>
                   {m.side === "in" ? (
@@ -660,7 +660,7 @@ sendLock.current = true;
                       );
                     })()
                   ) : (
-                    <div className={cn("max-w-[85%] rounded-2xl px-3 py-2 text-sm shadow-sm", m.side === "out" ? "rounded-br-md border border-slate-200 bg-white text-slate-800" : "rounded-bl-md bg-[#2563eb] text-white")}>
+                    <div className={cn("max-w-[85%] md:max-w-[70%] lg:max-w-[58%] rounded-2xl px-3 py-2 lg:px-4 lg:py-2.5 text-sm lg:text-[15px] shadow-sm", m.side === "out" ? "rounded-br-md border border-slate-200 bg-white text-slate-800" : "rounded-bl-md bg-[#2563eb] text-white")}>
                       {m.subject && m.side === "in" ? <p className="mb-0.5 text-[11px] font-semibold text-slate-500">{m.subject}</p> : null}
                       {m.text && m.text !== "(attachment)" ? <p className="whitespace-pre-wrap break-words">{m.text}</p> : null}
                       <p className={cn("mt-1 flex items-center justify-end gap-1 text-[10px]", m.side === "out" ? "text-slate-400" : "text-blue-100")}>

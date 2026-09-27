@@ -1031,7 +1031,7 @@ ${replyBody}`
           ) : null}
         </div>
       </div>
-      <div ref={chatScrollRef} onScroll={() => { const el = chatScrollRef.current; if (!el) return; const dist = el.scrollHeight - el.scrollTop - el.clientHeight; const near = dist < 140; setNearBottom(near); if (near) setNewBelow(0); }} className="relative z-10 min-h-0 flex-1 space-y-4 overflow-y-auto bg-transparent px-3 py-3">
+      <div ref={chatScrollRef} onScroll={() => { const el = chatScrollRef.current; if (!el) return; const dist = el.scrollHeight - el.scrollTop - el.clientHeight; const near = dist < 140; setNearBottom(near); if (near) setNewBelow(0); }} className="relative z-10 min-h-0 flex-1 space-y-4 lg:space-y-5 overflow-y-auto bg-transparent px-3 py-3 lg:px-6 lg:py-5">
         {chatMessages.map((m) => {
           const tick =
             m.side === "out"
@@ -1172,8 +1172,8 @@ ${replyBody}`
                 onMouseLeave={endLP}
               >
               {m.side === "in" ? (
-                <span className="mt-1 grid h-7 w-7 shrink-0 place-items-center rounded-full bg-[#0b1b3a] text-white">
-                  <User className="h-3.5 w-3.5" />
+                <span className="mt-1 grid h-7 w-7 lg:h-9 lg:w-9 shrink-0 place-items-center rounded-full bg-[#0b1b3a] text-white">
+                  <User className="h-3.5 w-3.5 lg:h-4 lg:w-4" />
                 </span>
               ) : null}
               {m.attachment_type === "audio" && m.attachment_url ? (
@@ -1203,7 +1203,7 @@ ${replyBody}`
                     onTouchMove={(e) => e.stopPropagation()}
                     onPointerDown={(e) => e.stopPropagation()}
                   >
-                    <VoiceBubble id={`msg-${m.key}`} src={m.attachment_url!} mine={m.side === "out"} timeLabel={formatTime(m.at)} tick={m.side === "out" ? outTick : "none"} />
+                    <VoiceBubble id={`msg-${m.key}`} src={m.attachment_url!} mine={m.side === "out"} timeLabel={formatTime(m.at)} tick={m.side === "out" ? outTick : "none"} durationSec={m.durationSec} />
                   </div>
                 </div>
               ) : (m.attachment_type === "image" || m.attachment_type === "images") && m.attachment_url ? (
@@ -1229,7 +1229,7 @@ ${replyBody}`
                 <div
                   id={`msg-${m.key}`}
                   className={cn(
-                    "max-w-[85%] rounded-2xl px-3 py-2 text-sm shadow-sm",
+                    "max-w-[85%] md:max-w-[70%] lg:max-w-[58%] xl:max-w-[50%] rounded-2xl px-3 py-2 lg:px-4 lg:py-2.5 text-sm lg:text-[15px] lg:leading-relaxed shadow-sm",
                     m.side === "out" ? "rounded-br-md border border-slate-200 bg-white text-slate-800" : "rounded-bl-md bg-[#2563eb] text-white",
                   )}
                 >
@@ -1287,7 +1287,7 @@ ${replyBody}`
             setNearBottom(true);
             setNewBelow(0);
           }}
-          className="absolute bottom-[5.25rem] right-4 z-30 flex items-center gap-1.5 rounded-full bg-[#0b1b3a] px-3.5 py-2.5 text-xs font-bold text-white shadow-xl ring-2 ring-blue-400/40 animate-pulse"
+          className="absolute bottom-[5.25rem] lg:bottom-28 right-4 lg:right-8 z-30 flex items-center gap-1.5 rounded-full bg-[#0b1b3a] px-3.5 py-2.5 lg:px-4 lg:py-3 text-xs lg:text-sm font-bold text-white shadow-xl ring-2 ring-blue-400/50 animate-pulse"
         >
           <span className="text-base leading-none" aria-hidden>↓</span>
           {newBelow > 0 ? <span>{newBelow} new</span> : null}
@@ -1423,7 +1423,7 @@ ${replyBody}`
         className={cn(
           "flex h-full min-h-0 flex-col bg-white",
           (inChat || composeOpen) ? "hidden lg:flex" : "flex w-full flex-1",
-          "lg:w-[min(var(--list-pct),55%)] lg:min-w-[280px] lg:max-w-[55%] lg:flex-none lg:border-r lg:border-slate-200",
+          "lg:w-[min(var(--list-pct),42%)] lg:min-w-[300px] lg:max-w-[42%] xl:max-w-[38%] lg:flex-none lg:border-r lg:border-slate-200",
         )}
         style={{ ["--list-pct"]: `${listPct}%` } as Record<string, string>}
       >
