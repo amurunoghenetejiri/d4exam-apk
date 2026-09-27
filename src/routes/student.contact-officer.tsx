@@ -62,6 +62,7 @@ type ChatMsg = {
   reportId: string;
   replyPreview?: string | null;
   replyToKey?: string | null;
+  durationSec?: number | null;
 };
 
 type TabKey = "inbox" | "sent" | "all";
@@ -187,7 +188,7 @@ function Page() {
   const sendLock = useRef(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
-  const swipeRef = useRef<{ key: string; id: string; x: number } | null>(null);
+  const swipeRef = useRef<{ key: string; id: string; x: number; y: number; axis: "none" | "h" | "v"; side: "in" | "out" } | null>(null);
   const cancelRecFlag = useRef(false);
   const [swipeDx, setSwipeDx] = useState<Record<string, number>>({});
   const [highlightKey, setHighlightKey] = useState<string | null>(null);
@@ -420,8 +421,16 @@ function Page() {
   }, [inChat]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (!inChat) return; if (nearBottom) { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); setNewBelow(0); } else { setNewBelow((n) => n + 1); }
-  }, [inChat, chatMessages.length, officerTyping]);
+    if (!inChat) return;
+    if (nearBottom) {
+      chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      setNewBelow(0);
+    } else {
+      // Only count inbound/officer activity as "new below" — not own optimistic sends
+      const last = chatMessages[chatMessages.length - 1];
+      if (last && last.side === "in") setNewBelow((n) => n + 1);
+    }
+  }, [inChat, chatMessages.length, officerTyping]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     (window as unknown as { __d4MsgInChat?: boolean }).__d4MsgInChat = inChat || composeOpen;
@@ -444,28 +453,28 @@ function Page() {
   }, [inChat, composeOpen]);
 
   useEffect(() => {
-    if (!recording) {
-      if (recTimer.current) clearInterval(recTimer.current);
-      recTimer.current = null;
-      setRecSecs(0);
-      return;
-    }
-    if (recPaused) {
-      if (recTimer.current) clearInterval(recTimer.current);
-      recTimer.current = null;
-      return;
-    }
-    // Keep seconds when resuming; only start interval when actively recording
-    if (!recTimer.current) {
-      recTimer.current = setInterval(() => setRecSecs((s) => s + 1), 1000);
-    }
-    return () => {
-      if (recTimer.current) {
-        clearInterval(recTimer.current);
-        recTimer.current = null;
+    // Active recording: tick the timer
+    if (recording && !recPaused) {
+      if (!recTimer.current) {
+        recTimer.current = setInterval(() => setRecSecs((s) => s + 1), 1000);
       }
-    };
-  }, [recording, recPaused]);
+      return () => {
+        if (recTimer.current) {
+          clearInterval(recTimer.current);
+          recTimer.current = null;
+        }
+      };
+    }
+    // Paused or stopped-but-previewing: freeze timer, keep displayed seconds
+    if (recTimer.current) {
+      clearInterval(recTimer.current);
+      recTimer.current = null;
+    }
+    // Only hard-reset when fully idle (no recording, no pending preview)
+    if (!recording && !pendingAudio && !pendingAudioUrl) {
+      setRecSecs(0);
+    }
+  }, [recording, recPaused, pendingAudio, pendingAudioUrl]);
 
   const selectedTitles = useMemo(
     () => exams.filter((e) => selectedExamIds.includes(e.id)).map((e) => e.title),
@@ -531,7 +540,9 @@ function Page() {
       const nowIso = new Date(Date.now()).toISOString();
       const replySnap = replyTo;
       const replyName = replySnap
-        ? (replySnap.fromSelf ? "Me" : (replySnap.senderName || officerNickname || "Officer"))
+        ? (replySnap.fromSelf
+            ? (replySnap.senderName || session?.fullName || student?.fullName || "Me")
+            : (replySnap.senderName || officerNickname || "Officer"))
         : "";
       const replyBody = replySnap
         ? (replySnap.text || buildReplySnippet({ kind: replySnap.mediaKind || "text", text: replySnap.text, durationSec: replySnap.durationSec }))
@@ -546,7 +557,9 @@ function Page() {
         attachment_type: attach?.type || null,
         reportId: clientId,
         replyPreview: replySnap ? `${replyName}\n${replyBody}` : null,
-        replyToKey: replySnap ? `${replySnap.id}-s` : null,
+        replyToKey: replySnap
+          ? `${replySnap.id}-${replySnap.fromSelf ? "s" : "o"}`
+          : null,
       };
       setOptimisticMsgs((prev) => [...prev, optMsg]);
       setReplyText("");
@@ -755,9 +768,16 @@ function Page() {
         attachment_url: localUrl,
         attachment_type: "audio",
         reportId: clientId,
-        replyPreview: replySnap ? `${replyName}
-${replyBody}` : null,
-        replyToKey: replySnap ? `${replySnap.id}-s` : null,
+        durationSec: durationSnap > 0 ? durationSnap : null,
+        replyPreview: replySnap
+          ? `${replySnap.fromSelf
+              ? (replySnap.senderName || session?.fullName || student?.fullName || "Me")
+              : (replySnap.senderName || officerNickname || "Officer")}
+${replyBody}`
+          : null,
+        replyToKey: replySnap
+          ? `${replySnap.id}-${replySnap.fromSelf ? "s" : "o"}`
+          : null,
       };
       setOptimisticMsgs((prev) => [...prev, optMsg]);
       setReplyTo(null);
@@ -942,27 +962,42 @@ ${replyBody}` : null,
 
   const chatPane = inChat ? (
     <div className="relative flex h-full min-h-0 w-full flex-1 flex-col select-none" style={{ background: "linear-gradient(180deg, #e0f2fe 0%, #f0f9ff 45%, #e0f2fe 100%)" }}>
-      {/* Brand watermark — soft sky backdrop + gentle light sweep (does not clash with bubbles) */}
-      <div aria-hidden className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center overflow-hidden">
-        <div className="relative">
-          <img
-            src={schoolLogoUrl || "/logo.png"}
-            alt=""
-            className="h-[min(52vh,400px)] w-auto max-w-[70%] select-none object-contain opacity-[0.16]"
-            style={{ filter: "grayscale(0.35) brightness(1.05)" }}
-            loading="eager"
-            decoding="async"
-          />
-          <span
-            className="pointer-events-none absolute inset-0 overflow-hidden"
-            style={{
-              background: "linear-gradient(105deg, transparent 30%, rgba(255,255,255,0.55) 50%, transparent 70%)",
-              backgroundSize: "200% 100%",
-              animation: "d4WatermarkShine 4.5s ease-in-out infinite",
-            }}
-          />
+      {/* Brand watermark — app logo with soft floating motion + light sweep */}
+      <div aria-hidden className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div
+            className="relative flex items-center justify-center"
+            style={{ animation: "d4WatermarkFloat 9s ease-in-out infinite" }}
+          >
+            <img
+              src={"/logo.png"}
+              alt=""
+              className="h-[min(48vh,360px)] w-auto max-w-[68%] select-none object-contain opacity-[0.14]"
+              style={{ filter: "grayscale(0.25) brightness(1.08)" }}
+              loading="eager"
+              decoding="async"
+            />
+            {/* Inner moving highlight across the logo body */}
+            <span
+              className="pointer-events-none absolute inset-[8%] overflow-hidden rounded-full"
+              style={{
+                background:
+                  "linear-gradient(115deg, transparent 25%, rgba(255,255,255,0.5) 48%, rgba(147,197,253,0.35) 52%, transparent 75%)",
+                backgroundSize: "220% 100%",
+                animation: "d4WatermarkShine 5s ease-in-out infinite",
+              }}
+            />
+            {/* Soft orbiting dots inside watermark region */}
+            <span className="absolute h-2 w-2 rounded-full bg-blue-400/30" style={{ top: "18%", left: "22%", animation: "d4WatermarkOrb 7s ease-in-out infinite" }} />
+            <span className="absolute h-1.5 w-1.5 rounded-full bg-sky-300/40" style={{ bottom: "22%", right: "20%", animation: "d4WatermarkOrb 8.5s ease-in-out infinite reverse" }} />
+            <span className="absolute h-1 w-1 rounded-full bg-white/50" style={{ top: "40%", right: "28%", animation: "d4WatermarkOrb 6s ease-in-out infinite" }} />
+          </div>
         </div>
-        <style>{`@keyframes d4WatermarkShine { 0%, 100% { background-position: 120% 0; } 50% { background-position: -20% 0; } }`}</style>
+        <style>{`
+          @keyframes d4WatermarkShine { 0%, 100% { background-position: 130% 0; } 50% { background-position: -30% 0; } }
+          @keyframes d4WatermarkFloat { 0%, 100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-10px) scale(1.03); } }
+          @keyframes d4WatermarkOrb { 0%, 100% { transform: translate(0,0); opacity: 0.35; } 50% { transform: translate(12px,-14px); opacity: 0.7; } }
+        `}</style>
       </div>
       <div className="relative z-30 flex shrink-0 items-center gap-3 border-b border-white/10 bg-[#0b1b3a] px-3 py-3 pt-[max(0.75rem,env(safe-area-inset-top))] text-white lg:pt-3">
         <button type="button" onClick={() => setInChat(false)} className="grid h-9 w-9 place-items-center rounded-full text-white hover:bg-white/10 lg:hidden">
@@ -1020,7 +1055,27 @@ ${replyBody}` : null,
             (Boolean(m.text) && m.text.trim() !== "" && m.text.trim() !== "(attachment)");
           if (!hasContent) return null;
           const dx = swipeDx[m.key] || 0;
-          const replyArmed = dx > 48;
+          const replyArmed = Math.abs(dx) > 48;
+          const armReply = () => {
+            const kind = classifyMedia(m.attachment_type, m.attachment_url);
+            const snippet = buildReplySnippet({
+              kind,
+              text: m.text && m.text !== "(attachment)" ? m.text : attachmentLabel(m.attachment_type, m.attachment_url),
+              durationSec: m.durationSec ?? null,
+            });
+            const self = m.side === "out";
+            setReplyTo({
+              id: m.reportId,
+              text: snippet,
+              fromSelf: self,
+              isVoice: kind === "audio",
+              mediaKind: kind,
+              durationSec: m.durationSec ?? null,
+              senderName: self
+                ? (session?.fullName || student?.fullName || "Me")
+                : (officerNickname || "Officer"),
+            });
+          };
           return (
             <div
               key={m.key}
@@ -1032,11 +1087,12 @@ ${replyBody}` : null,
               onCopy={(e) => e.preventDefault()}
               onContextMenu={(e) => e.preventDefault()}
             >
-              {/* Reply affordance revealed while dragging */}
+              {/* Reply affordance — left for incoming, right for own */}
               <div
                 className={cn(
-                  "pointer-events-none absolute left-2 top-1/2 z-0 flex -translate-y-1/2 items-center transition-opacity",
-                  replyArmed ? "opacity-100" : "opacity-0",
+                  "pointer-events-none absolute top-1/2 z-0 flex -translate-y-1/2 items-center transition-opacity duration-150",
+                  m.side === "out" ? "right-2" : "left-2",
+                  replyArmed ? "opacity-100 scale-100" : "opacity-0 scale-90",
                 )}
                 aria-hidden
               >
@@ -1047,13 +1103,24 @@ ${replyBody}` : null,
               </div>
               <div
                 className={cn(
-                  "relative z-[1] flex max-w-full touch-pan-y will-change-transform",
+                  "relative z-[1] flex max-w-full will-change-transform",
                   m.side === "out" ? "justify-end" : "justify-start gap-2",
                   highlightKey === m.key && "rounded-2xl ring-2 ring-[#2563eb] ring-offset-2",
                 )}
-                style={{ transform: `translateX(${Math.min(Math.max(dx, 0), 72)}px)`, transition: dx === 0 ? "transform 0.2s ease-out" : "none" }}
+                style={{
+                  transform: `translateX(${Math.max(-72, Math.min(72, dx))}px)`,
+                  transition: dx === 0 ? "transform 0.22s cubic-bezier(.2,.8,.2,1)" : "none",
+                  touchAction: "pan-y",
+                }}
                 onTouchStart={(e) => {
-                  swipeRef.current = { key: m.key, id: m.reportId, x: e.touches[0]?.clientX ?? 0 };
+                  swipeRef.current = {
+                    key: m.key,
+                    id: m.reportId,
+                    x: e.touches[0]?.clientX ?? 0,
+                    y: e.touches[0]?.clientY ?? 0,
+                    axis: "none",
+                    side: m.side,
+                  };
                   startLP();
                 }}
                 onTouchMove={(e) => {
@@ -1061,40 +1128,35 @@ ${replyBody}` : null,
                   const s = swipeRef.current;
                   if (!s || s.key !== m.key) return;
                   const x = e.touches[0]?.clientX ?? 0;
-                  const next = Math.min(Math.max(x - s.x, 0), 72);
+                  const y = e.touches[0]?.clientY ?? 0;
+                  const rawX = x - s.x;
+                  const rawY = y - s.y;
+                  if (s.axis === "none") {
+                    if (Math.abs(rawX) < 8 && Math.abs(rawY) < 8) return;
+                    s.axis = Math.abs(rawX) > Math.abs(rawY) ? "h" : "v";
+                  }
+                  if (s.axis === "v") return; // allow normal vertical scroll
+                  // Incoming: swipe right; own: swipe left (or either direction)
+                  let next = 0;
+                  if (m.side === "out") {
+                    next = Math.max(-72, Math.min(0, rawX));
+                  } else {
+                    next = Math.min(72, Math.max(0, rawX));
+                  }
                   setSwipeDx((prev) => (prev[m.key] === next ? prev : { ...prev, [m.key]: next }));
                 }}
-                onTouchEnd={(e) => {
+                onTouchEnd={() => {
                   endLP();
                   const s = swipeRef.current;
-                  swipeRef.current = null;
                   const finalDx = swipeDx[m.key] || 0;
+                  swipeRef.current = null;
                   setSwipeDx((prev) => {
                     const n = { ...prev };
                     delete n[m.key];
                     return n;
                   });
-                  if (!s) return;
-                  const x = e.changedTouches[0]?.clientX ?? 0;
-                  if (x - s.x > 56 || finalDx > 48) {
-                    {
-                      const kind = classifyMedia(m.attachment_type, m.attachment_url);
-                      const snippet = buildReplySnippet({
-                        kind,
-                        text: m.text && m.text !== "(attachment)" ? m.text : attachmentLabel(m.attachment_type, m.attachment_url),
-                        durationSec: (m as { durationSec?: number }).durationSec ?? null,
-                      });
-                      setReplyTo({
-                        id: m.reportId,
-                        text: snippet,
-                        fromSelf: m.side === "out",
-                        isVoice: kind === "audio",
-                        mediaKind: kind,
-                        durationSec: (m as { durationSec?: number }).durationSec ?? null,
-                        senderName: m.side === "out" ? "Me" : officerNickname,
-                      });
-                    }
-                  }
+                  if (!s || s.axis === "v") return;
+                  if (Math.abs(finalDx) > 48) armReply();
                 }}
                 onTouchCancel={() => {
                   endLP();
@@ -1238,7 +1300,11 @@ ${replyBody}` : null,
               {replyTo.isVoice ? <Mic className="h-4 w-4" /> : <Reply className="h-4 w-4" />}
             </span>
             <div className="min-w-0 flex-1">
-              <p className="text-[11px] font-bold text-blue-800">{replyTo.fromSelf ? "Me" : (replyTo.senderName || officerNickname)}</p>
+              <p className="text-[11px] font-bold text-blue-800">
+                {replyTo.fromSelf
+                  ? (replyTo.senderName || session?.fullName || student?.fullName || "Me")
+                  : (replyTo.senderName || officerNickname || "Officer")}
+              </p>
               <p className="line-clamp-2 text-xs text-slate-700">
                 {replyTo.text}
               </p>
