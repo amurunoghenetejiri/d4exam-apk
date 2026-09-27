@@ -306,7 +306,7 @@ const BOOT_SPLASH_SCRIPT = `
       } catch(e){}
     }
     window.addEventListener('d4-hide-boot-splash', hideBoot);
-    setTimeout(hideBoot, shell ? 1800 : 1200);
+    setTimeout(hideBoot, shell ? 2200 : 1200);
   } catch(e){}
 })();
 `;
@@ -341,7 +341,7 @@ function RootShell({ children }: { children: ReactNode }) {
   };
 
   return (
-    <html lang="en" style={{ backgroundColor: "#ffffff" }}>
+    <html lang="en" style={{ backgroundColor: "#0b1b3a" }}>
       <head>
         <HeadContent />
         <style
@@ -414,9 +414,16 @@ function RootComponent() {
   useEffect(() => {
     installGlobalErrorHandlers();
     startAccountVaultKeepAlive();
-    void hideSplashSafely();
+    // APK: AnimatedSplash owns splash timing (branded navy screen).
+    // Web: dismiss boot loader promptly.
+    const native = isNativeShell();
+    if (!native) {
+      void hideSplashSafely();
+      try {
+        window.dispatchEvent(new Event("d4-hide-boot-splash"));
+      } catch { /* ignore */ }
+    }
     try {
-      window.dispatchEvent(new Event("d4-hide-boot-splash"));
       const el = document.getElementById("d4-boot-splash");
       if (el) {
         el.style.opacity = "0";

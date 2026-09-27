@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { hideSplashSafely } from "@/native/statusBar";
+import { isNativeShell } from "@/native/platform";
 
 /** Marks splash already dismissed for this app process / tab session. */
 const SESSION_KEY = "d4exam_splash_shown_v6";
@@ -25,7 +26,7 @@ function removeBootSplashDom(): void {
         } catch {
           /* ignore */
         }
-      }, 50);
+      }, 180);
     }
   } catch {
     /* ignore */
@@ -38,33 +39,29 @@ function removeBootSplashDom(): void {
 }
 
 /**
- * Silent splash controller — NO second React splash UI.
- *
- * Native Capacitor splash + HTML #d4-boot-splash are the only visible splash.
- * This component only tears them down as soon as React mounts so the user
- * goes straight to the dashboard without a second loading screen.
+ * Splash controller.
+ * APK: keep full branded #d4-boot-splash (logo + D4EXAM + slogan) visible
+ * for a short minimum time, then fade — never show a white icon tile.
+ * Web: tear down quickly (web uses its own light loader class).
  */
 export function AnimatedSplash(_props?: { force?: boolean }) {
   useEffect(() => {
-    markSplashShown();
-    removeBootSplashDom();
-    void hideSplashSafely();
-    const t1 = window.setTimeout(() => {
+    const native = isNativeShell();
+    const minMs = native ? 1800 : 120;
+    const t = window.setTimeout(() => {
+      markSplashShown();
       removeBootSplashDom();
       void hideSplashSafely();
-    }, 40);
-    const t2 = window.setTimeout(() => {
+    }, minMs);
+    // Hard fallback so splash never sticks
+    const hard = window.setTimeout(() => {
+      markSplashShown();
       removeBootSplashDom();
       void hideSplashSafely();
-    }, 200);
-    const t3 = window.setTimeout(() => {
-      removeBootSplashDom();
-      void hideSplashSafely();
-    }, 600);
+    }, native ? 4500 : 2000);
     return () => {
-      window.clearTimeout(t1);
-      window.clearTimeout(t2);
-      window.clearTimeout(t3);
+      window.clearTimeout(t);
+      window.clearTimeout(hard);
     };
   }, []);
 

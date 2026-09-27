@@ -4,7 +4,46 @@ import { routeTree } from "./routeTree.gen";
 import { isOnlineNow } from "@/lib/offline-sync";
 import { bindAppRouter } from "@/lib/app-navigate";
 
+function isApkShell(): boolean {
+  try {
+    if (typeof window === "undefined") return false;
+    const cap = (window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor;
+    const ua = navigator.userAgent || "";
+    return (
+      Boolean(cap?.isNativePlatform?.()) ||
+      (/; wv\)/i.test(ua) && /Android/i.test(ua)) ||
+      /Capacitor/i.test(ua)
+    );
+  } catch {
+    return false;
+  }
+}
+
+/** APK: navy + animated D4EXAM text. Website: keep light spinner. */
 function DefaultPending() {
+  if (isApkShell()) {
+    return (
+      <div className="flex min-h-dvh flex-col items-center justify-center bg-[#0b1b3a] px-6 py-16">
+        <p
+          className="select-none text-2xl font-extrabold tracking-[0.2em] text-white"
+          style={{
+            background: "linear-gradient(90deg, #94a3b8 0%, #ffffff 40%, #60a5fa 50%, #ffffff 60%, #94a3b8 100%)",
+            backgroundSize: "200% 100%",
+            WebkitBackgroundClip: "text",
+            backgroundClip: "text",
+            color: "transparent",
+            animation: "d4LoadShine 2.2s ease-in-out infinite",
+          }}
+        >
+          D4EXAM
+        </p>
+        <p className="mt-3 text-[10px] font-semibold tracking-[0.28em] text-slate-500">
+          SMART. SECURE. SEAMLESS.
+        </p>
+        <style>{`@keyframes d4LoadShine { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }`}</style>
+      </div>
+    );
+  }
   return (
     <div className="flex min-h-[50vh] flex-col items-center justify-center gap-3 bg-white py-12">
       <div className="h-9 w-9 animate-spin rounded-full border-[3px] border-slate-200 border-t-blue-600" />
