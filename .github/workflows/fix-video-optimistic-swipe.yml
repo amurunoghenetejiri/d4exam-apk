@@ -8,14 +8,139 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
-      - name: Assemble and run patch
+      - name: Patch
         run: |
-          set -euo pipefail
-          cat scripts/fv_parts/p*.txt > scripts/fix_video_ux.py
-          python3 scripts/fix_video_ux.py
+          python3 << 'PY'
+          from pathlib import Path
+          import re
+          p = Path("src/routes/student.contact-officer.tsx")
+          t = p.read_text()
+          m = re.search(r"async function onFile\(files: FileList \| File\[\]\) \{.*?\n  \}", t, re.S)
+          if not m:
+            print("onFile not found"); raise SystemExit(1)
+          new = r'''  async function onFile(files: FileList | File[]) {
+            const list = Array.from(files);
+            if (!list.length) return;
+            for (const file of list) {
+              const mime = (file.type || "").toLowerCase();
+              let kind: "image" | "video" | "audio" | "file" = "file";
+              if (mime.startsWith("image/") || /\.(jpe?g|png|gif|webp)$/i.test(file.name)) kind = "image";
+              else if (mime.startsWith("video/") || /\.(mp4|webm|mov)$/i.test(file.name)) kind = "video";
+              else if (mime.startsWith("audio/")) kind = "audio";
+              const localUrl = URL.createObjectURL(file);
+              const clientId = `opt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+              const nowIso = new Date().toISOString();
+              const replySnap = replyTo;
+              const replyName = replySnap ? (replySnap.fromSelf ? (replySnap.senderName || session?.fullName || student?.fullName || "Me") : (replySnap.senderName || officerNickname || "Officer")) : "";
+              const replyBody = replySnap ? (replySnap.text || buildReplySnippet({ kind: replySnap.mediaKind || "text", text: replySnap.text, durationSec: replySnap.durationSec })) : "";
+              const optMsg: ChatMsg = { key: `${clientId}-s`, side: "out", text: "(attachment)", at: nowIso, subject: replySnap ? `Re: ${(replySnap.text || "").slice(0, 40)}` : subject.trim() || null, attachment_url: localUrl, attachment_type: kind, reportId: clientId, replyPreview: replySnap ? `${replyName}\n${replyBody}` : null, replyToKey: replySnap ? `${replySnap.id}-${replySnap.fromSelf ? "s" : "o"}` : null };
+              setOptimisticMsgs((prev) => [...prev, optMsg]);
+              setReplyTo(null); setPendingAttach(null); setNearBottom(true); setNewBelow(0);
+              requestAnimationFrame(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }));
+              void (async () => {
+                try {
+                  const up = await uploadMessageMedia(file, file.type || "application/octet-stream", `msg/${schoolId}/${userId}`);
+                  const name = session?.fullName || student?.fullName || "Student";
+                  const payload: Record<string, unknown> = { school_id: schoolId, student_id: studentId || null, student_user_id: userId || null, student_name: name, student_matric: student?.matric || null, exam_id: selectedExamIds[0] || null, exam_title: null, exam_ids: selectedExamIds.length ? selectedExamIds : [], exam_titles: [], subject: optMsg.subject, body: "(attachment)", attachment_url: up.url, attachment_type: kind === "file" ? (up.type || "file") : kind, status: "open", reply_to_id: replySnap?.id || null };
+                  const { error } = await supabase.from("student_officer_reports").insert(payload);
+                  if (error) throw error;
+                  setOptimisticMsgs((prev) => prev.filter((m) => m.reportId !== clientId));
+                  await qc.invalidateQueries({ queryKey: ["student-my-reports"] });
+                  try { URL.revokeObjectURL(localUrl); } catch {}
+                } catch (e) {
+                  setFailedIds((s) => new Set(s).add(clientId));
+                  toast.error(e instanceof Error ? e.message : "Upload failed");
+                }
+              })();
+            }
+          }''';
+          t = t[:m.start()] + new + t[m.end():]
+          print("onFile OK")
+          for a,b in [("Math.max(-72, Math.min(72, dx))","Math.max(-96, Math.min(96, dx))"),("transform 0.22s cubic-bezier(.2,.8,.2,1)","transform 0.28s cubic-bezier(.2,.85,.25,1)"),("Math.max(-80, Math.min(80, rawX))","Math.max(-96, Math.min(96, rawX))"),("Math.abs(dx) > 48","Math.abs(dx) > 40"),("Math.abs(finalDx) > 48","Math.abs(finalDx) > 40")]:
+            if a in t: t=t.replace(a,b); print("swipe",a[:20])
+          if 'willChange: "transform"' not in t and 'touchAction: "pan-y"' in t:
+            t=t.replace('touchAction: "pan-y",','touchAction: "pan-y",\n                  willChange: "transform",')
+          old="""const kind = classifyMedia(m.attachment_type, m.attachment_url);
+            const snippet = buildReplySnippet({
+              kind,
+              text: m.text && m.text !== "(attachment)" ? m.text : attachmentLabel(m.attachment_type, m.attachment_url),
+              durationSec: m.durationSec ?? null,
+            });"""
+          newa="""const kind = classifyMedia(m.attachment_type, m.attachment_url);
+            let durSec = m.durationSec ?? null;
+            if (kind === "audio" && (durSec == null || !(durSec > 0))) {
+              try { const el = document.getElementById(`msg-${m.key}`); const dAttr = el?.getAttribute("data-duration"); if (dAttr) { const n = Number(dAttr); if (Number.isFinite(n) && n > 0) durSec = n; } } catch {}
+            }
+            const snippet = buildReplySnippet({
+              kind,
+              text: m.text && m.text !== "(attachment)" ? m.text : attachmentLabel(m.attachment_type, m.attachment_url),
+              durationSec: durSec,
+            });"""
+          if old in t: t=t.replace(old,newa,1); print("armReply OK")
+          needle="""              <p className="line-clamp-2 text-xs text-slate-700">
+                {replyTo.text}
+              </p>
+            </div>
+            <button type="button" onClick={() => setReplyTo(null)}"""
+          insert="""              <p className="line-clamp-2 text-xs text-slate-700">
+                {replyTo.text}
+              </p>
+            </div>
+            {replyTo.isVoice && replyTo.durationSec != null && replyTo.durationSec > 0 ? (
+              <span className="shrink-0 self-center rounded-md bg-blue-100 px-2 py-0.5 text-[11px] font-bold tabular-nums text-blue-800">{fmtVoiceDur(replyTo.durationSec)}</span>
+            ) : null}
+            <button type="button" onClick={() => setReplyTo(null)}"""
+          if needle in t and "fmtVoiceDur(replyTo.durationSec)" not in t:
+            t=t.replace(needle,insert,1); print("banner OK")
+          p.write_text(t); print("student",len(t))
+          mm=Path("src/components/messaging/MessageMedia.tsx"); mtxt=mm.read_text()
+          if "data-duration={effectiveDur" not in mtxt:
+            mtxt=mtxt.replace('    <div\n      id={id}\n      className={cn(\n        "flex min-w-[200px] flex-col gap-0.5 select-none",','    <div\n      id={id}\n      data-duration={effectiveDur > 0 ? String(Math.round(effectiveDur)) : undefined}\n      className={cn(\n        "flex min-w-[200px] flex-col gap-0.5 select-none",')
+            print("data-duration")
+          oldp='''      <span className="absolute inset-0 grid place-items-center">
+        <span className="grid h-12 w-12 place-items-center rounded-full bg-black/55 text-white shadow-lg ring-2 ring-white/40">
+          <Play className="ml-0.5 h-6 w-6" />
+        </span>
+      </span>'''
+          newp='''      <span className="absolute inset-0 grid place-items-center">
+        {tick === "pending" ? (
+          <span className="grid h-12 w-12 place-items-center rounded-full bg-black/55 text-white shadow-lg ring-2 ring-white/40">
+            <Clock className="h-6 w-6 animate-pulse" />
+          </span>
+        ) : (
+          <span className="grid h-12 w-12 place-items-center rounded-full bg-black/55 text-white shadow-lg ring-2 ring-white/40">
+            <Play className="ml-0.5 h-6 w-6" />
+          </span>
+        )}
+      </span>'''
+          if oldp in mtxt: mtxt=mtxt.replace(oldp,newp,1); print("VideoBubble")
+          if "playbackRate = 2" not in mtxt:
+            mtxt=mtxt.replace('''          onDoubleClick={() => {
+            const v = videoRef.current;
+            if (!v) return;
+            v.currentTime = Math.min((v.duration || 0), (v.currentTime || 0) + 10);
+          }}''','''          onDoubleClick={() => {
+            const v = videoRef.current;
+            if (!v) return;
+            v.currentTime = Math.min((v.duration || 0), (v.currentTime || 0) + 10);
+          }}
+          onTouchStart={() => {
+            (window as any).__d4vlHold = window.setTimeout(() => {
+              const v = videoRef.current;
+              if (v) { (window as any).__d4vlRate = v.playbackRate || 1; v.playbackRate = 2; }
+            }, 420);
+          }}
+          onTouchEnd={() => {
+            const id = (window as any).__d4vlHold; if (id) clearTimeout(id);
+            const v = videoRef.current;
+            if (v && v.playbackRate === 2) v.playbackRate = (window as any).__d4vlRate || 1;
+          }}''')
+            print("longpress2x")
+          mtxt=mtxt.replace('aria-label="Close"\n        >\n          <X className="h-5 w-5" />\n        </button>\n        <button type="button" onClick={async () =>','aria-label="Back"\n        >\n          <X className="h-5 w-5" />\n        </button>\n        <button type="button" onClick={async () =>')
+          mm.write_text(mtxt); print("mm",len(mtxt)); print("DONE")
+          PY
           git config user.name d4exam-bot
           git config user.email bot@d4exam.name.ng
           git add src/routes/student.contact-officer.tsx src/components/messaging/MessageMedia.tsx
-          git status
-          git commit -m "fix(messaging): optimistic video/image, video lightbox, smooth swipe, voice reply duration" || echo nochanges
+          git commit -m "fix(messaging): optimistic video/image, pending clock, smooth swipe, voice reply duration, video 2x hold" || echo nochanges
           git push
