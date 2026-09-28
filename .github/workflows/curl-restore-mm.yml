@@ -10,87 +10,26 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
-      - name: Restore onFile
+      - name: Restore onFile from commit before break
         run: |
-          python3 << 'PY'
+          set -euo pipefail
+          git show 10bfb17c1a1705b0cbc23d642857105bcbaa13ff:src/routes/student.contact-officer.tsx > /tmp/old.tsx
+          python3 -c "
           from pathlib import Path
           import re
-          p = Path("src/routes/student.contact-officer.tsx")
-          t = p.read_text()
-          m = re.search(r"async function onFile\(files: FileList \| File\[\]\) \{.*?\n  \}", t, re.S)
-          if not m:
-            raise SystemExit("missing onFile")
-          # Safe version: optimistic local blob + string concat only (no backticks)
-          new = """  async function onFile(files: FileList | File[]) {
-    const list = Array.from(files);
-    if (!list.length) return;
-    for (const file of list) {
-      const mime = (file.type || "").toLowerCase();
-      let kind: "image" | "video" | "audio" | "file" = "file";
-      if (mime.startsWith("image/") || /\\.(jpe?g|png|gif|webp)$/i.test(file.name)) kind = "image";
-      else if (mime.startsWith("video/") || /\\.(mp4|webm|mov)$/i.test(file.name)) kind = "video";
-      else if (mime.startsWith("audio/")) kind = "audio";
-      const localUrl = URL.createObjectURL(file);
-      const clientId = "opt-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8);
-      const nowIso = new Date().toISOString();
-      const replySnap = replyTo;
-      const optMsg: ChatMsg = {
-        key: clientId + "-s",
-        side: "out",
-        text: "(attachment)",
-        at: nowIso,
-        subject: replySnap ? ("Re: " + (replySnap.text || "").slice(0, 40)) : subject.trim() || null,
-        attachment_url: localUrl,
-        attachment_type: kind,
-        reportId: clientId,
-        replyPreview: null,
-        replyToKey: replySnap ? (replySnap.id + "-" + (replySnap.fromSelf ? "s" : "o")) : null,
-      };
-      setOptimisticMsgs((prev) => [...prev, optMsg]);
-      setReplyTo(null);
-      setPendingAttach(null);
-      setNearBottom(true);
-      setNewBelow(0);
-      requestAnimationFrame(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }));
-      void (async () => {
-        try {
-          const up = await uploadMessageMedia(file, file.type || "application/octet-stream", "msg/" + schoolId + "/" + userId);
-          const name = session?.fullName || student?.fullName || "Student";
-          const payload: Record<string, unknown> = {
-            school_id: schoolId,
-            student_id: studentId || null,
-            student_user_id: userId || null,
-            student_name: name,
-            student_matric: student?.matric || null,
-            exam_id: selectedExamIds[0] || null,
-            exam_title: null,
-            exam_ids: selectedExamIds.length ? selectedExamIds : [],
-            exam_titles: [],
-            subject: optMsg.subject,
-            body: "(attachment)",
-            attachment_url: up.url,
-            attachment_type: kind === "file" ? (up.type || "file") : kind,
-            status: "open",
-            reply_to_id: replySnap?.id || null,
-          };
-          const { error } = await supabase.from("student_officer_reports").insert(payload);
-          if (error) throw error;
-          setOptimisticMsgs((prev) => prev.filter((m) => m.reportId !== clientId));
-          await qc.invalidateQueries({ queryKey: ["student-my-reports"] });
-          try { URL.revokeObjectURL(localUrl); } catch {}
-        } catch (e) {
-          setFailedIds((s) => new Set(s).add(clientId));
-          toast.error(e instanceof Error ? e.message : "Upload failed");
-        }
-      })();
-    }
-  }"""
-          t = t[:m.start()] + new + t[m.end():]
-          p.write_text(t)
-          print("onFile restored ok", len(t))
-          PY
+          old = Path('/tmp/old.tsx').read_text()
+          cur = Path('src/routes/student.contact-officer.tsx').read_text()
+          m_old = re.search(r'async function onFile\\(files: FileList \\| File\\[\\]\\) \\{.*?\\n  \\}', old, re.S)
+          m_cur = re.search(r'async function onFile\\(files: FileList \\| File\\[\\]\\) \\{.*?\\n  \\}', cur, re.S)
+          assert m_old and m_cur
+          # keep swipe improvements from cur, only restore onFile body from old + optimistic wrapper later
+          # For safety restore old onFile exactly so build works
+          fixed = cur[:m_cur.start()] + m_old.group(0) + cur[m_cur.end():]
+          Path('src/routes/student.contact-officer.tsx').write_text(fixed)
+          print('restored onFile from 10bfb17')
+          "
           git config user.name d4exam-bot
           git config user.email bot@d4exam.name.ng
           git add src/routes/student.contact-officer.tsx
-          git commit -m "fix(messaging): optimistic onFile with safe string concat" || echo nochange
+          git commit -m 'fix(messaging): restore working onFile (build-safe); keep smoother swipe' || echo nochange
           git push
