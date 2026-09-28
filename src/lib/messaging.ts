@@ -251,11 +251,28 @@ export async function getOrCreateDirectConversation(
     }
   }
 
-  // Create new
-  const resolvedSchool = (await resolveMySchoolId(schoolId)) || schoolId;
-  if (!resolvedSchool) throw new Error("No school linked to your account");
+  // Create new via RPC first
+  const resolvedSchool = (await resolveMySchoolId(schoolId)) || schoolId || null;
+  const { data: rpcId, error: rpcErr } = await supabase.rpc(
+    "create_campus_conversation",
+    {
+      p_type: "direct",
+      p_title: null,
+      p_description: null,
+      p_group_kind: null,
+      p_member_user_ids: [peerUserId],
+      p_school_id: resolvedSchool,
+    },
+  );
+  if (!rpcErr && rpcId) return rpcId as string;
+
   const { data: auth } = await supabase.auth.getUser();
   const uid = auth.user?.id || myUserId;
+  if (!resolvedSchool) {
+    throw new Error(
+      rpcErr?.message || "No school linked to your account",
+    );
+  }
 
   const { data: conv, error: cErr } = await supabase
     .from("conversations")
@@ -268,7 +285,9 @@ export async function getOrCreateDirectConversation(
     .select("id")
     .single();
 
-  if (cErr || !conv?.id) throw new Error(cErr?.message || "Could not create chat");
+  if (cErr || !conv?.id) {
+    throw new Error(cErr?.message || rpcErr?.message || "Could not create chat");
+  }
 
   const cid = conv.id as string;
   const { error: mErr } = await supabase.from("conversation_members").insert([
@@ -289,11 +308,42 @@ export async function createGroup(opts: {
   memberUserIds: string[];
   avatarUrl?: string | null;
 }): Promise<string> {
-  const schoolId = (await resolveMySchoolId(opts.schoolId)) || opts.schoolId;
-  if (!schoolId) throw new Error("No school linked to your account");
+  const schoolId = (await resolveMySchoolId(opts.schoolId)) || opts.schoolId || null;
+  const memberIds = opts.memberUserIds.filter(Boolean);
+
+  // Prefer SECURITY DEFINER RPC (avoids RLS insert failures)
+  const { data: rpcId, error: rpcErr } = await supabase.rpc(
+    "create_campus_conversation",
+    {
+      p_type: "group",
+      p_title: opts.title.trim(),
+      p_description: opts.description?.trim() || null,
+      p_group_kind: opts.groupKind || "study",
+      p_member_user_ids: memberIds.length ? memberIds : [],
+      p_school_id: schoolId || null,
+    },
+  );
+
+  if (!rpcErr && rpcId) {
+    if (opts.avatarUrl) {
+      await supabase
+        .from("conversations")
+        .update({ avatar_url: opts.avatarUrl })
+        .eq("id", rpcId);
+    }
+    return rpcId as string;
+  }
+
+  // Fallback direct insert
   const { data: auth } = await supabase.auth.getUser();
   const creatorId = auth.user?.id || opts.creatorId;
   if (!creatorId) throw new Error("Not signed in");
+  if (!schoolId) {
+    throw new Error(
+      rpcErr?.message ||
+        "No school linked to your account. Ask admin to set school_id on your profile.",
+    );
+  }
 
   const { data: conv, error: cErr } = await supabase
     .from("conversations")
@@ -310,16 +360,18 @@ export async function createGroup(opts: {
     .select("id")
     .single();
 
-  if (cErr || !conv?.id) throw new Error(cErr?.message || "Could not create group");
+  if (cErr || !conv?.id) {
+    throw new Error(
+      cErr?.message ||
+        rpcErr?.message ||
+        "Could not create group",
+    );
+  }
 
   const cid = conv.id as string;
   const members = [
-    {
-      conversation_id: cid,
-      user_id: creatorId,
-      role: "owner" as const,
-    },
-    ...opts.memberUserIds
+    { conversation_id: cid, user_id: creatorId, role: "owner" as const },
+    ...memberIds
       .filter((id) => id !== creatorId)
       .map((id) => ({
         conversation_id: cid,
@@ -327,7 +379,6 @@ export async function createGroup(opts: {
         role: "member" as const,
       })),
   ];
-
   const { error: mErr } = await supabase.from("conversation_members").insert(members);
   if (mErr) throw new Error(mErr.message);
   return cid;
@@ -430,14 +481,53 @@ export async function discoverStudents(opts: {
   excludeUserId?: string | null;
   limit?: number;
 }): Promise<StudentDiscover[]> {
+  const limit = opts.limit ?? 60;
+
+  // Prefer SECURITY DEFINER RPC
+  const { data: rpcRows, error: rpcErr } = await supabase.rpc(
+    "list_school_students_for_messaging",
+    {
+      p_query: opts.query?.trim() || null,
+      p_department_id: opts.departmentId || null,
+      p_limit: limit,
+    },
+  );
+
+  if (!rpcErr && Array.isArray(rpcRows) && rpcRows.length >= 0 && !rpcErr) {
+    let list: StudentDiscover[] = (rpcRows as Record<string, unknown>[]).map((r) => ({
+      id: r.id as string,
+      profile_id: (r.profile_id as string) || null,
+      auth_user_id: (r.auth_user_id as string) || null,
+      full_name: (r.full_name as string) || "Student",
+      matric_number: (r.matric_number as string) || null,
+      department: (r.department as string) || null,
+      level: (r.level as string) || null,
+      department_id: (r.department_id as string) || null,
+      level_id: (r.level_id as string) || null,
+      school_id: (r.school_id as string) || null,
+      avatar_url: (r.avatar_url as string) || null,
+    }));
+    if (opts.levelId) {
+      list = list.filter((s) => s.level_id === opts.levelId);
+    }
+    if (opts.excludeUserId) {
+      list = list.filter((s) => s.auth_user_id !== opts.excludeUserId);
+    }
+    // If RPC returned rows OR succeeded with empty (real empty school), use it
+    // Only fall through if RPC itself failed
+    if (!rpcErr) return list;
+  }
+
+  if (rpcErr) {
+    console.warn("[discoverStudents] rpc", rpcErr.message);
+  }
+
   const schoolId = (await resolveMySchoolId(opts.schoolId)) || opts.schoolId;
   if (!schoolId) return [];
 
-  const limit = opts.limit ?? 60;
   const baseSelect =
     "id, profile_id, matric_number, student_id, school_id, department_id, level_id, full_name, status";
 
-  // Try rich select first; fall back to plain columns if relations fail
   let rows: Record<string, unknown>[] = [];
   const rich = await supabase
     .from("students")
@@ -460,11 +550,7 @@ export async function discoverStudents(opts: {
       return [];
     }
     rows = plain.data as Record<string, unknown>[];
-
-    // Hydrate profiles separately
-    const profileIds = rows
-      .map((r) => r.profile_id as string)
-      .filter(Boolean);
+    const profileIds = rows.map((r) => r.profile_id as string).filter(Boolean);
     if (profileIds.length) {
       const { data: profiles } = await supabase
         .from("profiles")
@@ -476,36 +562,8 @@ export async function discoverStudents(opts: {
         profiles: byId.get(r.profile_id as string) || null,
       }));
     }
-
-    // Hydrate dept/level names
-    const deptIds = [...new Set(rows.map((r) => r.department_id).filter(Boolean))];
-    const levelIds = [...new Set(rows.map((r) => r.level_id).filter(Boolean))];
-    const deptMap = new Map<string, string>();
-    const levelMap = new Map<string, string>();
-    if (deptIds.length) {
-      const { data: depts } = await supabase
-        .from("departments")
-        .select("id, name")
-        .in("id", deptIds as string[]);
-      for (const d of depts || []) deptMap.set(d.id as string, d.name as string);
-    }
-    if (levelIds.length) {
-      const { data: levels } = await supabase
-        .from("levels")
-        .select("id, name")
-        .in("id", levelIds as string[]);
-      for (const l of levels || []) levelMap.set(l.id as string, l.name as string);
-    }
-    rows = rows.map((r) => ({
-      ...r,
-      departments: r.department_id
-        ? { name: deptMap.get(r.department_id as string) }
-        : null,
-      levels: r.level_id ? { name: levelMap.get(r.level_id as string) } : null,
-    }));
   }
 
-  // Client-side department / level filter (avoids empty when FK filter fails)
   if (opts.departmentId) {
     rows = rows.filter((r) => r.department_id === opts.departmentId);
   }

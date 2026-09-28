@@ -12,14 +12,14 @@ import {
   UserPlus,
   Shield,
   GraduationCap,
-  MessageSquare,
+  MessagesSquare,
   MoreVertical,
   Check,
   CheckCheck,
   Play,
   UsersRound,
   ArrowLeft,
-  PenSquare,
+  PenLine,
 } from "lucide-react";
 import { useSessionUser } from "@/lib/session";
 import { useStudentContext } from "@/lib/student";
@@ -265,7 +265,7 @@ function MessagesHub() {
           <div className="flex gap-1 rounded-2xl bg-slate-100/90 p-1">
             {(
               [
-                ["chats", "Chats", MessageSquare],
+                ["chats", "Chats", MessagesSquare],
                 ["groups", "Groups", Users],
                 ["students", "Students", GraduationCap],
                 ["officers", "Officers", Shield],
@@ -466,7 +466,7 @@ function MessagesHub() {
         style={{ marginBottom: "env(safe-area-inset-bottom, 0px)" }}
         aria-label="New message"
       >
-        <PenSquare className="h-6 w-6" />
+        <PenLine className="h-6 w-6" />
       </button>
     </div>
   );
