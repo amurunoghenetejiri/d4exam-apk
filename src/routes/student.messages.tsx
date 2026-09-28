@@ -9,9 +9,11 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Search,
   Users,
+  User,
   UserPlus,
   Shield,
   GraduationCap,
+  MessageSquare,
   MessagesSquare,
   MoreVertical,
   Check,
@@ -139,18 +141,16 @@ function MessagesHub() {
       "campus-discover",
       schoolId,
       search,
+      deptOpen,
       tab === "students" || findOpen || deptOpen,
     ],
-    enabled: Boolean(schoolId) && (tab === "students" || findOpen || deptOpen),
+    enabled: Boolean(userId) && (tab === "students" || findOpen || deptOpen),
     staleTime: 30_000,
     queryFn: () =>
       discoverStudents({
-        schoolId,
+        schoolId: schoolId || schoolIdHint || "",
         query: search,
-        departmentId:
-          deptOpen || tab === "students"
-            ? student?.departmentId || null
-            : null,
+        departmentId: deptOpen ? student?.departmentId || null : null,
         excludeUserId: userId,
         limit: 60,
       }),
@@ -265,9 +265,9 @@ function MessagesHub() {
           <div className="flex gap-1 rounded-2xl bg-slate-100/90 p-1">
             {(
               [
-                ["chats", "Chats", MessagesSquare],
+                ["chats", "Chats", MessageSquare],
                 ["groups", "Groups", Users],
-                ["students", "Students", GraduationCap],
+                ["students", "Students", User],
                 ["officers", "Officers", Shield],
               ] as const
             ).map(([key, label, Icon]) => {
@@ -292,8 +292,15 @@ function MessagesHub() {
                 >
                   <Icon className="h-3.5 w-3.5 shrink-0" />
                   <span>{label}</span>
-                  {badge > 0 && active ? (
-                    <span className="ml-0.5 rounded-full bg-white/25 px-1.5 text-[10px] font-bold">
+                  {badge > 0 ? (
+                    <span
+                      className={cn(
+                        "ml-0.5 min-w-[1.15rem] rounded-full px-1.5 text-center text-[10px] font-bold leading-4",
+                        active
+                          ? "bg-white text-[#2563eb]"
+                          : "bg-[#2563eb] text-white",
+                      )}
+                    >
                       {badge > 99 ? "99+" : badge}
                     </span>
                   ) : null}
@@ -462,11 +469,11 @@ function MessagesHub() {
           const el = document.getElementById("msg-global-search");
           el?.focus();
         }}
-        className="fixed bottom-5 right-4 z-30 grid h-14 w-14 place-items-center rounded-full bg-[#2563eb] text-white shadow-lg shadow-blue-500/40 transition hover:bg-[#1d4ed8] active:scale-95 sm:bottom-6 sm:right-6"
+        className="fixed bottom-6 right-5 z-30 grid h-[3.25rem] w-[3.25rem] place-items-center rounded-full bg-[#2563eb] text-white shadow-xl shadow-blue-500/35 transition hover:bg-[#1d4ed8] active:scale-95 sm:bottom-8 sm:right-8 sm:h-14 sm:w-14"
         style={{ marginBottom: "env(safe-area-inset-bottom, 0px)" }}
         aria-label="New message"
       >
-        <PenLine className="h-6 w-6" />
+        <PenLine className="h-[1.35rem] w-[1.35rem] sm:h-6 sm:w-6" strokeWidth={2.25} />
       </button>
     </div>
   );
@@ -485,19 +492,20 @@ function QuickCard({
   subtitle: string;
   onClick: () => void;
 }) {
-  const mobileLabel = shortTitle || title;
   return (
     <button
       type="button"
       onClick={onClick}
-      className="flex flex-col items-center gap-1 rounded-xl border border-slate-200/90 bg-white px-1.5 py-2.5 text-center shadow-sm transition hover:border-[#2563eb]/40 hover:shadow-md active:scale-[0.98] sm:items-start sm:rounded-2xl sm:p-3 sm:text-left"
+      className="flex flex-col items-center gap-1 rounded-2xl border border-slate-200 bg-white px-1.5 py-2.5 text-center shadow-sm transition hover:border-[#2563eb]/35 hover:shadow-md active:scale-[0.98] sm:items-start sm:gap-1.5 sm:p-3 sm:text-left"
     >
-      <div className="grid h-9 w-9 place-items-center rounded-xl bg-[#eff6ff] sm:h-10 sm:w-10 [&_svg]:h-5 [&_svg]:w-5 sm:[&_svg]:h-[22px] sm:[&_svg]:w-[22px]">
+      <div className="grid h-10 w-10 place-items-center rounded-xl bg-[#eff6ff] text-[#2563eb] sm:h-11 sm:w-11 [&_svg]:h-5 [&_svg]:w-5 sm:[&_svg]:h-6 sm:[&_svg]:w-6">
         {icon}
       </div>
-      <p className="line-clamp-2 text-[10px] font-bold leading-tight text-slate-800 sm:hidden">{mobileLabel}</p>
-      <p className="hidden text-[13px] font-bold leading-tight text-slate-900 sm:block">{title}</p>
-      <p className="hidden text-[10px] leading-snug text-slate-500 sm:line-clamp-2 sm:block">{subtitle}</p>
+      <p className="line-clamp-2 text-[11px] font-bold leading-tight text-slate-900 sm:text-[13px]">
+        <span className="sm:hidden">{shortTitle || title}</span>
+        <span className="hidden sm:inline">{title}</span>
+      </p>
+      <p className="line-clamp-2 text-[9px] leading-snug text-slate-500 sm:text-[10px]">{subtitle}</p>
     </button>
   );
 }
@@ -584,12 +592,12 @@ function ConversationList({
                   </p>
                 )}
                 {c.unread > 0 ? (
-                  <span className="ml-auto shrink-0 rounded-full bg-[#2563eb] px-2 py-0.5 text-[11px] font-bold text-white">
+                  <span className="ml-auto grid h-5 min-w-5 shrink-0 place-items-center rounded-full bg-[#2563eb] px-1.5 text-[11px] font-bold text-white">
                     {c.unread > 99 ? "99+" : c.unread}
                   </span>
-                ) : (
-                  <CheckCheck className="ml-auto h-3.5 w-3.5 shrink-0 text-slate-300" />
-                )}
+                ) : c.preview ? (
+                  <CheckCheck className="ml-auto h-3.5 w-3.5 shrink-0 text-[#2563eb]/70" />
+                ) : null}
               </div>
             </div>
           </button>
