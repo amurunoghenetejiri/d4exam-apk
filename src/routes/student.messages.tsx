@@ -18,6 +18,8 @@ import {
   CheckCheck,
   Play,
   UsersRound,
+  ArrowLeft,
+  PenSquare,
 } from "lucide-react";
 import { useSessionUser } from "@/lib/session";
 import { useStudentContext } from "@/lib/student";
@@ -210,13 +212,21 @@ function MessagesHub() {
         className="shrink-0 bg-[#0b1b3a] text-white"
         style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}
       >
-        <div className="flex items-center gap-3 px-4 pb-3 pt-3">
-          <div className="grid h-10 w-10 place-items-center rounded-full border border-white/20 bg-white/10">
-            <span className="text-sm font-black tracking-tight">D4</span>
+        <div className="flex items-center gap-2 px-3 pb-3 pt-2.5 sm:gap-3 sm:px-4">
+          <button
+            type="button"
+            onClick={() => navigate({ to: "/student" })}
+            className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-white/90 hover:bg-white/10 active:bg-white/15"
+            aria-label="Back"
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </button>
+          <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-white/20 bg-white/10 sm:h-10 sm:w-10">
+            <span className="text-xs font-black tracking-tight sm:text-sm">D4</span>
           </div>
           <div className="min-w-0 flex-1">
-            <h1 className="text-lg font-bold leading-tight">Messages</h1>
-            <p className="text-[11px] text-white/70">
+            <h1 className="text-base font-bold leading-tight sm:text-lg">Messages</h1>
+            <p className="text-[10px] text-white/70 sm:text-[11px]">
               Connect · Chat · Collaborate
             </p>
           </div>
@@ -299,9 +309,9 @@ function MessagesHub() {
           </div>
         </div>
 
-        {/* Quick action cards */}
-        <div className="shrink-0 px-3 pt-3">
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {/* Quick action cards — slim on mobile */}
+        <div className="shrink-0 px-2.5 pt-2.5 sm:px-3 sm:pt-3">
+          <div className="grid grid-cols-4 gap-1.5 sm:gap-2">
             <QuickCard
               icon={<Users className="h-5 w-5 text-[#2563eb]" />}
               title="Create Group"
@@ -337,7 +347,7 @@ function MessagesHub() {
         </div>
 
         {/* List body */}
-        <div className="mt-3 min-h-0 flex-1 overflow-y-auto bg-white">
+        <div className="relative mt-2 min-h-0 flex-1 overflow-y-auto bg-white pb-20 sm:mt-3">
           {(tab === "chats" || tab === "groups") && (
             <ConversationList
               items={filteredChats}
@@ -430,6 +440,22 @@ function MessagesHub() {
           }}
         />
       )}
+
+      {/* Floating compose pen (matches reference FAB) */}
+      <button
+        type="button"
+        onClick={() => {
+          setTab("students");
+          setFindOpen(true);
+          const el = document.getElementById("msg-global-search");
+          el?.focus();
+        }}
+        className="fixed bottom-5 right-4 z-30 grid h-14 w-14 place-items-center rounded-full bg-[#2563eb] text-white shadow-lg shadow-blue-500/40 transition hover:bg-[#1d4ed8] active:scale-95 sm:bottom-6 sm:right-6"
+        style={{ marginBottom: "env(safe-area-inset-bottom, 0px)" }}
+        aria-label="New message"
+      >
+        <PenSquare className="h-6 w-6" />
+      </button>
     </div>
   );
 }
@@ -449,13 +475,13 @@ function QuickCard({
     <button
       type="button"
       onClick={onClick}
-      className="flex flex-col items-start gap-1 rounded-2xl border border-slate-200 bg-white p-3 text-left shadow-sm transition hover:border-[#2563eb]/40 hover:shadow-md active:scale-[0.98]"
+      className="flex flex-col items-center gap-0.5 rounded-xl border border-slate-200 bg-white px-1 py-2 text-center shadow-sm transition hover:border-[#2563eb]/40 hover:shadow-md active:scale-[0.98] sm:items-start sm:gap-1 sm:rounded-2xl sm:p-3 sm:text-left"
     >
-      <div className="mb-1 grid h-9 w-9 place-items-center rounded-xl bg-[#eff6ff]">
+      <div className="mb-0.5 grid h-7 w-7 place-items-center rounded-lg bg-[#eff6ff] sm:mb-1 sm:h-9 sm:w-9 sm:rounded-xl [&_svg]:h-3.5 [&_svg]:w-3.5 sm:[&_svg]:h-5 sm:[&_svg]:w-5">
         {icon}
       </div>
-      <p className="text-[13px] font-bold leading-tight text-slate-900">{title}</p>
-      <p className="text-[10px] leading-snug text-slate-500">{subtitle}</p>
+      <p className="line-clamp-2 text-[10px] font-bold leading-tight text-slate-900 sm:text-[13px]">{title}</p>
+      <p className="hidden text-[10px] leading-snug text-slate-500 sm:line-clamp-2 sm:block">{subtitle}</p>
     </button>
   );
 }
