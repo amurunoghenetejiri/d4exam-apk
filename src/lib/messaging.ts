@@ -95,6 +95,7 @@ export type ConversationListItem = {
   isGroup: boolean;
   peerUserId?: string | null;
   online?: boolean;
+  hasMessage?: boolean;
 };
 
 function previewFromMessage(m: {
@@ -154,25 +155,55 @@ export async function listMyConversations(
     if (peerUserIds.length) {
       const { data: profiles } = await supabase
         .from("profiles")
-        .select("auth_user_id, full_name, avatar_url")
+        .select("id, auth_user_id, full_name, profile_photo_url")
         .in("auth_user_id", peerUserIds);
 
-      const nameByUser = new Map(
-        (profiles || []).map((p) => [
-          p.auth_user_id as string,
-          {
-            name: (p.full_name as string) || "Student",
-            avatar: (p.avatar_url as string) || null,
-          },
-        ]),
-      );
+      const nameByUser = new Map<
+        string,
+        { name: string; avatar: string | null }
+      >();
+      const profileIds: string[] = [];
+      for (const p of profiles || []) {
+        const uid = p.auth_user_id as string;
+        nameByUser.set(uid, {
+          name: ((p.full_name as string) || "").trim() || "Student",
+          avatar: (p.profile_photo_url as string) || null,
+        });
+        if (p.id) profileIds.push(p.id as string);
+      }
+
+      if (profileIds.length) {
+        const { data: stRows } = await supabase
+          .from("students")
+          .select("profile_id, full_name, profile_photo_url")
+          .in("profile_id", profileIds);
+        const byProf = new Map(
+          (stRows || []).map((s) => [s.profile_id as string, s]),
+        );
+        for (const p of profiles || []) {
+          const st = byProf.get(p.id as string);
+          if (!st) continue;
+          const uid = p.auth_user_id as string;
+          const cur = nameByUser.get(uid);
+          const stName = ((st.full_name as string) || "").trim();
+          if (stName) {
+            nameByUser.set(uid, {
+              name: !cur || cur.name === "Student" ? stName : cur.name,
+              avatar:
+                cur?.avatar ||
+                (st.profile_photo_url as string) ||
+                null,
+            });
+          }
+        }
+      }
 
       for (const p of peers || []) {
-        const info = nameByUser.get(p.user_id);
-        peerName.set(p.conversation_id, {
+        const info = nameByUser.get(p.user_id as string);
+        peerName.set(p.conversation_id as string, {
           name: info?.name || "Student",
-          userId: p.user_id,
-          avatar: info?.avatar,
+          userId: p.user_id as string,
+          avatar: info?.avatar || null,
         });
       }
     }
@@ -193,9 +224,10 @@ export async function listMyConversations(
     unreadMap.set(id, count || 0);
   }
 
-  return (convs as ConversationRow[]).map((c) => {
+  const mapped = (convs as ConversationRow[]).map((c) => {
     const peer = peerName.get(c.id);
     const isGroup = c.type === "group";
+    const hasMessage = Boolean(c.last_message_at || c.last_message_preview);
     return {
       id: c.id,
       type: c.type,
@@ -203,14 +235,19 @@ export async function listMyConversations(
         ? c.title || "Group"
         : peer?.name || c.title || "Chat",
       subtitle: isGroup ? "Group" : "",
-      preview: c.last_message_preview || "",
+      preview: c.last_message_preview || (hasMessage ? "" : ""),
       avatar_url: isGroup ? c.avatar_url : peer?.avatar || null,
       time: c.last_message_at || c.updated_at,
       unread: unreadMap.get(c.id) || 0,
       isGroup,
       peerUserId: peer?.userId || null,
+      hasMessage,
     };
   });
+
+  // Chats list: hide empty direct threads (opened but never messaged).
+  // Groups still appear so members can open and start chatting.
+  return mapped.filter((c) => c.isGroup || c.hasMessage);
 }
 
 /** Get or create a 1:1 direct conversation between two users in the same school. */

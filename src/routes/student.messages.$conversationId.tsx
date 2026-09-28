@@ -529,7 +529,23 @@ function ConversationChat() {
   const ss = String(recSecs % 60).padStart(2, "0");
 
   return (
-    <div className="flex h-dvh min-h-0 flex-col bg-slate-50">
+    <div className="relative flex h-dvh min-h-0 flex-col bg-[#e8f4fc]">
+      {/* Soft sky-blue chat wallpaper + D4EXAM logo watermark */}
+      <div
+        className="pointer-events-none absolute inset-0 z-0 overflow-hidden"
+        aria-hidden
+      >
+        <div className="absolute inset-0 bg-gradient-to-b from-[#dbeafe]/80 via-[#e8f4fc] to-[#f0f9ff]" />
+        <img
+          src="/logo.png"
+          alt=""
+          className="absolute left-1/2 top-1/2 h-40 w-40 -translate-x-1/2 -translate-y-1/2 object-contain opacity-[0.07]"
+          style={{
+            animation: "d4ChatLogoFloat 8s ease-in-out infinite",
+          }}
+        />
+        <style>{`@keyframes d4ChatLogoFloat { 0%,100% { transform: translate(-50%, -50%) scale(1); opacity: 0.06; } 50% { transform: translate(-50%, -52%) scale(1.06); opacity: 0.1; } }`}</style>
+      </div>
       <header
         className="flex shrink-0 items-center gap-3 border-b border-slate-200 bg-[#0b1b3a] px-3 py-2.5 text-white"
         style={{ paddingTop: "max(0.5rem, env(safe-area-inset-top, 0px))" }}
@@ -923,7 +939,7 @@ function ForwardSheet({
             Cancel
           </button>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="relative z-10 min-h-0 flex-1 overflow-y-auto">
           {isLoading ? (
             <p className="px-4 py-8 text-center text-sm text-slate-400">Loading…</p>
           ) : convs.length === 0 ? (
@@ -1191,7 +1207,7 @@ function GroupMenuSheet({
               Members ({(membersQ.data || []).length})
             </p>
             {(membersQ.data || []).map((m) => (
-              <div key={m.user_id} className="flex items-center gap-2 border-b border-slate-50 py-2">
+              <div key={m.user_id} className="relative z-10 flex items-center gap-2 border-b border-slate-50 py-2">
                 <div className="grid h-8 w-8 place-items-center rounded-full bg-slate-200 text-[10px] font-bold">
                   {m.full_name.slice(0, 2).toUpperCase()}
                 </div>

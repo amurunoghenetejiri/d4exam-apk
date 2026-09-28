@@ -182,15 +182,10 @@ function MessagesHub() {
     (id: string) => {
       if (!id) return;
       const path = `/student/messages/${id}`;
-      // Hash history (APK) — set hash immediately so chat always opens
       try {
         if (typeof window !== "undefined") {
-          const isHash =
-            window.location.hash.startsWith("#/") ||
-            /Capacitor|; wv\)/i.test(navigator.userAgent || "");
-          if (isHash || window.location.hash) {
-            window.location.hash = path;
-          }
+          // Force route change for both hash (APK) and path routers
+          window.location.hash = path;
         }
       } catch {
         /* ignore */
@@ -707,23 +702,32 @@ function StudentRow({
   onMessage: (s: StudentDiscover) => void;
 }) {
   return (
-    <div className="flex items-center gap-3 border-b border-slate-50 px-4 py-3">
+    <button
+      type="button"
+      onClick={() => {
+        if (s.auth_user_id) onMessage(s);
+      }}
+      disabled={!s.auth_user_id}
+      className="mx-3 mb-2 flex w-[calc(100%-1.5rem)] items-center gap-3 rounded-2xl border border-slate-100 bg-white px-3 py-3 text-left shadow-sm transition active:scale-[0.99] hover:border-[#2563eb]/30 hover:bg-[#f8fbff] disabled:opacity-50"
+    >
       <Avatar name={s.full_name} url={s.avatar_url} />
       <div className="min-w-0 flex-1">
-        <p className="truncate font-semibold text-slate-900">{s.full_name}</p>
-        <p className="truncate text-xs text-slate-500">
-          {[s.matric_number, s.department, s.level].filter(Boolean).join(" · ")}
+        <p className="truncate text-[15px] font-bold text-slate-900">
+          {s.full_name}
         </p>
+        <p className="mt-0.5 truncate text-[11px] font-medium text-slate-500">
+          {[s.matric_number, s.level].filter(Boolean).join(" · ")}
+        </p>
+        {s.department ? (
+          <p className="mt-0.5 truncate text-[10px] text-slate-400">
+            {s.department}
+          </p>
+        ) : null}
       </div>
-      <button
-        type="button"
-        onClick={() => onMessage(s)}
-        disabled={!s.auth_user_id}
-        className="shrink-0 rounded-xl bg-[#2563eb] px-3 py-1.5 text-xs font-bold text-white disabled:opacity-40"
-      >
+      <span className="shrink-0 rounded-xl bg-[#2563eb] px-3 py-1.5 text-[11px] font-bold text-white shadow-sm">
         Message
-      </button>
-    </div>
+      </span>
+    </button>
   );
 }
 
