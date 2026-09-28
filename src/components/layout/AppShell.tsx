@@ -316,7 +316,8 @@ export function AppShell({
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const immersiveMessaging =
     pathname.includes("/contact-officer") ||
-    pathname.includes("/officer/reports");
+    pathname.includes("/officer/reports") ||
+    pathname.includes("/student/messages");
   const t = useT();
   const { data: session } = useSessionUser();
   const { data: school } = useSchoolIdentity(session?.schoolId);

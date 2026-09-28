@@ -59,7 +59,7 @@ export const studentNav: RoleConfig = {
         { label: "Results", to: "/student/results", icon: BarChart3 },
         { label: "My Courses", to: "/student/courses", icon: BookOpen },
         { label: "Materials", to: "/student/materials", icon: FolderOpen },
-        { label: "Messages", to: "/student/contact-officer", icon: MessageSquare },
+        { label: "Messages", to: "/student/messages", icon: MessageSquare },
       ],
     },
     {
