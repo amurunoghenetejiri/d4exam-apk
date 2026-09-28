@@ -827,32 +827,19 @@ ${replyBody}`
     async function onFile(files: FileList | File[]) {
     const list = Array.from(files);
     if (!list.length) return;
-    for (const file of list) {
-      const mime = (file.type || "").toLowerCase();
-      let kind: "image" | "video" | "audio" | "file" = "file";
-      if (mime.startsWith("image/") || /\.(jpe?g|png|gif|webp)$/i.test(file.name)) kind = "image";
-      else if (mime.startsWith("video/") || /\.(mp4|webm|mov)$/i.test(file.name)) kind = "video";
-      else if (mime.startsWith("audio/")) kind = "audio";
-      const localUrl = URL.createObjectURL(file);
-      const clientId = \;
-      const nowIso = new Date().toISOString();
-      const replySnap = replyTo;
-      const optMsg: ChatMsg = { key: \, side: "out", text: "(attachment)", at: nowIso, subject: replySnap ? \ : subject.trim() || null, attachment_url: localUrl, attachment_type: kind, reportId: clientId, replyPreview: null, replyToKey: replySnap ? \ : null };
-      setOptimisticMsgs((prev) => [...prev, optMsg]);
-      setReplyTo(null); setPendingAttach(null); setNearBottom(true); setNewBelow(0);
-      requestAnimationFrame(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }));
-      void (async () => {
-        try {
-          const up = await uploadMessageMedia(file, file.type || "application/octet-stream", \);
-          const name = session?.fullName || student?.fullName || "Student";
-          const payload: Record<string, unknown> = { school_id: schoolId, student_id: studentId || null, student_user_id: userId || null, student_name: name, student_matric: student?.matric || null, exam_id: selectedExamIds[0] || null, exam_title: null, exam_ids: selectedExamIds.length ? selectedExamIds : [], exam_titles: [], subject: optMsg.subject, body: "(attachment)", attachment_url: up.url, attachment_type: kind === "file" ? (up.type || "file") : kind, status: "open", reply_to_id: replySnap?.id || null };
-          const { error } = await supabase.from("student_officer_reports").insert(payload);
-          if (error) throw error;
-          setOptimisticMsgs((prev) => prev.filter((m) => m.reportId !== clientId));
-          await qc.invalidateQueries({ queryKey: ["student-my-reports"] });
-          try { URL.revokeObjectURL(localUrl); } catch {}
-        } catch (e) { setFailedIds((s) => new Set(s).add(clientId)); toast.error(e instanceof Error ? e.message : "Upload failed"); }
-      })();
+    try {
+      const uploaded: string[] = [];
+      let kind: "image" | "audio" | "file" = "file";
+      for (const file of list) {
+        const up = await uploadMessageMedia(file, file.type || "application/octet-stream", `msg/${schoolId}/${userId}`);
+        uploaded.push(up.url);
+        if (up.type === "image") kind = "image";
+        else if (up.type === "audio") kind = "audio";
+      }
+      const url = uploaded.length > 1 ? JSON.stringify(uploaded) : uploaded[0];
+      await sendMessage("", { url, type: kind });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Upload failed");
     }
   }
 
