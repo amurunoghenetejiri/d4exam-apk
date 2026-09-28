@@ -69,17 +69,42 @@ import {
 } from "@/lib/messaging";
 import { toast } from "sonner";
 
+function ConversationChatRoute() {
+  const { conversationId } = useParams({ from: "/student/messages/$conversationId" });
+  return <ConversationChat conversationId={conversationId} />;
+}
+
 export const Route = createFileRoute("/student/messages/$conversationId")({
   head: () => ({ meta: [{ title: "Chat — D4EXAM" }] }),
-  component: ConversationChat,
+  component: ConversationChatRoute,
 });
 
-function ConversationChat() {
-  const { conversationId } = useParams({ from: "/student/messages/$conversationId" });
+/** Shared chat UI — used by route and inline from Messages hub (APK-safe). */
+export function ConversationChat({
+  conversationId,
+  onBack,
+}: {
+  conversationId: string;
+  onBack?: () => void;
+}) {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { data: session } = useSessionUser();
   const userId = session?.userId || "";
+
+  const goBack = () => {
+    if (onBack) {
+      onBack();
+      return;
+    }
+    try {
+      void navigate({ to: "/student/messages" });
+    } catch {
+      if (typeof window !== "undefined") {
+        window.location.hash = "/student/messages";
+      }
+    }
+  };
 
   const [text, setText] = useState("");
   const [optimistic, setOptimistic] = useState<CampusMessage[]>([]);
@@ -552,7 +577,7 @@ function ConversationChat() {
       >
         <button
           type="button"
-          onClick={() => navigate({ to: "/student/messages" })}
+          onClick={() => goBack()}
           className="grid h-9 w-9 place-items-center rounded-full hover:bg-white/10"
           aria-label="Back"
         >
@@ -860,7 +885,7 @@ function ConversationChat() {
           creatorName={meta.creatorName}
           createdAt={meta.created_at}
           onClose={() => setGroupMenuOpen(false)}
-          onLeft={() => navigate({ to: "/student/messages" })}
+          onLeft={() => goBack()}
         />
       ) : null}
     </div>

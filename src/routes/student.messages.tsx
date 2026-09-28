@@ -5,6 +5,7 @@
  */
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { appNavigate } from "@/lib/app-navigate";
+import { ConversationChat } from "./student.messages.$conversationId";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -124,6 +125,7 @@ function MessagesHub() {
   });
   const schoolId = schoolQ.data || schoolIdHint || "";
 
+  const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [tab, setTab] = useState<TabKey>("chats");
   const [search, setSearch] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
@@ -182,33 +184,19 @@ function MessagesHub() {
   const openConversation = useCallback(
     (id: string) => {
       if (!id) return;
+      // Inline chat view — works even when route matching fails on APK
+      setActiveChatId(id);
       const path = `/student/messages/${id}`;
-      // 1) Force hash (APK shell uses hash history — most reliable)
       try {
-        if (typeof window !== "undefined") {
-          const next = `#${path}`;
-          if (window.location.hash !== next) {
-            window.location.hash = path;
-          } else {
-            // Same path — still dispatch so router re-evaluates
-            window.dispatchEvent(new HashChangeEvent("hashchange"));
-          }
-        }
+        appNavigate(path);
       } catch {
         /* ignore */
       }
-      // 2) Typed TanStack navigate
       try {
         void navigate({
           to: "/student/messages/$conversationId",
           params: { conversationId: id },
         });
-      } catch {
-        /* ignore */
-      }
-      // 3) Shared SPA helper
-      try {
-        appNavigate(path);
       } catch {
         /* ignore */
       }
@@ -242,6 +230,22 @@ function MessagesHub() {
     setTab("officers");
     setSearch("");
   }, []);
+
+  if (activeChatId) {
+    return (
+      <ConversationChat
+        conversationId={activeChatId}
+        onBack={() => {
+          setActiveChatId(null);
+          try {
+            appNavigate("/student/messages");
+          } catch {
+            /* ignore */
+          }
+        }}
+      />
+    );
+  }
 
   return (
     <div className="relative flex h-dvh min-h-0 flex-col bg-[#e8f4fc]">
@@ -407,17 +411,24 @@ function MessagesHub() {
         </div>
 
         {/* List body */}
-        <div className="relative mt-2 min-h-0 flex-1 overflow-y-auto bg-white pb-20 sm:mt-3">
+        <div className="relative z-10 mt-2 min-h-0 flex-1 overflow-y-auto bg-transparent pb-20 sm:mt-3">
           {(tab === "chats" || tab === "groups") && (
             <ConversationList
               items={filteredChats}
               loading={convQuery.isLoading}
               emptyLabel={
                 tab === "groups"
-                  ? "No groups yet. Create a study group to get started."
-                  : "No conversations yet. Find a student to start chatting."
+                  ? "No groups yet — create one to study together"
+                  : "No conversations yet"
               }
               onOpen={openConversation}
+              onEmptyAction={() => {
+                if (tab === "groups") setCreateOpen(true);
+                else setTab("students");
+              }}
+              emptyActionLabel={
+                tab === "groups" ? "Create a group" : "Message a student"
+              }
             />
           )}
 
@@ -557,11 +568,15 @@ function ConversationList({
   loading,
   emptyLabel,
   onOpen,
+  onEmptyAction,
+  emptyActionLabel,
 }: {
   items: ConversationListItem[];
   loading: boolean;
   emptyLabel: string;
   onOpen: (id: string) => void;
+  onEmptyAction?: () => void;
+  emptyActionLabel?: string;
 }) {
   if (loading) {
     return (
@@ -581,8 +596,23 @@ function ConversationList({
 
   if (!items.length) {
     return (
-      <div className="px-4 py-12 text-center text-sm text-slate-500">
-        <p>{emptyLabel}</p>
+      <div className="mx-3 my-6 rounded-2xl border border-blue-100 bg-gradient-to-br from-[#eff6ff]/90 to-white/90 px-4 py-10 text-center shadow-sm backdrop-blur-sm">
+        <div className="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-full bg-[#2563eb]/10 text-[#2563eb]">
+          <MessageSquare className="h-7 w-7" />
+        </div>
+        <p className="text-sm font-bold text-slate-800">{emptyLabel}</p>
+        <p className="mt-1.5 text-xs text-slate-500">
+          Start a conversation with a classmate, group, or departmental officer.
+        </p>
+        {onEmptyAction ? (
+          <button
+            type="button"
+            onClick={onEmptyAction}
+            className="mt-4 rounded-xl bg-[#2563eb] px-5 py-2.5 text-sm font-bold text-white shadow-sm active:scale-[0.98]"
+          >
+            {emptyActionLabel || "Find someone to message"}
+          </button>
+        ) : null}
       </div>
     );
   }
