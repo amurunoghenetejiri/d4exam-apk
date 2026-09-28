@@ -1110,7 +1110,7 @@ ${replyBody}`
                 )}
                 style={{
                   transform: `translateX(${Math.max(-96, Math.min(96, dx))}px)`,
-                  transition: dx === 0 ? "transform 0.28s cubic-bezier(.2,.85,.25,1)" : "none",
+                  transition: dx === 0 ? "transform 0.32s cubic-bezier(.22,.9,.28,1)" : "none",
                   touchAction: "pan-y",
                   willChange: "transform",
                 }}
@@ -1135,8 +1135,8 @@ ${replyBody}`
                   const rawX = x - s.x;
                   const rawY = y - s.y;
                   if (s.axis === "none") {
-                    if (Math.abs(rawX) < 8 && Math.abs(rawY) < 8) return;
-                    s.axis = Math.abs(rawX) > Math.abs(rawY) ? "h" : "v";
+                    if (Math.abs(rawX) < 12 && Math.abs(rawY) < 12) return;
+                    s.axis = Math.abs(rawX) > Math.abs(rawY) * 1.15 ? "h" : "v";
                   }
                   if (s.axis === "v") return;
                   const next = Math.max(-96, Math.min(96, rawX));
