@@ -66,6 +66,7 @@ function WaveBars({
 }) {
   const heights = [6, 10, 14, 18, 12, 8, 16, 20, 14, 9, 13, 19, 11, 7, 15, 17, 12, 8, 14, 18, 10, 6, 12, 16, 11, 8, 13, 9];
   const trackRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{ x: number; y: number; active: boolean; seeking: boolean } | null>(null);
   const pct = Math.max(0, Math.min(1, progress));
   const filledCount = Math.min(heights.length, Math.floor(pct * heights.length + 0.001));
 
@@ -83,25 +84,34 @@ function WaveBars({
       className={cn("relative flex h-7 w-full items-center gap-[1.5px] overflow-visible px-1", onSeek && "cursor-pointer touch-none")}
       onPointerDown={(e) => {
         if (!onSeek) return;
-        e.stopPropagation();
-        e.preventDefault();
-        (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
-        seekFromClientX(e.clientX);
+        dragRef.current = { x: e.clientX, y: e.clientY, active: true, seeking: false };
       }}
       onPointerMove={(e) => {
-        if (!onSeek || e.buttons !== 1) return;
+        if (!onSeek || !dragRef.current?.active) return;
+        const d = dragRef.current;
+        const dx = e.clientX - d.x;
+        const dy = e.clientY - d.y;
+        if (!d.seeking) {
+          if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
+          if (Math.abs(dy) >= Math.abs(dx)) { d.active = false; return; }
+          d.seeking = true;
+          try { (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId); } catch {}
+          e.preventDefault();
+          e.stopPropagation();
+          seekFromClientX(e.clientX);
+          return;
+        }
+        e.preventDefault();
         e.stopPropagation();
         seekFromClientX(e.clientX);
       }}
-      onPointerUp={(e) => e.stopPropagation()}
-      onClick={(e) => e.stopPropagation()}
-      onTouchStart={(e) => {
-        if (!onSeek) return;
-        e.stopPropagation();
+      onPointerUp={(e) => {
+        if (dragRef.current?.seeking) e.stopPropagation();
+        dragRef.current = null;
       }}
-      onTouchMove={(e) => {
-        if (!onSeek) return;
-        e.stopPropagation();
+      onPointerCancel={() => { dragRef.current = null; }}
+      onClick={(e) => {
+        if (dragRef.current?.seeking) e.stopPropagation();
       }}
     >
       {heights.map((h, i) => {
@@ -128,7 +138,7 @@ function WaveBars({
             "pointer-events-none absolute top-1/2 z-10 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full shadow-md ring-2 ring-white",
             light ? "bg-white" : "bg-[#2563eb]",
           )}
-          style={{ left: `${pct * 100}%`, transition: active ? "none" : "left 50ms linear" }}
+          style={{ left: `${pct * 100}%`, transition: "none" }}
         />
       ) : null}
     </div>
