@@ -277,6 +277,7 @@ export function VoiceBubble({
   return (
     <div
       id={id}
+      data-duration={effectiveDur > 0 ? String(Math.round(effectiveDur)) : undefined}
       className={cn(
         "flex min-w-[200px] flex-col gap-0.5 select-none",
         "w-[min(78vw,280px)] sm:min-w-[240px] md:w-[min(52vw,360px)] lg:w-[min(40vw,420px)] lg:min-w-[280px]",
@@ -576,9 +577,15 @@ export function VideoBubble({
     >
       <video src={src} className="max-h-72 w-full object-cover" muted playsInline preload="metadata" />
       <span className="absolute inset-0 grid place-items-center">
-        <span className="grid h-12 w-12 place-items-center rounded-full bg-black/55 text-white shadow-lg ring-2 ring-white/40">
-          <Play className="ml-0.5 h-6 w-6" />
-        </span>
+        {tick === "pending" ? (
+          <span className="grid h-12 w-12 place-items-center rounded-full bg-black/55 text-white shadow-lg ring-2 ring-white/40">
+            <Clock className="h-6 w-6 animate-pulse" />
+          </span>
+        ) : (
+          <span className="grid h-12 w-12 place-items-center rounded-full bg-black/55 text-white shadow-lg ring-2 ring-white/40">
+            <Play className="ml-0.5 h-6 w-6" />
+          </span>
+        )}
       </span>
       <div className="absolute bottom-1.5 right-1.5 flex items-center gap-1 rounded-md bg-black/55 px-1.5 py-0.5 text-[10px] text-white">
         <span>{timeLabel}</span>

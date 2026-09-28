@@ -824,22 +824,35 @@ ${replyBody}`
     }
   }
 
-  async function onFile(files: FileList | File[]) {
+    async function onFile(files: FileList | File[]) {
     const list = Array.from(files);
     if (!list.length) return;
-    try {
-      const uploaded: string[] = [];
-      let kind: "image" | "audio" | "file" = "file";
-      for (const file of list) {
-        const up = await uploadMessageMedia(file, file.type || "application/octet-stream", `msg/${schoolId}/${userId}`);
-        uploaded.push(up.url);
-        if (up.type === "image") kind = "image";
-        else if (up.type === "audio") kind = "audio";
-      }
-      const url = uploaded.length > 1 ? JSON.stringify(uploaded) : uploaded[0];
-      await sendMessage("", { url, type: kind });
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Upload failed");
+    for (const file of list) {
+      const mime = (file.type || "").toLowerCase();
+      let kind: "image" | "video" | "audio" | "file" = "file";
+      if (mime.startsWith("image/") || /\.(jpe?g|png|gif|webp)$/i.test(file.name)) kind = "image";
+      else if (mime.startsWith("video/") || /\.(mp4|webm|mov)$/i.test(file.name)) kind = "video";
+      else if (mime.startsWith("audio/")) kind = "audio";
+      const localUrl = URL.createObjectURL(file);
+      const clientId = \;
+      const nowIso = new Date().toISOString();
+      const replySnap = replyTo;
+      const optMsg: ChatMsg = { key: \, side: "out", text: "(attachment)", at: nowIso, subject: replySnap ? \ : subject.trim() || null, attachment_url: localUrl, attachment_type: kind, reportId: clientId, replyPreview: null, replyToKey: replySnap ? \ : null };
+      setOptimisticMsgs((prev) => [...prev, optMsg]);
+      setReplyTo(null); setPendingAttach(null); setNearBottom(true); setNewBelow(0);
+      requestAnimationFrame(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }));
+      void (async () => {
+        try {
+          const up = await uploadMessageMedia(file, file.type || "application/octet-stream", \);
+          const name = session?.fullName || student?.fullName || "Student";
+          const payload: Record<string, unknown> = { school_id: schoolId, student_id: studentId || null, student_user_id: userId || null, student_name: name, student_matric: student?.matric || null, exam_id: selectedExamIds[0] || null, exam_title: null, exam_ids: selectedExamIds.length ? selectedExamIds : [], exam_titles: [], subject: optMsg.subject, body: "(attachment)", attachment_url: up.url, attachment_type: kind === "file" ? (up.type || "file") : kind, status: "open", reply_to_id: replySnap?.id || null };
+          const { error } = await supabase.from("student_officer_reports").insert(payload);
+          if (error) throw error;
+          setOptimisticMsgs((prev) => prev.filter((m) => m.reportId !== clientId));
+          await qc.invalidateQueries({ queryKey: ["student-my-reports"] });
+          try { URL.revokeObjectURL(localUrl); } catch {}
+        } catch (e) { setFailedIds((s) => new Set(s).add(clientId)); toast.error(e instanceof Error ? e.message : "Upload failed"); }
+      })();
     }
   }
 
@@ -1056,7 +1069,7 @@ ${replyBody}`
             (Boolean(m.text) && m.text.trim() !== "" && m.text.trim() !== "(attachment)");
           if (!hasContent) return null;
           const dx = swipeDx[m.key] || 0;
-          const replyArmed = Math.abs(dx) > 48;
+          const replyArmed = Math.abs(dx) > 40;
           const armReply = () => {
             const kind = classifyMedia(m.attachment_type, m.attachment_url);
             const snippet = buildReplySnippet({
@@ -1109,9 +1122,10 @@ ${replyBody}`
                   highlightKey === m.key && "rounded-2xl ring-2 ring-[#2563eb] ring-offset-2",
                 )}
                 style={{
-                  transform: `translateX(${Math.max(-72, Math.min(72, dx))}px)`,
-                  transition: dx === 0 ? "transform 0.22s cubic-bezier(.2,.8,.2,1)" : "none",
+                  transform: `translateX(${Math.max(-96, Math.min(96, dx))}px)`,
+                  transition: dx === 0 ? "transform 0.28s cubic-bezier(.2,.85,.25,1)" : "none",
                   touchAction: "pan-y",
+                  willChange: "transform",
                 }}
                 onTouchStart={(e) => {
                   swipeRef.current = {
@@ -1138,7 +1152,7 @@ ${replyBody}`
                     s.axis = Math.abs(rawX) > Math.abs(rawY) ? "h" : "v";
                   }
                   if (s.axis === "v") return;
-                  const next = Math.max(-80, Math.min(80, rawX));
+                  const next = Math.max(-96, Math.min(96, rawX));
                   s.dx = next;
                   setSwipeDx((prev) => (prev[m.key] === next ? prev : { ...prev, [m.key]: next }));
                   try { e.preventDefault(); } catch { /* ignore */ }
@@ -1154,7 +1168,7 @@ ${replyBody}`
                     return n;
                   });
                   if (!s || s.axis === "v") return;
-                  if (Math.abs(finalDx) > 48) armReply();
+                  if (Math.abs(finalDx) > 40) armReply();
                 }}
                 onTouchCancel={() => {
                   endLP();
