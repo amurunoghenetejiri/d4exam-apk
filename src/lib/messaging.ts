@@ -5,6 +5,35 @@
  */
 import { supabase } from "@/integrations/supabase/client";
 
+/** Resolve school_id for the logged-in user from profiles / students. */
+export async function resolveMySchoolId(preferred?: string | null): Promise<string | null> {
+  if (preferred) return preferred;
+  const { data: auth } = await supabase.auth.getUser();
+  const uid = auth.user?.id;
+  if (!uid) return null;
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("id, school_id")
+    .eq("auth_user_id", uid)
+    .maybeSingle();
+  if (profile?.school_id) return profile.school_id as string;
+  if (profile?.id) {
+    const { data: st } = await supabase
+      .from("students")
+      .select("school_id")
+      .eq("profile_id", profile.id)
+      .maybeSingle();
+    if (st?.school_id) return st.school_id as string;
+  }
+  const { data: st2 } = await supabase
+    .from("students")
+    .select("school_id")
+    .eq("profile_id", uid)
+    .maybeSingle();
+  return (st2?.school_id as string) || null;
+}
+
+
 export type ConversationType = "direct" | "group";
 export type GroupKind = "study" | "course" | "class" | "project" | "general";
 
@@ -223,12 +252,17 @@ export async function getOrCreateDirectConversation(
   }
 
   // Create new
+  const resolvedSchool = (await resolveMySchoolId(schoolId)) || schoolId;
+  if (!resolvedSchool) throw new Error("No school linked to your account");
+  const { data: auth } = await supabase.auth.getUser();
+  const uid = auth.user?.id || myUserId;
+
   const { data: conv, error: cErr } = await supabase
     .from("conversations")
     .insert({
-      school_id: schoolId,
+      school_id: resolvedSchool,
       type: "direct",
-      created_by: myUserId,
+      created_by: uid,
       updated_at: new Date().toISOString(),
     })
     .select("id")
@@ -238,7 +272,7 @@ export async function getOrCreateDirectConversation(
 
   const cid = conv.id as string;
   const { error: mErr } = await supabase.from("conversation_members").insert([
-    { conversation_id: cid, user_id: myUserId, role: "member" },
+    { conversation_id: cid, user_id: uid, role: "member" },
     { conversation_id: cid, user_id: peerUserId, role: "member" },
   ]);
   if (mErr) throw new Error(mErr.message);
@@ -255,16 +289,22 @@ export async function createGroup(opts: {
   memberUserIds: string[];
   avatarUrl?: string | null;
 }): Promise<string> {
+  const schoolId = (await resolveMySchoolId(opts.schoolId)) || opts.schoolId;
+  if (!schoolId) throw new Error("No school linked to your account");
+  const { data: auth } = await supabase.auth.getUser();
+  const creatorId = auth.user?.id || opts.creatorId;
+  if (!creatorId) throw new Error("Not signed in");
+
   const { data: conv, error: cErr } = await supabase
     .from("conversations")
     .insert({
-      school_id: opts.schoolId,
+      school_id: schoolId,
       type: "group",
       title: opts.title.trim(),
       description: opts.description?.trim() || null,
       group_kind: opts.groupKind || "study",
       avatar_url: opts.avatarUrl || null,
-      created_by: opts.creatorId,
+      created_by: creatorId,
       updated_at: new Date().toISOString(),
     })
     .select("id")
@@ -276,11 +316,11 @@ export async function createGroup(opts: {
   const members = [
     {
       conversation_id: cid,
-      user_id: opts.creatorId,
+      user_id: creatorId,
       role: "owner" as const,
     },
     ...opts.memberUserIds
-      .filter((id) => id !== opts.creatorId)
+      .filter((id) => id !== creatorId)
       .map((id) => ({
         conversation_id: cid,
         user_id: id,
@@ -390,88 +430,92 @@ export async function discoverStudents(opts: {
   excludeUserId?: string | null;
   limit?: number;
 }): Promise<StudentDiscover[]> {
-  let q = supabase
+  const schoolId = (await resolveMySchoolId(opts.schoolId)) || opts.schoolId;
+  if (!schoolId) return [];
+
+  const limit = opts.limit ?? 60;
+  const baseSelect =
+    "id, profile_id, matric_number, student_id, school_id, department_id, level_id, full_name, status";
+
+  // Try rich select first; fall back to plain columns if relations fail
+  let rows: Record<string, unknown>[] = [];
+  const rich = await supabase
     .from("students")
     .select(
-      "id, profile_id, matric_number, student_id, school_id, department_id, level_id, full_name, status, departments(name), levels(name), profiles(auth_user_id, full_name, avatar_url)",
+      `${baseSelect}, departments(name), levels(name), profiles(auth_user_id, full_name, avatar_url)`,
     )
-    .eq("school_id", opts.schoolId)
-    .limit(opts.limit ?? 40);
+    .eq("school_id", schoolId)
+    .limit(limit);
 
-  if (opts.departmentId) q = q.eq("department_id", opts.departmentId);
-  if (opts.levelId) q = q.eq("level_id", opts.levelId);
-
-  const { data, error } = await q;
-  if (error) {
-    // Fallback without nested relations
-    const fb = await supabase
+  if (!rich.error && rich.data) {
+    rows = rich.data as Record<string, unknown>[];
+  } else {
+    const plain = await supabase
       .from("students")
-      .select(
-        "id, profile_id, matric_number, student_id, school_id, department_id, level_id, full_name, status",
-      )
-      .eq("school_id", opts.schoolId)
-      .limit(opts.limit ?? 40);
-    if (fb.error) return [];
-    return mapStudents(fb.data || [], opts);
-  }
+      .select(baseSelect)
+      .eq("school_id", schoolId)
+      .limit(limit);
+    if (plain.error || !plain.data) {
+      console.warn("[discoverStudents]", rich.error?.message || plain.error?.message);
+      return [];
+    }
+    rows = plain.data as Record<string, unknown>[];
 
-  return mapStudents(data || [], opts);
-}
-
-function mapStudents(
-  rows: Record<string, unknown>[],
-  opts: { query?: string; excludeUserId?: string | null },
-): StudentDiscover[] {
-  const q = (opts.query || "").trim().toLowerCase();
-  const out: StudentDiscover[] = [];
-
-  for (const r of rows) {
-    const profiles = r.profiles as
-      | { auth_user_id?: string; full_name?: string; avatar_url?: string }
-      | null
-      | undefined;
-    const depts = r.departments as { name?: string } | null | undefined;
-    const levels = r.levels as { name?: string } | null | undefined;
-    const authUserId = profiles?.auth_user_id || null;
-    if (opts.excludeUserId && authUserId === opts.excludeUserId) continue;
-
-    const name =
-      (r.full_name as string) ||
-      profiles?.full_name ||
-      "Student";
-    const matric =
-      (r.matric_number as string) ||
-      (r.student_id as string) ||
-      null;
-    const department = depts?.name || null;
-    const level = levels?.name || null;
-
-    if (q) {
-      const hay = [name, matric || "", department || "", level || ""]
-        .join(" ")
-        .toLowerCase();
-      if (!hay.includes(q)) continue;
+    // Hydrate profiles separately
+    const profileIds = rows
+      .map((r) => r.profile_id as string)
+      .filter(Boolean);
+    if (profileIds.length) {
+      const { data: profiles } = await supabase
+        .from("profiles")
+        .select("id, auth_user_id, full_name, avatar_url")
+        .in("id", profileIds);
+      const byId = new Map((profiles || []).map((p) => [p.id as string, p]));
+      rows = rows.map((r) => ({
+        ...r,
+        profiles: byId.get(r.profile_id as string) || null,
+      }));
     }
 
-    out.push({
-      id: r.id as string,
-      profile_id: (r.profile_id as string) || null,
-      auth_user_id: authUserId,
-      full_name: name,
-      matric_number: matric,
-      department,
-      level,
-      department_id: (r.department_id as string) || null,
-      level_id: (r.level_id as string) || null,
-      school_id: (r.school_id as string) || null,
-      avatar_url: profiles?.avatar_url || null,
-    });
+    // Hydrate dept/level names
+    const deptIds = [...new Set(rows.map((r) => r.department_id).filter(Boolean))];
+    const levelIds = [...new Set(rows.map((r) => r.level_id).filter(Boolean))];
+    const deptMap = new Map<string, string>();
+    const levelMap = new Map<string, string>();
+    if (deptIds.length) {
+      const { data: depts } = await supabase
+        .from("departments")
+        .select("id, name")
+        .in("id", deptIds as string[]);
+      for (const d of depts || []) deptMap.set(d.id as string, d.name as string);
+    }
+    if (levelIds.length) {
+      const { data: levels } = await supabase
+        .from("levels")
+        .select("id, name")
+        .in("id", levelIds as string[]);
+      for (const l of levels || []) levelMap.set(l.id as string, l.name as string);
+    }
+    rows = rows.map((r) => ({
+      ...r,
+      departments: r.department_id
+        ? { name: deptMap.get(r.department_id as string) }
+        : null,
+      levels: r.level_id ? { name: levelMap.get(r.level_id as string) } : null,
+    }));
   }
 
-  return out;
+  // Client-side department / level filter (avoids empty when FK filter fails)
+  if (opts.departmentId) {
+    rows = rows.filter((r) => r.department_id === opts.departmentId);
+  }
+  if (opts.levelId) {
+    rows = rows.filter((r) => r.level_id === opts.levelId);
+  }
+
+  return mapStudents(rows, opts);
 }
 
-/** Department officers for the student's school (profiles with officer role). */
 export async function listDepartmentOfficers(schoolId: string) {
   // Prefer user_roles / profiles with examination_officer role
   const { data: roles } = await supabase

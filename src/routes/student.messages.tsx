@@ -30,6 +30,7 @@ import {
   getOrCreateDirectConversation,
   createGroup,
   listDepartmentOfficers,
+  resolveMySchoolId,
   type ConversationListItem,
   type StudentDiscover,
   type GroupKind,
@@ -110,8 +111,15 @@ function MessagesHub() {
   const { data: session } = useSessionUser();
   const { data: student } = useStudentContext();
   const userId = session?.userId || "";
-  const schoolId =
+  const schoolIdHint =
     student?.schoolId || session?.schoolId || "";
+  const schoolQ = useQuery({
+    queryKey: ["my-school-id", session?.userId, schoolIdHint],
+    enabled: Boolean(session?.userId),
+    staleTime: 60_000,
+    queryFn: () => resolveMySchoolId(schoolIdHint || null),
+  });
+  const schoolId = schoolQ.data || schoolIdHint || "";
 
   const [tab, setTab] = useState<TabKey>("chats");
   const [search, setSearch] = useState("");
@@ -313,14 +321,16 @@ function MessagesHub() {
         <div className="shrink-0 px-2.5 pt-2.5 sm:px-3 sm:pt-3">
           <div className="grid grid-cols-4 gap-1.5 sm:gap-2">
             <QuickCard
-              icon={<Users className="h-5 w-5 text-[#2563eb]" />}
+              icon={<Users className="h-5 w-5 text-[#2563eb]" strokeWidth={2} />}
               title="Create Group"
+              shortTitle="Create Group"
               subtitle="Study · Discuss · Grow"
               onClick={() => setCreateOpen(true)}
             />
             <QuickCard
-              icon={<UserPlus className="h-5 w-5 text-[#2563eb]" />}
+              icon={<UserPlus className="h-5 w-5 text-[#2563eb]" strokeWidth={2} />}
               title="Find Students"
+              shortTitle="Find Students"
               subtitle="Connect with peers"
               onClick={() => {
                 setTab("students");
@@ -328,14 +338,16 @@ function MessagesHub() {
               }}
             />
             <QuickCard
-              icon={<Shield className="h-5 w-5 text-[#2563eb]" />}
+              icon={<Shield className="h-5 w-5 text-[#2563eb]" strokeWidth={2} />}
               title="Department Officers"
+              shortTitle="Officer"
               subtitle="Get help & support"
               onClick={openOfficer}
             />
             <QuickCard
-              icon={<GraduationCap className="h-5 w-5 text-[#2563eb]" />}
+              icon={<GraduationCap className="h-5 w-5 text-[#2563eb]" strokeWidth={2} />}
               title="My Department"
+              shortTitle="My Department"
               subtitle="View all members"
               onClick={() => {
                 setTab("students");
@@ -463,24 +475,28 @@ function MessagesHub() {
 function QuickCard({
   icon,
   title,
+  shortTitle,
   subtitle,
   onClick,
 }: {
   icon: React.ReactNode;
   title: string;
+  shortTitle?: string;
   subtitle: string;
   onClick: () => void;
 }) {
+  const mobileLabel = shortTitle || title;
   return (
     <button
       type="button"
       onClick={onClick}
-      className="flex flex-col items-center gap-0.5 rounded-xl border border-slate-200 bg-white px-1 py-2 text-center shadow-sm transition hover:border-[#2563eb]/40 hover:shadow-md active:scale-[0.98] sm:items-start sm:gap-1 sm:rounded-2xl sm:p-3 sm:text-left"
+      className="flex flex-col items-center gap-1 rounded-xl border border-slate-200/90 bg-white px-1.5 py-2.5 text-center shadow-sm transition hover:border-[#2563eb]/40 hover:shadow-md active:scale-[0.98] sm:items-start sm:rounded-2xl sm:p-3 sm:text-left"
     >
-      <div className="mb-0.5 grid h-7 w-7 place-items-center rounded-lg bg-[#eff6ff] sm:mb-1 sm:h-9 sm:w-9 sm:rounded-xl [&_svg]:h-3.5 [&_svg]:w-3.5 sm:[&_svg]:h-5 sm:[&_svg]:w-5">
+      <div className="grid h-9 w-9 place-items-center rounded-xl bg-[#eff6ff] sm:h-10 sm:w-10 [&_svg]:h-5 [&_svg]:w-5 sm:[&_svg]:h-[22px] sm:[&_svg]:w-[22px]">
         {icon}
       </div>
-      <p className="line-clamp-2 text-[10px] font-bold leading-tight text-slate-900 sm:text-[13px]">{title}</p>
+      <p className="line-clamp-2 text-[10px] font-bold leading-tight text-slate-800 sm:hidden">{mobileLabel}</p>
+      <p className="hidden text-[13px] font-bold leading-tight text-slate-900 sm:block">{title}</p>
       <p className="hidden text-[10px] leading-snug text-slate-500 sm:line-clamp-2 sm:block">{subtitle}</p>
     </button>
   );
@@ -629,7 +645,10 @@ function StudentDirectory({
         </div>
       ) : students.length === 0 ? (
         <div className="px-4 py-10 text-center text-sm text-slate-500">
-          No students found. Try another name or matric number.
+          <p className="font-semibold text-slate-700">No students found</p>
+          <p className="mt-1 text-xs">
+            Try clearing search, or open My Department. If this stays empty, run the messaging RLS fix SQL in Supabase.
+          </p>
         </div>
       ) : departmentOnly ? (
         byLevel.map(([level, list]) => (
