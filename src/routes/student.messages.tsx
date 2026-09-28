@@ -158,9 +158,9 @@ function MessagesHub() {
 
   const officersQuery = useQuery({
     queryKey: ["campus-officers", schoolId],
-    enabled: Boolean(schoolId) && tab === "officers",
+    enabled: Boolean(userId) && tab === "officers",
     staleTime: 60_000,
-    queryFn: () => listDepartmentOfficers(schoolId),
+    queryFn: () => listDepartmentOfficers(schoolId || schoolIdHint || ""),
   });
 
   const conversations = convQuery.data || [];
@@ -210,8 +210,9 @@ function MessagesHub() {
   );
 
   const openOfficer = useCallback(() => {
-    navigate({ to: "/student/contact-officer" });
-  }, [navigate]);
+    setTab("officers");
+    setSearch("");
+  }, []);
 
   return (
     <div className="flex h-dvh min-h-0 flex-col bg-slate-50">
@@ -374,11 +375,9 @@ function MessagesHub() {
               emptyLabel={
                 tab === "groups"
                   ? "No groups yet. Create a study group to get started."
-                  : "No conversations yet. Find a student or message your officer."
+                  : "No conversations yet. Find a student to start chatting."
               }
               onOpen={openConversation}
-              onOfficer={openOfficer}
-              showOfficerShortcut={tab === "chats"}
             />
           )}
 
@@ -394,25 +393,42 @@ function MessagesHub() {
           )}
 
           {tab === "officers" && (
-            <div className="divide-y divide-slate-100">
-              {(officersQuery.data || []).length === 0 && !officersQuery.isLoading ? (
-                <div className="px-4 py-10 text-center text-sm text-slate-500">
-                  <p className="mb-3">Contact your departmental officer for exam support.</p>
-                  <button
-                    type="button"
-                    onClick={openOfficer}
-                    className="rounded-xl bg-[#2563eb] px-4 py-2.5 text-sm font-semibold text-white"
-                  >
-                    Open officer chat
-                  </button>
+            <div className="space-y-2 px-3 py-3">
+              {officersQuery.isLoading ? (
+                <div className="px-2 py-8 text-center text-sm text-slate-500">Loading officers…</div>
+              ) : (officersQuery.data || []).length === 0 ? (
+                <div className="rounded-2xl border border-slate-100 bg-white px-4 py-10 text-center text-sm text-slate-500 shadow-sm">
+                  <div className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-full bg-[#eff6ff] text-[#2563eb]">
+                    <Shield className="h-6 w-6" />
+                  </div>
+                  <p className="font-semibold text-slate-700">No officers listed yet</p>
+                  <p className="mt-1 text-xs">
+                    Officers appear here when their account is linked to your school.
+                  </p>
                 </div>
               ) : (
                 (officersQuery.data || []).map((o) => (
                   <button
                     key={o.id}
                     type="button"
-                    onClick={openOfficer}
-                    className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-50"
+                    onClick={async () => {
+                      if (!userId || !schoolId) {
+                        toast.error("Sign in and school link required");
+                        return;
+                      }
+                      try {
+                        const cid = await getOrCreateDirectConversation(
+                          userId,
+                          o.id,
+                          schoolId,
+                        );
+                        void qc.invalidateQueries({ queryKey: ["campus-conversations"] });
+                        openConversation(cid);
+                      } catch (e) {
+                        toast.error(e instanceof Error ? e.message : "Could not open chat");
+                      }
+                    }}
+                    className="flex w-full items-center gap-3 rounded-2xl border border-slate-100 bg-white px-3 py-3 text-left shadow-sm transition hover:border-[#2563eb]/30 hover:bg-slate-50 active:scale-[0.99]"
                   >
                     <Avatar name={o.full_name} url={o.avatar_url} />
                     <div className="min-w-0 flex-1">
@@ -421,26 +437,12 @@ function MessagesHub() {
                       </p>
                       <p className="text-xs text-slate-500">{o.roleLabel}</p>
                     </div>
+                    <span className="rounded-full bg-[#eff6ff] px-2 py-1 text-[10px] font-bold text-[#2563eb]">
+                      Message
+                    </span>
                   </button>
                 ))
               )}
-              <button
-                type="button"
-                onClick={openOfficer}
-                className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-50"
-              >
-                <div className="grid h-12 w-12 place-items-center rounded-full bg-[#0b1b3a] text-white">
-                  <Shield className="h-5 w-5" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="font-semibold text-slate-900">
-                    Departmental Officer
-                  </p>
-                  <p className="text-xs text-slate-500">
-                    Exam support · reports · help
-                  </p>
-                </div>
-              </button>
             </div>
           )}
         </div>
@@ -515,15 +517,11 @@ function ConversationList({
   loading,
   emptyLabel,
   onOpen,
-  onOfficer,
-  showOfficerShortcut,
 }: {
   items: ConversationListItem[];
   loading: boolean;
   emptyLabel: string;
   onOpen: (id: string) => void;
-  onOfficer: () => void;
-  showOfficerShortcut: boolean;
 }) {
   if (loading) {
     return (
@@ -545,37 +543,44 @@ function ConversationList({
     return (
       <div className="px-4 py-12 text-center text-sm text-slate-500">
         <p>{emptyLabel}</p>
-        {showOfficerShortcut ? (
-          <button
-            type="button"
-            onClick={onOfficer}
-            className="mt-4 rounded-xl bg-[#2563eb] px-4 py-2.5 text-sm font-semibold text-white"
-          >
-            Message departmental officer
-          </button>
-        ) : null}
       </div>
     );
   }
 
   return (
-    <ul className="divide-y divide-slate-100">
+    <ul className="space-y-2 px-3 py-3">
       {items.map((c) => (
         <li key={c.id}>
           <button
             type="button"
             onClick={() => onOpen(c.id)}
-            className="flex w-full items-center gap-3 px-4 py-3 text-left transition hover:bg-slate-50 active:bg-slate-100"
+            className={cn(
+              "flex w-full items-center gap-3 rounded-2xl border px-3 py-3 text-left shadow-sm transition active:scale-[0.99]",
+              c.isGroup
+                ? "border-blue-100 bg-gradient-to-r from-[#eff6ff] to-white hover:border-[#2563eb]/40"
+                : "border-slate-100 bg-white hover:border-slate-200 hover:bg-slate-50",
+            )}
           >
             <div className="relative">
               <Avatar name={c.title} url={c.avatar_url} group={c.isGroup} />
-              {c.online ? (
+              {c.isGroup ? (
+                <span className="absolute -bottom-0.5 -right-0.5 grid h-5 w-5 place-items-center rounded-full border-2 border-white bg-[#2563eb] text-white">
+                  <UsersRound className="h-3 w-3" />
+                </span>
+              ) : c.online ? (
                 <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white bg-emerald-500" />
               ) : null}
             </div>
             <div className="min-w-0 flex-1">
               <div className="flex items-baseline justify-between gap-2">
-                <p className="truncate font-semibold text-slate-900">{c.title}</p>
+                <p className="truncate font-semibold text-slate-900">
+                  {c.title}
+                  {c.isGroup ? (
+                    <span className="ml-1.5 rounded-full bg-[#2563eb]/10 px-1.5 py-0.5 text-[10px] font-bold text-[#2563eb]">
+                      Group
+                    </span>
+                  ) : null}
+                </p>
                 <span className="shrink-0 text-[11px] text-slate-400">
                   {formatListTime(c.time)}
                 </span>
@@ -588,7 +593,7 @@ function ConversationList({
                   </span>
                 ) : (
                   <p className="truncate text-[13px] text-slate-500">
-                    {c.preview || "No messages yet"}
+                    {c.preview || (c.isGroup ? "No messages yet — say hello" : "No messages yet")}
                   </p>
                 )}
                 {c.unread > 0 ? (

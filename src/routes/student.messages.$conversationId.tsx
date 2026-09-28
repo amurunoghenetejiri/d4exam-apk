@@ -64,6 +64,8 @@ import {
   leaveGroup,
   setGroupMuted,
   discoverStudents,
+  deleteGroup,
+  getConversationMeta,
 } from "@/lib/messaging";
 import { toast } from "sonner";
 
@@ -109,40 +111,21 @@ function ConversationChat() {
     queryKey: ["campus-conv-meta", conversationId, userId],
     enabled: Boolean(conversationId && userId),
     queryFn: async () => {
-      const { data: conv } = await supabase
-        .from("conversations")
-        .select("id, type, title, avatar_url")
-        .eq("id", conversationId)
-        .maybeSingle();
-      if (!conv) return null;
-      if (conv.type === "group") {
+      const rich = await getConversationMeta(conversationId, userId);
+      if (rich) {
         return {
-          title: (conv.title as string) || "Group",
-          subtitle: "Group",
-          avatar: (conv.avatar_url as string) || null,
-          isGroup: true,
+          title: rich.title,
+          subtitle: rich.subtitle,
+          avatar: rich.avatar,
+          isGroup: rich.isGroup,
+          creatorName: rich.creatorName,
+          created_at: rich.created_at,
+          description: rich.description,
+          memberCount: rich.memberCount,
+          myRole: rich.myRole,
         };
       }
-      const { data: members } = await supabase
-        .from("conversation_members")
-        .select("user_id")
-        .eq("conversation_id", conversationId)
-        .neq("user_id", userId)
-        .is("left_at", null)
-        .limit(1);
-      const peerId = members?.[0]?.user_id as string | undefined;
-      let name = "Chat";
-      let avatar: string | null = null;
-      if (peerId) {
-        const { data: p } = await supabase
-          .from("profiles")
-          .select("full_name, avatar_url")
-          .eq("auth_user_id", peerId)
-          .maybeSingle();
-        name = (p?.full_name as string) || "Student";
-        avatar = (p?.avatar_url as string) || null;
-      }
-      return { title: name, subtitle: "Student", avatar, isGroup: false };
+      return null;
     },
   });
 
@@ -827,11 +810,39 @@ function ConversationChat() {
         />
       ) : null}
 
+      {meta?.isGroup && (meta.creatorName || meta.created_at) ? (
+        <div className="shrink-0 border-b border-blue-50 bg-[#eff6ff] px-4 py-2 text-center text-[11px] text-slate-600">
+          <span className="font-semibold text-[#2563eb]">Study group</span>
+          {meta.creatorName ? (
+            <span>
+              {" "}
+              · Created by <span className="font-semibold text-slate-800">{meta.creatorName}</span>
+            </span>
+          ) : null}
+          {meta.created_at ? (
+            <span>
+              {" "}
+              ·{" "}
+              {new Date(meta.created_at).toLocaleDateString([], {
+                day: "numeric",
+                month: "short",
+                year: "numeric",
+              })}
+            </span>
+          ) : null}
+          {meta.memberCount ? (
+            <span> · {meta.memberCount} members</span>
+          ) : null}
+        </div>
+      ) : null}
+
       {groupMenuOpen && meta?.isGroup ? (
         <GroupMenuSheet
           conversationId={conversationId}
           userId={userId}
           title={meta.title}
+          creatorName={meta.creatorName}
+          createdAt={meta.created_at}
           onClose={() => setGroupMenuOpen(false)}
           onLeft={() => navigate({ to: "/student/messages" })}
         />
@@ -946,12 +957,16 @@ function GroupMenuSheet({
   conversationId,
   userId,
   title,
+  creatorName,
+  createdAt,
   onClose,
   onLeft,
 }: {
   conversationId: string;
   userId: string;
   title: string;
+  creatorName?: string | null;
+  createdAt?: string | null;
   onClose: () => void;
   onLeft: () => void;
 }) {
@@ -988,6 +1003,46 @@ function GroupMenuSheet({
     }
   };
 
+  const doDelete = async () => {
+    if (!isAdmin) return;
+    if (!window.confirm("Delete this group for everyone?")) return;
+    try {
+      await deleteGroup(conversationId);
+      toast.success("Group deleted");
+      onLeft();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Delete failed");
+    }
+  };
+
+  const [addOpen, setAddOpen] = useState(false);
+  const [addQ, setAddQ] = useState("");
+  const addStudentsQ = useQuery({
+    queryKey: ["group-add-students", addQ],
+    enabled: addOpen,
+    queryFn: () =>
+      discoverStudents({
+        schoolId: "",
+        query: addQ,
+        excludeUserId: userId,
+        limit: 30,
+      }),
+  });
+
+  const addOne = async (authUserId: string | null) => {
+    if (!authUserId) {
+      toast.error("Student account not linked");
+      return;
+    }
+    try {
+      await addGroupMembers(conversationId, [authUserId]);
+      void membersQ.refetch();
+      toast.success("Member added");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not add");
+    }
+  };
+
   const toggleMute = async () => {
     try {
       await setGroupMuted(conversationId, userId, !me?.muted);
@@ -1018,6 +1073,20 @@ function GroupMenuSheet({
           </button>
         </div>
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3">
+          {(creatorName || createdAt) && (
+            <div className="rounded-xl bg-[#eff6ff] px-3 py-2 text-xs text-slate-600">
+              {creatorName ? (
+                <p>
+                  Created by <span className="font-semibold text-slate-900">{creatorName}</span>
+                </p>
+              ) : null}
+              {createdAt ? (
+                <p className="mt-0.5 text-slate-500">
+                  {new Date(createdAt).toLocaleString()}
+                </p>
+              ) : null}
+            </div>
+          )}
           {isAdmin ? (
             <div>
               <p className="text-xs font-semibold text-slate-500">Group name</p>
@@ -1068,6 +1137,54 @@ function GroupMenuSheet({
               Leave
             </button>
           </div>
+
+          {isAdmin ? (
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setAddOpen((v) => !v)}
+                className="flex flex-1 items-center justify-center rounded-xl border border-slate-200 py-2.5 text-xs font-bold text-slate-800"
+              >
+                Add members
+              </button>
+              <button
+                type="button"
+                onClick={() => void doDelete()}
+                className="flex flex-1 items-center justify-center rounded-xl border border-red-200 bg-red-50 py-2.5 text-xs font-bold text-red-700"
+              >
+                Delete group
+              </button>
+            </div>
+          ) : null}
+
+          {addOpen ? (
+            <div className="rounded-xl border border-slate-100 p-2">
+              <input
+                value={addQ}
+                onChange={(e) => setAddQ(e.target.value)}
+                placeholder="Search name or matric..."
+                className="mb-2 h-9 w-full rounded-lg border border-slate-200 px-2 text-sm"
+              />
+              <div className="max-h-40 space-y-1 overflow-y-auto">
+                {(addStudentsQ.data || []).map((s) => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => void addOne(s.auth_user_id)}
+                    className="flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left text-sm hover:bg-slate-50"
+                  >
+                    <span className="min-w-0 truncate">
+                      <span className="font-medium">{s.full_name}</span>
+                      {s.matric_number ? (
+                        <span className="ml-1 text-[10px] text-slate-400">{s.matric_number}</span>
+                      ) : null}
+                    </span>
+                    <span className="text-[10px] font-bold text-[#2563eb]">Add</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
 
           <div>
             <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">

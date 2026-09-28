@@ -575,28 +575,154 @@ export async function discoverStudents(opts: {
 }
 
 export async function listDepartmentOfficers(schoolId: string) {
-  // Prefer user_roles / profiles with examination_officer role
+  const officerRoles = [
+    "examination_officer",
+    "departmental_officer",
+    "department_officer",
+    "exam_officer",
+    "officer",
+  ];
+
+  // user_roles may store role as enum or text
+  let userIds: string[] = [];
   const { data: roles } = await supabase
     .from("user_roles")
     .select("user_id, role")
-    .eq("role", "examination_officer")
-    .limit(50);
+    .in("role", officerRoles)
+    .limit(100);
 
-  const userIds = (roles || []).map((r) => r.user_id as string).filter(Boolean);
-  if (!userIds.length) return [];
+  if (roles?.length) {
+    userIds = roles.map((r) => r.user_id as string).filter(Boolean);
+  }
 
-  const { data: profiles } = await supabase
+  // Fallback: profiles with role-like fields or name contains Officer
+  let profilesQuery = supabase
     .from("profiles")
     .select("id, auth_user_id, full_name, school_id, avatar_url")
-    .eq("school_id", schoolId)
-    .in("auth_user_id", userIds);
+    .not("auth_user_id", "is", null)
+    .limit(80);
 
-  return (profiles || []).map((p) => ({
-    id: p.auth_user_id as string,
-    full_name: (p.full_name as string) || "Departmental Officer",
-    avatar_url: (p.avatar_url as string) || null,
-    roleLabel: "Departmental Officer",
-  }));
+  if (schoolId) {
+    profilesQuery = profilesQuery.eq("school_id", schoolId);
+  }
+
+  if (userIds.length) {
+    profilesQuery = profilesQuery.in("auth_user_id", userIds);
+  }
+
+  const { data: profiles, error } = await profilesQuery;
+  if (error) {
+    console.warn("[listDepartmentOfficers]", error.message);
+  }
+
+  let list = (profiles || [])
+    .filter((p) => p.auth_user_id)
+    .map((p) => ({
+      id: p.auth_user_id as string,
+      full_name: (p.full_name as string) || "Departmental Officer",
+      avatar_url: (p.avatar_url as string) || null,
+      roleLabel: "Departmental Officer",
+    }));
+
+  // If role filter returned nothing, try broader school profiles labeled as officers in full_name
+  if (!list.length && schoolId) {
+    const { data: all } = await supabase
+      .from("profiles")
+      .select("id, auth_user_id, full_name, school_id, avatar_url")
+      .eq("school_id", schoolId)
+      .not("auth_user_id", "is", null)
+      .limit(80);
+    list = (all || [])
+      .filter((p) => /officer|exam/i.test(String(p.full_name || "")))
+      .map((p) => ({
+        id: p.auth_user_id as string,
+        full_name: (p.full_name as string) || "Departmental Officer",
+        avatar_url: (p.avatar_url as string) || null,
+        roleLabel: "Departmental Officer",
+      }));
+  }
+
+  return list;
+}
+
+/** Load conversation meta for header (group creator, times, members). */
+export async function getConversationMeta(conversationId: string, myUserId: string) {
+  const { data: conv, error } = await supabase
+    .from("conversations")
+    .select(
+      "id, type, title, description, avatar_url, group_kind, created_by, created_at, updated_at, school_id",
+    )
+    .eq("id", conversationId)
+    .maybeSingle();
+  if (error || !conv) return null;
+
+  const { data: members } = await supabase
+    .from("conversation_members")
+    .select("user_id, role, joined_at")
+    .eq("conversation_id", conversationId)
+    .is("left_at", null);
+
+  let creatorName: string | null = null;
+  if (conv.created_by) {
+    const { data: prof } = await supabase
+      .from("profiles")
+      .select("full_name, auth_user_id")
+      .eq("auth_user_id", conv.created_by)
+      .maybeSingle();
+    creatorName = (prof?.full_name as string) || null;
+  }
+
+  const peerIds = (members || [])
+    .map((m) => m.user_id as string)
+    .filter((id) => id && id !== myUserId);
+
+  let peerName: string | null = null;
+  let peerAvatar: string | null = null;
+  if (conv.type === "direct" && peerIds[0]) {
+    const { data: peer } = await supabase
+      .from("profiles")
+      .select("full_name, avatar_url, auth_user_id")
+      .eq("auth_user_id", peerIds[0])
+      .maybeSingle();
+    peerName = (peer?.full_name as string) || null;
+    peerAvatar = (peer?.avatar_url as string) || null;
+  }
+
+  const myRole =
+    (members || []).find((m) => m.user_id === myUserId)?.role || "member";
+
+  return {
+    id: conv.id as string,
+    type: conv.type as string,
+    isGroup: conv.type === "group",
+    title:
+      conv.type === "group"
+        ? (conv.title as string) || "Group"
+        : peerName || (conv.title as string) || "Chat",
+    subtitle:
+      conv.type === "group"
+        ? `${(members || []).length} members · ${(conv.group_kind as string) || "study"}`
+        : "Direct message",
+    avatar: (conv.avatar_url as string) || peerAvatar,
+    created_by: (conv.created_by as string) || null,
+    creatorName,
+    created_at: (conv.created_at as string) || null,
+    description: (conv.description as string) || null,
+    group_kind: (conv.group_kind as string) || null,
+    memberCount: (members || []).length,
+    myRole: myRole as string,
+    peerUserId: peerIds[0] || null,
+  };
+}
+
+/** Delete group (owner/admin) — removes conversation row (cascade members/messages). */
+export async function deleteGroup(conversationId: string) {
+  const { error } = await supabase
+    .from("conversations")
+    .delete()
+    .eq("id", conversationId)
+    .eq("type", "group");
+  if (error) throw new Error(error.message);
 }
 
 
