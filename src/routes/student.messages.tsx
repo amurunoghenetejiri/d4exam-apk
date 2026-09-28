@@ -248,20 +248,41 @@ function MessagesHub() {
   }
 
   return (
-    <div className="relative flex h-dvh min-h-0 flex-col bg-[#e8f4fc]">
-      {/* Sky-blue wallpaper + animated D4 logo (matches chat page) */}
-      <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden" aria-hidden>
-        <div className="absolute inset-0 bg-gradient-to-b from-[#dbeafe]/90 via-[#e8f4fc] to-[#f0f9ff]" />
-        <img
-          src="/logo.png"
-          alt=""
-          className="absolute left-1/2 top-1/2 h-[min(65vh,520px)] max-w-[90%] -translate-x-1/2 -translate-y-1/2 object-contain opacity-[0.1] sm:h-[min(70vh,600px)]"
-          style={{
-            animation: "d4MsgLogoFloat 7s ease-in-out infinite",
-            filter: "grayscale(0.3) brightness(0.95)",
-          }}
-        />
-        <style>{`@keyframes d4MsgLogoFloat { 0%,100% { transform: translate(-50%, -50%) scale(1); opacity: 0.07; } 50% { transform: translate(-50%, -53%) scale(1.08); opacity: 0.12; } }`}</style>
+    <div className="relative flex h-dvh min-h-0 flex-col"
+      style={{ background: "linear-gradient(180deg, #e0f2fe 0%, #f0f9ff 45%, #e0f2fe 100%)" }}>
+      {/* Brand watermark — centered, same motion as officer chat */}
+      <div aria-hidden className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div
+            className="relative flex items-center justify-center"
+            style={{ animation: "d4WatermarkFloat 9s ease-in-out infinite" }}
+          >
+            <img
+              src="/logo.png"
+              alt=""
+              className="h-[min(48vh,360px)] w-auto max-w-[68%] select-none object-contain opacity-[0.14]"
+              style={{ filter: "grayscale(0.25) brightness(1.08)" }}
+              loading="eager"
+              decoding="async"
+            />
+            <span
+              className="pointer-events-none absolute inset-[8%] overflow-hidden rounded-full"
+              style={{
+                background:
+                  "linear-gradient(115deg, transparent 25%, rgba(255,255,255,0.5) 48%, rgba(147,197,253,0.35) 52%, transparent 75%)",
+                backgroundSize: "220% 100%",
+                animation: "d4WatermarkShine 5s ease-in-out infinite",
+              }}
+            />
+            <span className="absolute h-2 w-2 rounded-full bg-blue-400/30" style={{ top: "18%", left: "22%", animation: "d4WatermarkOrb 7s ease-in-out infinite" }} />
+            <span className="absolute h-1.5 w-1.5 rounded-full bg-sky-300/40" style={{ bottom: "22%", right: "18%", animation: "d4WatermarkOrb 8s ease-in-out infinite reverse" }} />
+          </div>
+        </div>
+        <style>{`
+          @keyframes d4WatermarkFloat { 0%, 100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-10px) scale(1.03); } }
+          @keyframes d4WatermarkShine { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
+          @keyframes d4WatermarkOrb { 0%, 100% { transform: translate(0,0); opacity: 0.35; } 50% { transform: translate(12px,-14px); opacity: 0.7; } }
+        `}</style>
       </div>
       {/* Navy header */}
       <header

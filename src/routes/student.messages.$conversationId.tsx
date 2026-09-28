@@ -555,54 +555,81 @@ export function ConversationChat({
 
   return (
     <div
-      className="fixed inset-0 z-[80] flex flex-col bg-[#e8f4fc]"
-      style={{ height: "100dvh", maxHeight: "100dvh" }}
+      className="fixed inset-0 z-[80] flex flex-col select-none"
+      style={{
+        height: "100dvh",
+        maxHeight: "100dvh",
+        background: "linear-gradient(180deg, #e0f2fe 0%, #f0f9ff 45%, #e0f2fe 100%)",
+      }}
     >
-      {/* Sky-blue wallpaper + large centered D4 logo (behind chat UI) */}
-      <div
-        className="pointer-events-none absolute inset-0 z-0 overflow-hidden"
-        aria-hidden
-      >
-        <div className="absolute inset-0 bg-gradient-to-b from-[#dbeafe] via-[#e8f4fc] to-[#f0f9ff]" />
-        <img
-          src="/logo.png"
-          alt=""
-          className="absolute left-1/2 top-1/2 h-[min(65vh,520px)] max-w-[90%] -translate-x-1/2 -translate-y-1/2 object-contain opacity-[0.1] sm:h-[min(70vh,600px)]"
-          style={{
-            animation: "d4ChatLogoFloat 7s ease-in-out infinite",
-            filter: "grayscale(0.3) brightness(0.95)",
-          }}
-        />
-        <style>{`@keyframes d4ChatLogoFloat { 0%,100% { transform: translate(-50%, -50%) scale(1); opacity: 0.07; } 50% { transform: translate(-50%, -53%) scale(1.08); opacity: 0.12; } }`}</style>
+      {/* Brand watermark — same as departmental officer chat */}
+      <div aria-hidden className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div
+            className="relative flex items-center justify-center"
+            style={{ animation: "d4WatermarkFloat 9s ease-in-out infinite" }}
+          >
+            <img
+              src="/logo.png"
+              alt=""
+              className="h-[min(48vh,360px)] w-auto max-w-[68%] select-none object-contain opacity-[0.14]"
+              style={{ filter: "grayscale(0.25) brightness(1.08)" }}
+              loading="eager"
+              decoding="async"
+            />
+            <span
+              className="pointer-events-none absolute inset-[8%] overflow-hidden rounded-full"
+              style={{
+                background:
+                  "linear-gradient(115deg, transparent 25%, rgba(255,255,255,0.5) 48%, rgba(147,197,253,0.35) 52%, transparent 75%)",
+                backgroundSize: "220% 100%",
+                animation: "d4WatermarkShine 5s ease-in-out infinite",
+              }}
+            />
+            <span className="absolute h-2 w-2 rounded-full bg-blue-400/30" style={{ top: "18%", left: "22%", animation: "d4WatermarkOrb 7s ease-in-out infinite" }} />
+            <span className="absolute h-1.5 w-1.5 rounded-full bg-sky-300/40" style={{ bottom: "22%", right: "18%", animation: "d4WatermarkOrb 8s ease-in-out infinite reverse" }} />
+          </div>
+        </div>
+        <style>{`
+          @keyframes d4WatermarkFloat { 0%, 100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-10px) scale(1.03); } }
+          @keyframes d4WatermarkShine { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
+          @keyframes d4WatermarkOrb { 0%, 100% { transform: translate(0,0); opacity: 0.35; } 50% { transform: translate(12px,-14px); opacity: 0.7; } }
+        `}</style>
       </div>
 
       {/* Navy header — peer/group name */}
       <header
-        className="relative z-30 flex shrink-0 items-center gap-3 border-b border-white/10 bg-[#0b1b3a] px-3 py-2.5 text-white shadow-md"
-        style={{ paddingTop: "max(0.5rem, env(safe-area-inset-top, 0px))" }}
+        className="relative z-30 flex shrink-0 items-center gap-3 border-b border-white/10 bg-[#0b1b3a] px-3 py-3 text-white"
+        style={{ paddingTop: "max(0.75rem, env(safe-area-inset-top, 0px))" }}
       >
         <button
           type="button"
           onClick={() => goBack()}
-          className="grid h-9 w-9 place-items-center rounded-full hover:bg-white/10"
+          className="grid h-9 w-9 place-items-center rounded-full text-white hover:bg-white/10"
           aria-label="Back"
         >
           <ArrowLeft className="h-5 w-5" />
         </button>
-        <div className="grid h-9 w-9 place-items-center overflow-hidden rounded-full bg-white/15">
+        <span className="relative grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-full bg-white/15 ring-2 ring-white/90 shadow-md">
           {meta?.avatar ? (
             <img src={meta.avatar} alt="" className="h-full w-full object-cover" />
           ) : meta?.isGroup ? (
-            <UsersRound className="h-4 w-4" />
+            <UsersRound className="h-5 w-5 text-white" />
           ) : (
-            <span className="text-xs font-bold">
+            <span className="text-xs font-bold text-white">
               {(meta?.title || "?").slice(0, 2).toUpperCase()}
             </span>
           )}
-        </div>
+        </span>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-bold">{meta?.title || "Chat"}</p>
-          <p className="truncate text-[11px] text-white/70">{meta?.subtitle || ""}</p>
+          <p className="truncate text-sm font-bold leading-tight">
+            {meta?.title || "Chat"}
+          </p>
+          <p className="truncate text-[11px] text-white/70">
+            {meta?.isGroup
+              ? meta?.subtitle || "Group"
+              : meta?.subtitle || "Last seen just now"}
+          </p>
         </div>
         {meta?.isGroup ? (
           <button
@@ -657,7 +684,7 @@ export function ConversationChat({
               >
                 <div
                   className={cn(
-                    "max-w-[85%] rounded-2xl px-3 py-2 shadow-sm",
+                    "max-w-[85%] md:max-w-[70%] rounded-2xl px-3 py-2 text-sm shadow-sm",
                     mine
                       ? "rounded-br-md border border-slate-200 bg-white text-slate-800"
                       : "rounded-bl-md bg-[#2563eb] text-white",
@@ -738,7 +765,7 @@ export function ConversationChat({
       </div>
 
       <div
-        className="relative z-30 shrink-0 border-t border-slate-200 bg-white px-2 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom,0px))] shadow-[0_-4px_12px_rgba(15,23,42,0.06)]"
+        className="relative z-30 shrink-0 border-t border-white/10 bg-[#0b1b3a] px-2 py-2 text-white"
         style={{
           paddingBottom: "max(0.5rem, env(safe-area-inset-bottom, 0px))",
         }}
@@ -796,7 +823,7 @@ export function ConversationChat({
             <button
               type="button"
               onClick={() => fileRef.current?.click()}
-              className="grid h-11 w-11 shrink-0 place-items-center rounded-full text-slate-500 hover:bg-slate-100"
+              className="mb-1 grid h-9 w-9 shrink-0 place-items-center rounded-full text-white/90 hover:bg-white/10"
               aria-label="Attach"
             >
               <Paperclip className="h-5 w-5" />
@@ -812,33 +839,39 @@ export function ConversationChat({
                 e.target.value = "";
               }}
             />
-            <textarea
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              rows={1}
-              placeholder="Message…"
-              className="max-h-28 min-h-[2.75rem] flex-1 resize-none rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#2563eb]/25"
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  void doSendText();
-                }
-              }}
-            />
+            <div className="flex min-w-0 flex-1 items-end rounded-full border border-white/20 bg-white px-3">
+              <textarea
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                rows={1}
+                placeholder="Type your message…"
+                className="max-h-24 min-h-[36px] w-full resize-none bg-transparent py-2 text-sm text-slate-900 outline-none placeholder:text-slate-400"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    void doSendText();
+                  }
+                }}
+              />
+            </div>
             {text.trim() ? (
               <button
                 type="button"
                 onClick={() => void doSendText()}
-                className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[#2563eb] text-white"
+                className="mb-0.5 grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[#2563eb] text-white"
                 aria-label="Send"
               >
-                <Send className="h-5 w-5" />
+                <Send className="h-4 w-4" />
               </button>
             ) : (
               <button
                 type="button"
                 onClick={() => void startRecording()}
-                className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[#2563eb] text-white"
+                className={cn(
+                  "mb-0.5 grid h-11 w-11 shrink-0 place-items-center rounded-full text-white shadow-lg transition active:scale-95",
+                  "bg-gradient-to-b from-[#60a5fa] via-[#3b82f6] to-[#1d4ed8]",
+                  "ring-2 ring-white/60 ring-offset-1 ring-offset-[#0b1b3a]",
+                )}
                 aria-label="Record voice"
               >
                 <Mic className="h-5 w-5" />
