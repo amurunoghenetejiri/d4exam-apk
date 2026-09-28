@@ -181,39 +181,43 @@ function MessagesHub() {
   const openConversation = useCallback(
     (id: string) => {
       if (!id) return;
+      const path = `/student/messages/${id}`;
+      // Hash history (APK) — set hash immediately so chat always opens
       try {
-        void navigate({
-          to: "/student/messages/$conversationId",
-          params: { conversationId: id },
-        });
-      } catch (e) {
-        // Native hash-router fallback
-        const path = `/student/messages/${id}`;
         if (typeof window !== "undefined") {
-          window.location.hash = path;
+          const isHash =
+            window.location.hash.startsWith("#/") ||
+            /Capacitor|; wv\)/i.test(navigator.userAgent || "");
+          if (isHash || window.location.hash) {
+            window.location.hash = path;
+          }
         }
+      } catch {
+        /* ignore */
       }
+      void navigate({
+        to: "/student/messages/$conversationId",
+        params: { conversationId: id },
+      });
     },
     [navigate],
   );
 
   const startDirect = useCallback(
     async (peer: StudentDiscover) => {
-      if (!peer.auth_user_id || !schoolId || !userId) {
+      if (!peer.auth_user_id || !userId) {
         toast.error("Cannot start chat — student account not linked yet");
         return;
       }
       try {
+        const sid = schoolId || schoolIdHint || "";
         const cid = await getOrCreateDirectConversation(
           userId,
           peer.auth_user_id,
-          schoolId,
+          sid,
         );
         void qc.invalidateQueries({ queryKey: ["campus-conversations"] });
-        navigate({
-          to: "/student/messages/$conversationId",
-          params: { conversationId: cid },
-        });
+        openConversation(cid);
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "Could not open chat");
       }
@@ -424,15 +428,15 @@ function MessagesHub() {
                     key={o.id}
                     type="button"
                     onClick={async () => {
-                      if (!userId || !schoolId) {
-                        toast.error("Sign in and school link required");
+                      if (!userId) {
+                        toast.error("Sign in required");
                         return;
                       }
                       try {
                         const cid = await getOrCreateDirectConversation(
                           userId,
                           o.id,
-                          schoolId,
+                          schoolId || schoolIdHint || "",
                         );
                         void qc.invalidateQueries({ queryKey: ["campus-conversations"] });
                         openConversation(cid);

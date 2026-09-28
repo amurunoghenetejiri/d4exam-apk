@@ -542,7 +542,7 @@ export async function discoverStudents(opts: {
   const rich = await supabase
     .from("students")
     .select(
-      `${baseSelect}, departments(name), levels(name), profiles(auth_user_id, full_name, avatar_url)`,
+      `${baseSelect}, departments(name), levels(name), profiles(auth_user_id, full_name, profile_photo_url)`,
     )
     .eq("school_id", schoolId)
     .limit(limit);
