@@ -28,6 +28,15 @@ function shouldUseHash(): boolean {
   if (typeof window === "undefined") return false;
   if (window.location.hash.startsWith("#/")) return true;
   if ((window as unknown as { __D4_FORCE_HASH__?: boolean }).__D4_FORCE_HASH__) return true;
+  try {
+    const cap = (window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor;
+    const ua = navigator.userAgent || "";
+    if (Boolean(cap?.isNativePlatform?.()) || /Capacitor/i.test(ua) || (/; wv\)/i.test(ua) && /Android/i.test(ua))) {
+      return true;
+    }
+  } catch {
+    /* ignore */
+  }
   return isLocalNativeShell();
 }
 
@@ -55,37 +64,41 @@ export function appNavigate(path: string): void {
   const clean = normalizePath(path);
   if (typeof window === "undefined") return;
 
+  // On hash shells (APK / #/ routes), always update the hash first so deep links work
+  if (shouldUseHash()) {
+    const next = `#${clean}`;
+    try {
+      if (window.location.hash !== next) {
+        window.location.hash = clean.startsWith("#") ? clean.slice(1) : clean;
+      } else {
+        window.dispatchEvent(new HashChangeEvent("hashchange"));
+      }
+    } catch {
+      try {
+        window.location.hash = clean;
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
   const router = getRouter();
   if (router?.navigate) {
     try {
       void Promise.resolve(router.navigate({ to: clean, replace: false }));
-      return;
     } catch {
-      /* fall through */
+      /* ignore — hash already set when needed */
     }
   }
   if (router?.history?.push) {
     try {
       router.history.push(clean);
-      return;
     } catch {
-      /* fall through */
+      /* ignore */
     }
   }
 
-  if (shouldUseHash()) {
-    const next = `#${clean}`;
-    if (window.location.hash === next) {
-      try {
-        window.dispatchEvent(new HashChangeEvent("hashchange"));
-      } catch {
-        window.location.hash = next;
-      }
-    } else {
-      window.location.hash = next;
-    }
-    return;
-  }
+  if (shouldUseHash()) return;
 
   try {
     window.history.pushState({}, "", clean);

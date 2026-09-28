@@ -4,6 +4,7 @@
  * Bottom nav is hidden via AppShell immersiveMessaging.
  */
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { appNavigate } from "@/lib/app-navigate";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -182,18 +183,35 @@ function MessagesHub() {
     (id: string) => {
       if (!id) return;
       const path = `/student/messages/${id}`;
+      // 1) Force hash (APK shell uses hash history — most reliable)
       try {
         if (typeof window !== "undefined") {
-          // Force route change for both hash (APK) and path routers
-          window.location.hash = path;
+          const next = `#${path}`;
+          if (window.location.hash !== next) {
+            window.location.hash = path;
+          } else {
+            // Same path — still dispatch so router re-evaluates
+            window.dispatchEvent(new HashChangeEvent("hashchange"));
+          }
         }
       } catch {
         /* ignore */
       }
-      void navigate({
-        to: "/student/messages/$conversationId",
-        params: { conversationId: id },
-      });
+      // 2) Typed TanStack navigate
+      try {
+        void navigate({
+          to: "/student/messages/$conversationId",
+          params: { conversationId: id },
+        });
+      } catch {
+        /* ignore */
+      }
+      // 3) Shared SPA helper
+      try {
+        appNavigate(path);
+      } catch {
+        /* ignore */
+      }
     },
     [navigate],
   );
@@ -226,10 +244,21 @@ function MessagesHub() {
   }, []);
 
   return (
-    <div className="flex h-dvh min-h-0 flex-col bg-slate-50">
+    <div className="relative flex h-dvh min-h-0 flex-col bg-[#e8f4fc]">
+      {/* Sky-blue wallpaper + animated D4 logo (matches chat page) */}
+      <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden" aria-hidden>
+        <div className="absolute inset-0 bg-gradient-to-b from-[#dbeafe]/90 via-[#e8f4fc] to-[#f0f9ff]" />
+        <img
+          src="/logo.png"
+          alt=""
+          className="absolute left-1/2 top-[45%] h-44 w-44 -translate-x-1/2 -translate-y-1/2 object-contain opacity-[0.08]"
+          style={{ animation: "d4MsgLogoFloat 8s ease-in-out infinite" }}
+        />
+        <style>{`@keyframes d4MsgLogoFloat { 0%,100% { transform: translate(-50%, -50%) scale(1); opacity: 0.06; } 50% { transform: translate(-50%, -54%) scale(1.08); opacity: 0.11; } }`}</style>
+      </div>
       {/* Navy header */}
       <header
-        className="shrink-0 bg-[#0b1b3a] text-white"
+        className="relative z-10 shrink-0 bg-[#0b1b3a] text-white"
         style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}
       >
         <div className="flex items-center gap-2 px-3 pb-3 pt-2.5 sm:gap-3 sm:px-4">
@@ -271,7 +300,7 @@ function MessagesHub() {
         </div>
       </header>
 
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div className="relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden">
         {/* Tabs */}
         <div className="shrink-0 px-3 pt-3">
           <div className="flex gap-1 rounded-2xl bg-slate-100/90 p-1">
@@ -439,7 +468,7 @@ function MessagesHub() {
                         toast.error(e instanceof Error ? e.message : "Could not open chat");
                       }
                     }}
-                    className="flex w-full items-center gap-3 rounded-2xl border border-slate-100 bg-white px-3 py-3 text-left shadow-sm transition hover:border-[#2563eb]/30 hover:bg-slate-50 active:scale-[0.99]"
+                    className="flex w-full items-center gap-3 rounded-2xl border border-blue-100 bg-gradient-to-r from-[#eff6ff] to-white px-3 py-3 text-left shadow-sm transition hover:border-[#2563eb]/40 active:scale-[0.99]"
                   >
                     <Avatar name={o.full_name} url={o.avatar_url} />
                     <div className="min-w-0 flex-1">
@@ -565,12 +594,7 @@ function ConversationList({
           <button
             type="button"
             onClick={() => onOpen(c.id)}
-            className={cn(
-              "flex w-full items-center gap-3 rounded-2xl border px-3 py-3 text-left shadow-sm transition active:scale-[0.99]",
-              c.isGroup
-                ? "border-blue-100 bg-gradient-to-r from-[#eff6ff] to-white hover:border-[#2563eb]/40"
-                : "border-slate-100 bg-white hover:border-slate-200 hover:bg-slate-50",
-            )}
+            className="flex w-full items-center gap-3 rounded-2xl border border-blue-100 bg-gradient-to-r from-[#eff6ff] to-white px-3 py-3 text-left shadow-sm transition active:scale-[0.99] hover:border-[#2563eb]/40"
           >
             <div className="relative">
               <Avatar name={c.title} url={c.avatar_url} group={c.isGroup} />
@@ -708,7 +732,7 @@ function StudentRow({
         if (s.auth_user_id) onMessage(s);
       }}
       disabled={!s.auth_user_id}
-      className="mx-3 mb-2 flex w-[calc(100%-1.5rem)] items-center gap-3 rounded-2xl border border-slate-100 bg-white px-3 py-3 text-left shadow-sm transition active:scale-[0.99] hover:border-[#2563eb]/30 hover:bg-[#f8fbff] disabled:opacity-50"
+      className="mx-3 mb-2 flex w-[calc(100%-1.5rem)] items-center gap-3 rounded-2xl border border-blue-100 bg-gradient-to-r from-[#eff6ff] to-white px-3 py-3 text-left shadow-sm transition active:scale-[0.99] hover:border-[#2563eb]/40 disabled:opacity-50"
     >
       <Avatar name={s.full_name} url={s.avatar_url} />
       <div className="min-w-0 flex-1">
