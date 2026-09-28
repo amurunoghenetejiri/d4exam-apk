@@ -408,22 +408,32 @@ export async function sendCampusMessage(opts: {
     duration_sec: opts.durationSec ?? null,
   };
 
-  const { data, error } = await supabase
-    .from("campus_messages")
-    .upsert(row, { onConflict: "conversation_id,client_id", ignoreDuplicates: false })
-    .select("*")
-    .maybeSingle();
-
-  // Fallback insert if unique constraint naming differs
-  if (error || !data) {
-    const ins = await supabase.from("campus_messages").insert(row).select("*").single();
-    if (ins.error) throw new Error(ins.error.message);
-    await touchConversation(opts.conversationId, opts.senderId, previewFromMessage(row));
+  // Prefer plain insert (works with partial unique index on client_id)
+  const ins = await supabase.from("campus_messages").insert(row).select("*").single();
+  if (!ins.error && ins.data) {
+    await touchConversation(
+      opts.conversationId,
+      opts.senderId,
+      previewFromMessage(row),
+    );
     return ins.data as CampusMessage;
   }
 
-  await touchConversation(opts.conversationId, opts.senderId, previewFromMessage(row));
-  return data as CampusMessage;
+  // Duplicate client_id — treat as success (idempotent)
+  if (ins.error && /duplicate|unique/i.test(ins.error.message)) {
+    const { data: existing } = await supabase
+      .from("campus_messages")
+      .select("*")
+      .eq("conversation_id", opts.conversationId)
+      .eq("client_id", opts.clientId)
+      .maybeSingle();
+    if (existing) return existing as CampusMessage;
+  }
+
+  throw new Error(
+    ins.error?.message ||
+      "Could not send message. Check you are a member of this chat.",
+  );
 }
 
 async function touchConversation(
@@ -575,75 +585,128 @@ export async function discoverStudents(opts: {
 }
 
 export async function listDepartmentOfficers(schoolId: string) {
-  const officerRoles = [
-    "examination_officer",
-    "departmental_officer",
-    "department_officer",
-    "exam_officer",
-    "officer",
-  ];
+  const results: {
+    id: string;
+    full_name: string;
+    avatar_url: string | null;
+    roleLabel: string;
+  }[] = [];
+  const seen = new Set<string>();
 
-  // user_roles may store role as enum or text
-  let userIds: string[] = [];
+  const push = (
+    authId: string | null | undefined,
+    name: string | null | undefined,
+    avatar: string | null | undefined,
+  ) => {
+    if (!authId || seen.has(authId)) return;
+    seen.add(authId);
+    results.push({
+      id: authId,
+      full_name: (name || "").trim() || "Departmental Officer",
+      avatar_url: avatar || null,
+      roleLabel: "Departmental Officer",
+    });
+  };
+
+  // 1) examination_officers table (canonical)
+  let eoQ = supabase
+    .from("examination_officers")
+    .select("officer_id, profile_id, school_id, status")
+    .limit(50);
+  if (schoolId) eoQ = eoQ.eq("school_id", schoolId);
+  const { data: eos } = await eoQ;
+
+  if (eos?.length) {
+    const profileIds = eos.map((e) => e.profile_id).filter(Boolean) as string[];
+    const officerIds = eos.map((e) => e.officer_id).filter(Boolean) as string[];
+    const { data: byProfile } = profileIds.length
+      ? await supabase
+          .from("profiles")
+          .select("id, auth_user_id, full_name, avatar_url")
+          .in("id", profileIds)
+      : { data: [] as Record<string, unknown>[] };
+    const { data: byAuth } = officerIds.length
+      ? await supabase
+          .from("profiles")
+          .select("id, auth_user_id, full_name, avatar_url")
+          .in("auth_user_id", officerIds)
+      : { data: [] as Record<string, unknown>[] };
+
+    const byProfId = new Map(
+      (byProfile || []).map((p) => [p.id as string, p]),
+    );
+    const byAuthId = new Map(
+      (byAuth || []).map((p) => [p.auth_user_id as string, p]),
+    );
+
+    for (const e of eos) {
+      const p =
+        (e.profile_id && byProfId.get(e.profile_id as string)) ||
+        (e.officer_id && byAuthId.get(e.officer_id as string)) ||
+        null;
+      const authId =
+        (p?.auth_user_id as string) || (e.officer_id as string) || null;
+      push(authId, p?.full_name as string, p?.avatar_url as string);
+    }
+  }
+
+  // 2) user_roles with examination_officer
   const { data: roles } = await supabase
     .from("user_roles")
-    .select("user_id, role")
-    .in("role", officerRoles)
-    .limit(100);
-
-  if (roles?.length) {
-    userIds = roles.map((r) => r.user_id as string).filter(Boolean);
-  }
-
-  // Fallback: profiles with role-like fields or name contains Officer
-  let profilesQuery = supabase
-    .from("profiles")
-    .select("id, auth_user_id, full_name, school_id, avatar_url")
-    .not("auth_user_id", "is", null)
-    .limit(80);
-
-  if (schoolId) {
-    profilesQuery = profilesQuery.eq("school_id", schoolId);
-  }
-
-  if (userIds.length) {
-    profilesQuery = profilesQuery.in("auth_user_id", userIds);
-  }
-
-  const { data: profiles, error } = await profilesQuery;
-  if (error) {
-    console.warn("[listDepartmentOfficers]", error.message);
-  }
-
-  let list = (profiles || [])
-    .filter((p) => p.auth_user_id)
-    .map((p) => ({
-      id: p.auth_user_id as string,
-      full_name: (p.full_name as string) || "Departmental Officer",
-      avatar_url: (p.avatar_url as string) || null,
-      roleLabel: "Departmental Officer",
-    }));
-
-  // If role filter returned nothing, try broader school profiles labeled as officers in full_name
-  if (!list.length && schoolId) {
-    const { data: all } = await supabase
+    .select("user_id, role, school_id")
+    .eq("role", "examination_officer")
+    .limit(50);
+  const roleUserIds = (roles || [])
+    .filter((r) => !schoolId || !r.school_id || r.school_id === schoolId)
+    .map((r) => r.user_id as string)
+    .filter(Boolean);
+  if (roleUserIds.length) {
+    const { data: profs } = await supabase
       .from("profiles")
-      .select("id, auth_user_id, full_name, school_id, avatar_url")
-      .eq("school_id", schoolId)
-      .not("auth_user_id", "is", null)
-      .limit(80);
-    list = (all || [])
-      .filter((p) => /officer|exam/i.test(String(p.full_name || "")))
-      .map((p) => ({
-        id: p.auth_user_id as string,
-        full_name: (p.full_name as string) || "Departmental Officer",
-        avatar_url: (p.avatar_url as string) || null,
-        roleLabel: "Departmental Officer",
-      }));
+      .select("auth_user_id, full_name, avatar_url, school_id")
+      .in("auth_user_id", roleUserIds);
+    for (const p of profs || []) {
+      if (schoolId && p.school_id && p.school_id !== schoolId) continue;
+      push(p.auth_user_id as string, p.full_name as string, p.avatar_url as string);
+    }
   }
 
-  return list;
+  // 3) People you've already messaged via student_officer_reports
+  try {
+    const { data: auth } = await supabase.auth.getUser();
+    const uid = auth.user?.id;
+    if (uid) {
+      const { data: reps } = await supabase
+        .from("student_officer_reports")
+        .select("officer_id")
+        .eq("student_id", uid)
+        .limit(20);
+      const oids = [
+        ...new Set(
+          (reps || []).map((r) => r.officer_id as string).filter(Boolean),
+        ),
+      ];
+      if (oids.length) {
+        const { data: profs } = await supabase
+          .from("profiles")
+          .select("auth_user_id, full_name, avatar_url")
+          .in("auth_user_id", oids);
+        for (const p of profs || []) {
+          push(
+            p.auth_user_id as string,
+            p.full_name as string,
+            p.avatar_url as string,
+          );
+        }
+      }
+    }
+  } catch {
+    /* optional */
+  }
+
+  return results;
 }
+
 
 /** Load conversation meta for header (group creator, times, members). */
 export async function getConversationMeta(conversationId: string, myUserId: string) {
