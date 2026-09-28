@@ -88,8 +88,12 @@ export function AppUnlockSetupGate() {
         setNeeded(true);
         setStep("password");
         try {
-          const avail = await checkFingerprintAvailable();
-          if (!cancelled) setFpAvailable(Boolean(avail?.ok));
+          if (!isNativeShell()) {
+            if (!cancelled) setFpAvailable(false);
+          } else {
+            const avail = await checkFingerprintAvailable();
+            if (!cancelled) setFpAvailable(Boolean(avail?.ok));
+          }
         } catch {
           if (!cancelled) setFpAvailable(false);
         }
@@ -126,6 +130,7 @@ export function AppUnlockSetupGate() {
       markSessionUnlocked();
       setFingerprintLocked(false);
       toast.success("App password created");
+      // Website: password only — never offer fingerprint
       if (isNativeShell() && fpAvailable && !isFingerprintEnabledFor(session.userId)) {
         setStep("fingerprint");
       } else {

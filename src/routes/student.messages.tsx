@@ -6,7 +6,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { appNavigate } from "@/lib/app-navigate";
 import { ConversationChat } from "./student.messages.$conversationId";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Search,
@@ -131,6 +131,29 @@ function MessagesHub() {
   const [createOpen, setCreateOpen] = useState(false);
   const [findOpen, setFindOpen] = useState(false);
   const [deptOpen, setDeptOpen] = useState(false);
+  const [fabHidden, setFabHidden] = useState(false);
+  const fabTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    const hide = () => {
+      setFabHidden(true);
+      if (fabTimer.current) clearTimeout(fabTimer.current);
+    };
+    const showLater = () => {
+      if (fabTimer.current) clearTimeout(fabTimer.current);
+      fabTimer.current = setTimeout(() => setFabHidden(false), 700);
+    };
+    const onScroll = () => { hide(); showLater(); };
+    window.addEventListener("scroll", onScroll, true);
+    window.addEventListener("touchstart", hide, { passive: true });
+    window.addEventListener("touchend", showLater, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", onScroll, true);
+      window.removeEventListener("touchstart", hide);
+      window.removeEventListener("touchend", showLater);
+      if (fabTimer.current) clearTimeout(fabTimer.current);
+    };
+  }, []);
 
   const convQuery = useQuery({
     queryKey: ["campus-conversations", userId],
@@ -300,33 +323,15 @@ function MessagesHub() {
           >
             <ArrowLeft className="h-5 w-5" />
           </button>
-          <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-white/20 bg-white/10 sm:h-10 sm:w-10">
-            <span className="text-xs font-black tracking-tight sm:text-sm">D4</span>
+          <div className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-[#3b82f6] to-[#1d4ed8] shadow-lg shadow-blue-900/40 ring-2 ring-white/25">
+            <MessageSquare className="h-5 w-5 text-white" />
           </div>
           <div className="min-w-0 flex-1">
-            <h1 className="text-base font-bold leading-tight sm:text-lg">Messages</h1>
+            <h1 className="text-lg font-black tracking-tight sm:text-xl">D4<span className="text-[#60a5fa]">Chat</span></h1>
             <p className="text-[10px] text-white/70 sm:text-[11px]">
-              Connect · Chat · Collaborate
+              Campus messages · groups · officers
             </p>
           </div>
-          <button
-            type="button"
-            className="grid h-9 w-9 place-items-center rounded-full text-white/90 hover:bg-white/10"
-            aria-label="Search"
-            onClick={() => {
-              const el = document.getElementById("msg-global-search");
-              el?.focus();
-            }}
-          >
-            <Search className="h-5 w-5" />
-          </button>
-          <button
-            type="button"
-            className="grid h-9 w-9 place-items-center rounded-full text-white/90 hover:bg-white/10"
-            aria-label="Menu"
-          >
-            <MoreVertical className="h-5 w-5" />
-          </button>
         </div>
       </header>
 
@@ -345,7 +350,7 @@ function MessagesHub() {
               const active = tab === key;
               const badge =
                 key === "chats"
-                  ? chats.reduce((n, c) => n + c.unread, 0)
+                  ? allChats.reduce((n, c) => n + c.unread, 0)
                   : key === "groups"
                     ? groups.reduce((n, c) => n + c.unread, 0)
                     : 0;
@@ -539,7 +544,7 @@ function MessagesHub() {
         />
       )}
 
-      {/* Floating compose pen (matches reference FAB) */}
+      {/* Floating compose pen — writing motion; fades while scrolling */}
       <button
         type="button"
         onClick={() => {
@@ -548,11 +553,29 @@ function MessagesHub() {
           const el = document.getElementById("msg-global-search");
           el?.focus();
         }}
-        className="fixed bottom-6 right-5 z-30 grid h-[3.25rem] w-[3.25rem] place-items-center rounded-full bg-[#2563eb] text-white shadow-xl shadow-blue-500/35 transition hover:bg-[#1d4ed8] active:scale-95 sm:bottom-8 sm:right-8 sm:h-14 sm:w-14"
+        className={cn(
+          "fixed bottom-6 right-5 z-30 grid h-[3.25rem] w-[3.25rem] place-items-center rounded-full bg-[#2563eb] text-white shadow-xl shadow-blue-500/35 sm:bottom-8 sm:right-8 sm:h-14 sm:w-14",
+          "ring-4 ring-blue-400/30 transition-all duration-300 ease-out",
+          fabHidden
+            ? "pointer-events-none translate-y-4 scale-90 opacity-0"
+            : "translate-y-0 scale-100 opacity-100",
+        )}
         style={{ marginBottom: "env(safe-area-inset-bottom, 0px)" }}
         aria-label="New message"
       >
-        <PenLine className="h-[1.35rem] w-[1.35rem] sm:h-6 sm:w-6" strokeWidth={2.25} />
+        <PenLine
+          className="h-[1.35rem] w-[1.35rem] sm:h-6 sm:w-6 d4-pen-write"
+          strokeWidth={2.25}
+        />
+        <style>{`
+          @keyframes d4PenWrite {
+            0%, 100% { transform: translate(0,0) rotate(-12deg); }
+            25% { transform: translate(2px,1px) rotate(-6deg); }
+            50% { transform: translate(-1px,2px) rotate(-14deg); }
+            75% { transform: translate(1px,-1px) rotate(-8deg); }
+          }
+          .d4-pen-write { animation: d4PenWrite 1.6s ease-in-out infinite; transform-origin: 70% 90%; }
+        `}</style>
       </button>
     </div>
   );

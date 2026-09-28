@@ -886,27 +886,50 @@ export async function listConversationMembers(conversationId: string) {
   if (error) throw new Error(error.message);
   const userIds = (data || []).map((m) => m.user_id as string);
   if (!userIds.length) return [];
-  const { data: profiles } = await supabase
-    .from("profiles")
-    .select("auth_user_id, full_name, avatar_url")
-    .in("auth_user_id", userIds);
-  const byUser = new Map(
-    (profiles || []).map((p) => [p.auth_user_id as string, p]),
-  );
+
+  const nameByUser = new Map<string, { name: string; avatar: string | null }>();
+  const { data: rpcNames } = await supabase.rpc("resolve_messaging_peer_names", {
+    p_user_ids: userIds,
+  });
+  if (Array.isArray(rpcNames)) {
+    for (const r of rpcNames as Record<string, unknown>[]) {
+      const uid = r.auth_user_id as string;
+      if (!uid) continue;
+      nameByUser.set(uid, {
+        name: ((r.full_name as string) || "").trim() || "Member",
+        avatar: (r.avatar_url as string) || null,
+      });
+    }
+  }
+  if (nameByUser.size < userIds.length) {
+    const { data: profiles } = await supabase
+      .from("profiles")
+      .select("auth_user_id, full_name, profile_photo_url")
+      .in("auth_user_id", userIds);
+    for (const p of profiles || []) {
+      const uid = p.auth_user_id as string;
+      if (nameByUser.has(uid) && nameByUser.get(uid)!.name !== "Member") continue;
+      nameByUser.set(uid, {
+        name: ((p.full_name as string) || "").trim() || "Member",
+        avatar: (p.profile_photo_url as string) || null,
+      });
+    }
+  }
+
   return (data || []).map((m) => {
-    const p = byUser.get(m.user_id as string);
+    const info = nameByUser.get(m.user_id as string);
     return {
       user_id: m.user_id as string,
       role: m.role as string,
       joined_at: m.joined_at as string,
       muted: Boolean(m.muted),
-      full_name: (p?.full_name as string) || "Member",
-      avatar_url: (p?.avatar_url as string) || null,
+      full_name: info?.name || "Member",
+      avatar_url: info?.avatar || null,
     };
   });
 }
 
-/** Enrich student ids with department + level names (for officer inbox). */
+
 export async function enrichStudentsIdentity(
   studentIds: string[],
 ): Promise<
@@ -937,4 +960,20 @@ export async function enrichStudentsIdentity(
     });
   }
   return map;
+}
+
+
+/** Promote or demote a group member (admin only). */
+export async function setConversationMemberRole(
+  conversationId: string,
+  memberUserId: string,
+  role: "admin" | "member",
+) {
+  const { error } = await supabase
+    .from("conversation_members")
+    .update({ role })
+    .eq("conversation_id", conversationId)
+    .eq("user_id", memberUserId)
+    .is("left_at", null);
+  if (error) throw new Error(error.message);
 }

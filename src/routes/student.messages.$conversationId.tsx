@@ -67,6 +67,7 @@ import {
   discoverStudents,
   deleteGroup,
   getConversationMeta,
+  setConversationMemberRole,
 } from "@/lib/messaging";
 import { toast } from "sonner";
 
@@ -127,6 +128,15 @@ export function ConversationChat({
   const scrollerRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const sendLock = useRef(false);
+  const [replyTo, setReplyTo] = useState<CampusMessage | null>(null);
+  const [swipeDx, setSwipeDx] = useState<Record<string, number>>({});
+  const swipeRef = useRef<{
+    key: string;
+    x: number;
+    y: number;
+    axis: "none" | "h" | "v";
+    dx: number;
+  } | null>(null);
   const [forwardMsg, setForwardMsg] = useState<CampusMessage | null>(null);
   const [groupMenuOpen, setGroupMenuOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
@@ -1350,14 +1360,23 @@ function GroupMenuSheet({
                   <p className="text-[10px] text-slate-500">{m.role}</p>
                 </div>
                 {isAdmin && m.user_id !== userId ? (
-                  <button
-                    type="button"
-                    onClick={() => void removeMember(m.user_id)}
-                    className="grid h-8 w-8 place-items-center rounded-full text-rose-500 hover:bg-rose-50"
-                    aria-label="Remove"
-                  >
-                    <UserMinus className="h-4 w-4" />
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => void toggleAdmin(m.user_id, m.role)}
+                      className="rounded-lg bg-[#eff6ff] px-2 py-1 text-[10px] font-bold text-[#2563eb]"
+                    >
+                      {m.role === "admin" || m.role === "owner" ? "Demote" : "Make admin"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void removeMember(m.user_id)}
+                      className="grid h-8 w-8 place-items-center rounded-full text-rose-500 hover:bg-rose-50"
+                      aria-label="Remove"
+                    >
+                      <UserMinus className="h-4 w-4" />
+                    </button>
+                  </div>
                 ) : null}
               </div>
             ))}
