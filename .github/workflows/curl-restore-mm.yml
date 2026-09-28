@@ -10,11 +10,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Patch WaveBars + onFile + swipe
+      - name: Patch
         run: |
-          set -euo pipefail
           python3 << 'PY'
           from pathlib import Path
           import re
@@ -22,20 +19,17 @@ jobs:
           mm = Path("src/components/messaging/MessageMedia.tsx")
           t = mm.read_text()
 
-          # Replace WaveBars seek handlers: drag-only, horizontal axis lock
-          old_wb = '''  const seekFromClientX = (clientX: number) => {
-    const el = trackRef.current;
-    if (!el || !onSeek) return;
-    const rect = el.getBoundingClientRect();
-    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / Math.max(1, rect.width)));
-    onSeek(ratio);
-  };
+          # Insert dragRef after trackRef
+          if "dragRef = useRef<{ x: number; y: number; active" not in t:
+            t = t.replace(
+              "const trackRef = useRef<HTMLDivElement>(null);",
+              "const trackRef = useRef<HTMLDivElement>(null);\n  const dragRef = useRef<{ x: number; y: number; active: boolean; seeking: boolean } | null>(null);",
+              1,
+            )
+            print("dragRef inserted")
 
-  return (
-    <div
-      ref={trackRef}
-      className={cn("relative flex h-7 w-full items-center gap-[1.5px] overflow-visible px-1", onSeek && "cursor-pointer touch-none")}
-      onPointerDown={(e) => {
+          # Replace pointer handlers on WaveBars track
+          old_handlers = '''      onPointerDown={(e) => {
         if (!onSeek) return;
         e.stopPropagation();
         e.preventDefault();
@@ -56,26 +50,11 @@ jobs:
       onTouchMove={(e) => {
         if (!onSeek) return;
         e.stopPropagation();
-      }}
-    >'''
+      }}'''
 
-          new_wb = '''  const dragRef = useRef<{ x: number; y: number; active: boolean; seeking: boolean } | null>(null);
-
-  const seekFromClientX = (clientX: number) => {
-    const el = trackRef.current;
-    if (!el || !onSeek) return;
-    const rect = el.getBoundingClientRect();
-    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / Math.max(1, rect.width)));
-    onSeek(ratio);
-  };
-
-  return (
-    <div
-      ref={trackRef}
-      className={cn("relative flex h-7 w-full items-center gap-[1.5px] overflow-visible px-1", onSeek && "cursor-pointer touch-none")}
-      onPointerDown={(e) => {
+          new_handlers = '''      onPointerDown={(e) => {
         if (!onSeek) return;
-        // Do NOT seek on mere touch — wait for horizontal drag
+        // Mere touch does not move the ball — only intentional horizontal drag
         dragRef.current = { x: e.clientX, y: e.clientY, active: true, seeking: false };
       }}
       onPointerMove={(e) => {
@@ -84,13 +63,8 @@ jobs:
         const dx = e.clientX - d.x;
         const dy = e.clientY - d.y;
         if (!d.seeking) {
-          // Require intentional horizontal drag; ignore vertical / tiny taps
           if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
-          if (Math.abs(dy) > Math.abs(dx)) {
-            // vertical — abandon seek so parent swipe/scroll can work
-            d.active = false;
-            return;
-          }
+          if (Math.abs(dy) >= Math.abs(dx)) { d.active = false; return; }
           d.seeking = true;
           try { (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId); } catch {}
           e.preventDefault();
@@ -108,46 +82,37 @@ jobs:
       }}
       onPointerCancel={() => { dragRef.current = null; }}
       onClick={(e) => {
-        // Tap on waves does nothing (play is the button). Stop only if we sought.
         if (dragRef.current?.seeking) e.stopPropagation();
-      }}
-    >'''
+      }}'''
 
-          if old_wb in t:
-            t = t.replace(old_wb, new_wb, 1)
-            print("WaveBars drag-only OK")
+          if old_handlers in t:
+            t = t.replace(old_handlers, new_handlers, 1)
+            print("handlers OK")
           else:
-            print("WaveBars pattern miss — trying looser")
-            if "seekFromClientX(e.clientX);" in t and "onPointerDown" in t:
-              # force by replacing function body start
-              print("partial match only")
-            else:
-              raise SystemExit("WaveBars not found")
+            print("handlers MISS")
+            raise SystemExit(1)
 
-          # Knob follows finger smoothly while seeking (no lag transition when dragging)
           t = t.replace(
             'style={{ left: `${pct * 100}%`, transition: active ? "none" : "left 50ms linear" }}',
             'style={{ left: `${pct * 100}%`, transition: "none" }}',
           )
-          print("knob transition")
-
           mm.write_text(t)
-          print("MessageMedia", len(t))
+          print("mm", len(t))
 
-          # ---- student route: optimistic onFile (string concat only) ----
+          # Optimistic onFile
           sp = Path("src/routes/student.contact-officer.tsx")
           s = sp.read_text()
-
           m = re.search(r"async function onFile\(files: FileList \| File\[\]\) \{.*?\n  \}", s, re.S)
-          if m:
-            new_on = r'''  async function onFile(files: FileList | File[]) {
+          if not m:
+            print("onFile miss"); raise SystemExit(1)
+          new_on = """  async function onFile(files: FileList | File[]) {
     const list = Array.from(files);
     if (!list.length) return;
     for (const file of list) {
       const mime = (file.type || "").toLowerCase();
       let kind: "image" | "video" | "audio" | "file" = "file";
-      if (mime.startsWith("image/") || /\.(jpe?g|png|gif|webp)$/i.test(file.name)) kind = "image";
-      else if (mime.startsWith("video/") || /\.(mp4|webm|mov)$/i.test(file.name)) kind = "video";
+      if (mime.startsWith("image/") || /\\.(jpe?g|png|gif|webp)$/i.test(file.name)) kind = "image";
+      else if (mime.startsWith("video/") || /\\.(mp4|webm|mov)$/i.test(file.name)) kind = "video";
       else if (mime.startsWith("audio/")) kind = "audio";
       const localUrl = URL.createObjectURL(file);
       const clientId = "opt-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8);
@@ -203,13 +168,10 @@ jobs:
         }
       })();
     }
-  }'''
-            s = s[:m.start()] + new_on + s[m.end():]
-            print("onFile optimistic OK")
-          else:
-            print("onFile miss")
+  }"""
+          s = s[:m.start()] + new_on + s[m.end():]
+          print("onFile OK")
 
-          # Ensure swipe still smooth
           for a, b in [
             ("Math.max(-72, Math.min(72, dx))", "Math.max(-96, Math.min(96, dx))"),
             ("Math.max(-80, Math.min(80, rawX))", "Math.max(-96, Math.min(96, rawX))"),
@@ -218,62 +180,32 @@ jobs:
           ]:
             if a in s:
               s = s.replace(a, b)
-              print("swipe", a[:28])
+
           if 'willChange: "transform"' not in s and 'touchAction: "pan-y"' in s:
             s = s.replace('touchAction: "pan-y",', 'touchAction: "pan-y",\n                  willChange: "transform",')
 
-          # Reply voice duration badge
-          needle = '''              <p className="line-clamp-2 text-xs text-slate-700">
+          needle = """              <p className="line-clamp-2 text-xs text-slate-700">
                 {replyTo.text}
               </p>
             </div>
-            <button type="button" onClick={() => setReplyTo(null)}'''
-          insert = '''              <p className="line-clamp-2 text-xs text-slate-700">
+            <button type="button" onClick={() => setReplyTo(null)}"""
+          insert = """              <p className="line-clamp-2 text-xs text-slate-700">
                 {replyTo.text}
               </p>
             </div>
             {replyTo.isVoice && replyTo.durationSec != null && replyTo.durationSec > 0 ? (
-              <span className="shrink-0 self-center rounded-md bg-blue-100 px-2 py-0.5 text-[11px] font-bold tabular-nums text-blue-800">
-                {fmtVoiceDur(replyTo.durationSec)}
-              </span>
+              <span className="shrink-0 self-center rounded-md bg-blue-100 px-2 py-0.5 text-[11px] font-bold tabular-nums text-blue-800">{fmtVoiceDur(replyTo.durationSec)}</span>
             ) : null}
-            <button type="button" onClick={() => setReplyTo(null)}'''
+            <button type="button" onClick={() => setReplyTo(null)}"""
           if needle in s and "fmtVoiceDur(replyTo.durationSec)" not in s:
             s = s.replace(needle, insert, 1)
-            print("reply duration badge")
-
-          # armReply duration from data-duration
-          old_arm = """const kind = classifyMedia(m.attachment_type, m.attachment_url);
-            const snippet = buildReplySnippet({
-              kind,
-              text: m.text && m.text !== "(attachment)" ? m.text : attachmentLabel(m.attachment_type, m.attachment_url),
-              durationSec: m.durationSec ?? null,
-            });"""
-          new_arm = """const kind = classifyMedia(m.attachment_type, m.attachment_url);
-            let durSec = m.durationSec ?? null;
-            if (kind === "audio" && (durSec == null || !(durSec > 0))) {
-              try {
-                const el = document.getElementById("msg-" + m.key);
-                const dAttr = el?.getAttribute("data-duration");
-                if (dAttr) { const n = Number(dAttr); if (Number.isFinite(n) && n > 0) durSec = n; }
-              } catch {}
-            }
-            const snippet = buildReplySnippet({
-              kind,
-              text: m.text && m.text !== "(attachment)" ? m.text : attachmentLabel(m.attachment_type, m.attachment_url),
-              durationSec: durSec,
-            });"""
-          if old_arm in s:
-            s = s.replace(old_arm, new_arm, 1)
-            print("armReply duration")
+            print("badge")
 
           sp.write_text(s)
-          print("student", len(s))
-          print("ALL DONE")
+          print("DONE")
           PY
           git config user.name d4exam-bot
           git config user.email bot@d4exam.name.ng
           git add src/components/messaging/MessageMedia.tsx src/routes/student.contact-officer.tsx
-          git status
-          git commit -m "fix(messaging): voice seek only on horizontal drag; optimistic media; smooth swipe; voice reply duration" || echo nochange
+          git commit -m "fix(messaging): voice progress only on horizontal drag; optimistic media; smooth swipe" || echo nochange
           git push
