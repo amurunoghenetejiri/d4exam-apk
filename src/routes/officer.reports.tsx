@@ -23,6 +23,7 @@ import { enqueueOutbox, removeOutbox, markOutboxFailed, notifyOutbox, listOutbox
 import { joinMessagingPresence, ticksFor } from "@/lib/messaging-presence";
 import { uploadMessageMedia } from "@/lib/message-media";
 import { VoiceBubble, ImageBubble, ImageLightbox, VoiceRecorderBar, lastSeenLabel, parseMediaUrls, attachmentLabel, encodeOfficerMedia, parseOfficerReply } from "@/components/messaging/MessageMedia";
+import { enrichStudentsIdentity } from "@/lib/messaging";
 
 export const Route = createFileRoute("/officer/reports")({
   head: () => ({
@@ -59,13 +60,16 @@ type Thread = {
   student_user_id: string | null;
   student_name: string | null;
   student_matric: string | null;
+  department: string | null;
+  level: string | null;
   rows: ReportRow[];
   latestAt: string;
   preview: string;
   unread: number;
+  hasReply: boolean;
 };
 
-type TabKey = "inbox" | "sent" | "all";
+type TabKey = "inbox" | "sent" | "all" | "unread" | "replied";
 
 const COLORS = ["bg-blue-600", "bg-violet-600", "bg-emerald-600", "bg-rose-500", "bg-amber-600", "bg-cyan-600"];
 function avatarColor(seed: string) {
@@ -187,10 +191,13 @@ function Page() {
           student_user_id: r.student_user_id,
           student_name: r.student_name,
           student_matric: r.student_matric,
+          department: null,
+          level: null,
           rows: [],
           latestAt: r.created_at,
           preview: r.body,
           unread: 0,
+          hasReply: false,
         };
         map.set(key, t);
       }
@@ -213,26 +220,55 @@ function Page() {
         }
         return String(r.status || "open").toLowerCase() !== "replied" || !r.officer_read_at;
       }).length;
+      t.hasReply = t.rows.some((r) => Boolean(r.officer_reply));
     }
     return [...map.values()].sort((a, b) => new Date(b.latestAt).getTime() - new Date(a.latestAt).getTime());
   }, [rows]);
 
-  const inboxCount = useMemo(() => threads.reduce((s, t) => s + (t.unread > 0 ? 1 : 0), 0), [threads]);
+  const studentIds = useMemo(
+    () => [...new Set(threads.map((t) => t.student_id).filter(Boolean) as string[])],
+    [threads],
+  );
+  const identityQ = useQuery({
+    queryKey: ["officer-student-identity", schoolId, studentIds.join(",")],
+    enabled: Boolean(schoolId) && studentIds.length > 0,
+    staleTime: 60_000,
+    queryFn: () => enrichStudentsIdentity(studentIds),
+  });
+  const enrichedThreads = useMemo(() => {
+    const idMap = identityQ.data;
+    if (!idMap) return threads;
+    return threads.map((t) => {
+      if (!t.student_id) return t;
+      const info = idMap.get(t.student_id);
+      if (!info) return t;
+      return {
+        ...t,
+        department: info.department || t.department,
+        level: info.level || t.level,
+        student_name: t.student_name || info.full_name,
+        student_matric: t.student_matric || info.matric,
+      };
+    });
+  }, [threads, identityQ.data]);
+
+  const inboxCount = useMemo(() => enrichedThreads.reduce((s, t) => s + (t.unread > 0 ? 1 : 0), 0), [enrichedThreads]);
 
   const filteredThreads = useMemo(() => {
-    let list = threads;
-    if (tab === "inbox") list = threads.filter((t) => t.unread > 0 || t.rows.some((r) => !r.officer_reply));
-    if (tab === "sent") list = threads.filter((t) => t.rows.some((r) => r.officer_reply));
+    let list = enrichedThreads;
+    if (tab === "inbox") list = enrichedThreads.filter((t) => t.unread > 0 || t.rows.some((r) => !r.officer_reply));
+    if (tab === "sent" || tab === "replied") list = enrichedThreads.filter((t) => t.hasReply);
+    if (tab === "unread") list = enrichedThreads.filter((t) => t.unread > 0);
     const q = search.trim().toLowerCase();
     if (!q) return list;
     return list.filter((t) =>
-      `${t.student_name} ${t.student_matric} ${t.preview} ${t.rows.map((r) => r.subject).join(" ")}`
+      `${t.student_name} ${t.student_matric} ${t.department} ${t.level} ${t.preview} ${t.rows.map((r) => r.subject).join(" ")}`
         .toLowerCase()
         .includes(q),
     );
-  }, [threads, tab, search]);
+  }, [enrichedThreads, tab, search]);
 
-  const active = threads.find((t) => t.key === threadKey) || null;
+  const active = enrichedThreads.find((t) => t.key === threadKey) || null;
 
   const chatMessages = useMemo(() => {
     if (!active) return [];
@@ -493,17 +529,18 @@ sendLock.current = true;
                 <p className="text-[11px] text-slate-500">Student conversations</p>
               </div>
             </div>
-            <div className="flex gap-1 rounded-full bg-slate-100 p-1">
+            <div className="flex gap-1 overflow-x-auto rounded-full bg-slate-100 p-1">
               {([
                 { k: "inbox" as const, label: "Inbox", count: inboxCount },
-                { k: "sent" as const, label: "Sent" },
+                { k: "unread" as const, label: "Unread" },
+                { k: "replied" as const, label: "Replied" },
                 { k: "all" as const, label: "All" },
               ] as const).map((t) => (
                 <button
                   key={t.k}
                   type="button"
                   onClick={() => setTab(t.k)}
-                  className={cn("flex flex-1 items-center justify-center gap-1 rounded-full py-2 text-xs font-bold", tab === t.k ? "bg-[#2563eb] text-white" : "text-slate-600")}
+                  className={cn("flex shrink-0 items-center justify-center gap-1 rounded-full px-3 py-2 text-xs font-bold", tab === t.k ? "bg-[#2563eb] text-white" : "text-slate-600")}
                 >
                   {t.label}
                   {"count" in t && t.count > 0 ? (
@@ -540,8 +577,7 @@ sendLock.current = true;
                           <span className="text-[10px] text-slate-400">{formatWhen(t.latestAt)}</span>
                         </div>
                         <p className="truncate text-xs text-slate-600">
-                          {t.student_matric ? `${t.student_matric} · ` : ""}
-                          {t.rows[t.rows.length - 1]?.subject || t.rows[t.rows.length - 1]?.exam_title || "Message"}
+                          {[t.student_matric, t.level, t.department].filter(Boolean).join(" · ") || "Student"}
                         </p>
                         <p className="line-clamp-1 text-xs text-slate-500">{t.preview}</p>
                       </div>
@@ -585,7 +621,9 @@ sendLock.current = true;
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-bold">
                 {nickMap[active.key] || active.student_name || "Student"}
-                {active.student_matric ? <span className="ml-1 text-xs font-semibold text-slate-500">· {active.student_matric}</span> : null}
+              </p>
+              <p className="truncate text-[11px] font-medium text-slate-500">
+                {[active.student_matric, active.level, active.department].filter(Boolean).join(" · ") || "Student"}
               </p>
               <p className={cn("text-[11px] font-medium", studentOnline ? "text-emerald-600" : "text-slate-400")}>
                 {studentRecording ? "Recording…" : studentTyping ? "Typing…" : studentRecording ? "Recording…" : studentTyping ? "Typing…" : studentOnline ? "Online" : lastSeenLabel(null)}

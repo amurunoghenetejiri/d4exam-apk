@@ -13,6 +13,10 @@ export type OutboxItem = {
   schoolId?: string | null;
   studentId?: string | null;
   userId?: string | null;
+  /** Campus conversation id (student↔student / group) */
+  conversationId?: string | null;
+  durationSec?: number | null;
+  forwardedFromId?: string | null;
   error?: string | null;
 };
 

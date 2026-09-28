@@ -496,3 +496,145 @@ export async function listDepartmentOfficers(schoolId: string) {
     roleLabel: "Departmental Officer",
   }));
 }
+
+
+/** Forward a message into another conversation (new record, same content). */
+export async function forwardCampusMessage(opts: {
+  targetConversationId: string;
+  senderId: string;
+  source: CampusMessage;
+  clientId: string;
+}): Promise<CampusMessage> {
+  return sendCampusMessage({
+    conversationId: opts.targetConversationId,
+    senderId: opts.senderId,
+    body: opts.source.body,
+    attachmentUrl: opts.source.attachment_url,
+    attachmentType: opts.source.attachment_type,
+    forwardedFromId: opts.source.id,
+    clientId: opts.clientId,
+    durationSec: opts.source.duration_sec,
+  });
+}
+
+/** Group admin: update title/description/avatar. */
+export async function updateGroupMeta(
+  conversationId: string,
+  patch: { title?: string; description?: string | null; avatar_url?: string | null },
+) {
+  const { error } = await supabase
+    .from("conversations")
+    .update({ ...patch, updated_at: new Date().toISOString() })
+    .eq("id", conversationId)
+    .eq("type", "group");
+  if (error) throw new Error(error.message);
+}
+
+/** Add members to a group (admin/owner/creator). */
+export async function addGroupMembers(
+  conversationId: string,
+  userIds: string[],
+) {
+  const rows = userIds.map((user_id) => ({
+    conversation_id: conversationId,
+    user_id,
+    role: "member" as const,
+  }));
+  const { error } = await supabase.from("conversation_members").insert(rows);
+  if (error) throw new Error(error.message);
+}
+
+/** Soft-remove member (set left_at). */
+export async function removeGroupMember(
+  conversationId: string,
+  userId: string,
+) {
+  const { error } = await supabase
+    .from("conversation_members")
+    .update({ left_at: new Date().toISOString() })
+    .eq("conversation_id", conversationId)
+    .eq("user_id", userId);
+  if (error) throw new Error(error.message);
+}
+
+/** Leave group yourself. */
+export async function leaveGroup(conversationId: string, userId: string) {
+  return removeGroupMember(conversationId, userId);
+}
+
+/** Mute / unmute. */
+export async function setGroupMuted(
+  conversationId: string,
+  userId: string,
+  muted: boolean,
+) {
+  const { error } = await supabase
+    .from("conversation_members")
+    .update({ muted })
+    .eq("conversation_id", conversationId)
+    .eq("user_id", userId);
+  if (error) throw new Error(error.message);
+}
+
+/** List active members of a conversation. */
+export async function listConversationMembers(conversationId: string) {
+  const { data, error } = await supabase
+    .from("conversation_members")
+    .select("user_id, role, joined_at, muted, left_at")
+    .eq("conversation_id", conversationId)
+    .is("left_at", null);
+  if (error) throw new Error(error.message);
+  const userIds = (data || []).map((m) => m.user_id as string);
+  if (!userIds.length) return [];
+  const { data: profiles } = await supabase
+    .from("profiles")
+    .select("auth_user_id, full_name, avatar_url")
+    .in("auth_user_id", userIds);
+  const byUser = new Map(
+    (profiles || []).map((p) => [p.auth_user_id as string, p]),
+  );
+  return (data || []).map((m) => {
+    const p = byUser.get(m.user_id as string);
+    return {
+      user_id: m.user_id as string,
+      role: m.role as string,
+      joined_at: m.joined_at as string,
+      muted: Boolean(m.muted),
+      full_name: (p?.full_name as string) || "Member",
+      avatar_url: (p?.avatar_url as string) || null,
+    };
+  });
+}
+
+/** Enrich student ids with department + level names (for officer inbox). */
+export async function enrichStudentsIdentity(
+  studentIds: string[],
+): Promise<
+  Map<
+    string,
+    { department: string | null; level: string | null; full_name: string | null; matric: string | null }
+  >
+> {
+  const map = new Map<
+    string,
+    { department: string | null; level: string | null; full_name: string | null; matric: string | null }
+  >();
+  if (!studentIds.length) return map;
+  const { data } = await supabase
+    .from("students")
+    .select(
+      "id, full_name, matric_number, student_id, departments(name), levels(name)",
+    )
+    .in("id", studentIds);
+  for (const r of data || []) {
+    const depts = r.departments as { name?: string } | null;
+    const levels = r.levels as { name?: string } | null;
+    map.set(r.id as string, {
+      department: depts?.name || null,
+      level: levels?.name || null,
+      full_name: (r.full_name as string) || null,
+      matric: (r.matric_number as string) || (r.student_id as string) || null,
+    });
+  }
+  return map;
+}

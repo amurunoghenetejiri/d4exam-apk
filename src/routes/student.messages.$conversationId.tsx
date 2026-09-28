@@ -16,6 +16,12 @@ import {
   X,
   Pause,
   Play,
+  Forward,
+  MoreVertical,
+  UserMinus,
+  LogOut,
+  VolumeX,
+  Volume2,
 } from "lucide-react";
 import { useSessionUser } from "@/lib/session";
 import { supabase } from "@/integrations/supabase/client";
@@ -38,6 +44,27 @@ import {
   parseMediaUrls,
 } from "@/components/messaging/MessageMedia";
 import { isOnlineNow } from "@/lib/offline-sync";
+import {
+  enqueueOutbox,
+  listOutbox,
+  removeOutbox,
+  markOutboxFailed,
+  markOutboxUploading,
+  canRetry,
+  subscribeOutbox,
+  dataUrlToBlob,
+} from "@/lib/message-outbox";
+import {
+  forwardCampusMessage,
+  listMyConversations,
+  listConversationMembers,
+  updateGroupMeta,
+  addGroupMembers,
+  removeGroupMember,
+  leaveGroup,
+  setGroupMuted,
+  discoverStudents,
+} from "@/lib/messaging";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/student/messages/$conversationId")({
@@ -72,6 +99,11 @@ function ConversationChat() {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const sendLock = useRef(false);
+  const [forwardMsg, setForwardMsg] = useState<CampusMessage | null>(null);
+  const [groupMenuOpen, setGroupMenuOpen] = useState(false);
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [renameVal, setRenameVal] = useState("");
+  const [addMembersOpen, setAddMembersOpen] = useState(false);
 
   const metaQuery = useQuery({
     queryKey: ["campus-conv-meta", conversationId, userId],
@@ -143,6 +175,57 @@ function ConversationChat() {
       void supabase.removeChannel(ch);
     };
   }, [conversationId, qc]);
+
+  // Flush campus outbox when back online
+  useEffect(() => {
+    if (!userId || !conversationId) return;
+    const flush = async () => {
+      if (!isOnlineNow()) return;
+      const items = listOutbox("student").filter(
+        (x) => x.conversationId === conversationId && canRetry(x),
+      );
+      for (const item of items) {
+        try {
+          markOutboxUploading(item.clientId);
+          let mediaUrl = item.mediaUrl || null;
+          if (!mediaUrl && item.blobDataUrl) {
+            const blob = dataUrlToBlob(item.blobDataUrl);
+            if (blob) {
+              const up = await uploadMessageMedia(
+                blob,
+                item.mediaType || blob.type || "application/octet-stream",
+                `campus/${conversationId}`,
+              );
+              mediaUrl = up.url;
+            }
+          }
+          await sendCampusMessage({
+            conversationId,
+            senderId: userId,
+            body: item.text || null,
+            attachmentUrl: mediaUrl,
+            attachmentType: item.mediaType || null,
+            clientId: item.clientId,
+            durationSec: item.durationSec ?? null,
+            forwardedFromId: item.forwardedFromId || null,
+            replyToId: item.replyToId || null,
+          });
+          removeOutbox(item.clientId);
+        } catch (e) {
+          markOutboxFailed(item.clientId, e instanceof Error ? e.message : "fail");
+        }
+      }
+      void qc.invalidateQueries({ queryKey: ["campus-messages", conversationId] });
+    };
+    void flush();
+    const unsub = subscribeOutbox(() => { void flush(); });
+    const onOnline = () => { void flush(); };
+    window.addEventListener("online", onOnline);
+    return () => {
+      unsub();
+      window.removeEventListener("online", onOnline);
+    };
+  }, [userId, conversationId, qc]);
 
   useEffect(() => {
     if (userId && conversationId) {
@@ -297,6 +380,23 @@ function ConversationChat() {
           setRecSecs(0);
           setPreviewUrl(null);
           try {
+            if (!isOnlineNow()) {
+              const { blobToDataUrlIfSmall } = await import("@/lib/message-outbox");
+              const dataUrl = await blobToDataUrlIfSmall(blob);
+              enqueueOutbox({
+                clientId,
+                kind: "campus_audio",
+                text: "",
+                mediaType: "audio",
+                blobDataUrl: dataUrl,
+                role: "student",
+                userId,
+                conversationId,
+                durationSec,
+              });
+              toast.message("Voice queued — waiting for connection");
+              return;
+            }
             const up = await uploadMessageMedia(
               blob,
               "audio/webm",
@@ -354,7 +454,15 @@ function ConversationChat() {
     sendLock.current = true;
     try {
       if (!isOnlineNow()) {
-        toast.message("Waiting for connection");
+        enqueueOutbox({
+          clientId,
+          kind: "campus_text",
+          text: t,
+          role: "student",
+          userId,
+          conversationId,
+        });
+        toast.message("Waiting for connection — queued");
         return;
       }
       await sendCampusMessage({
@@ -402,6 +510,22 @@ function ConversationChat() {
       },
     ]);
     try {
+      if (!isOnlineNow()) {
+        const { blobToDataUrlIfSmall } = await import("@/lib/message-outbox");
+        const dataUrl = await blobToDataUrlIfSmall(file);
+        enqueueOutbox({
+          clientId,
+          kind: "campus_media",
+          text: "",
+          mediaType: attType,
+          blobDataUrl: dataUrl,
+          role: "student",
+          userId,
+          conversationId,
+        });
+        toast.message("Attachment queued — waiting for connection");
+        return;
+      }
       const up = await uploadMessageMedia(file, kind, `campus/${conversationId}`);
       await sendCampusMessage({
         conversationId,
@@ -450,6 +574,16 @@ function ConversationChat() {
           <p className="truncate text-sm font-bold">{meta?.title || "Chat"}</p>
           <p className="truncate text-[11px] text-white/70">{meta?.subtitle || ""}</p>
         </div>
+        {meta?.isGroup ? (
+          <button
+            type="button"
+            onClick={() => setGroupMenuOpen(true)}
+            className="grid h-9 w-9 place-items-center rounded-full hover:bg-white/10"
+            aria-label="Group menu"
+          >
+            <MoreVertical className="h-5 w-5" />
+          </button>
+        ) : null}
       </header>
 
       <div
@@ -476,6 +610,10 @@ function ConversationChat() {
               <div
                 key={m.id}
                 className={cn("flex w-full", mine ? "justify-end" : "justify-start")}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  setForwardMsg(m);
+                }}
               >
                 <div
                   className={cn(
@@ -676,6 +814,28 @@ function ConversationChat() {
       {videoSrc ? (
         <VideoLightbox src={videoSrc} onClose={() => setVideoSrc(null)} />
       ) : null}
+
+      {forwardMsg ? (
+        <ForwardSheet
+          userId={userId}
+          source={forwardMsg}
+          onClose={() => setForwardMsg(null)}
+          onDone={() => {
+            setForwardMsg(null);
+            toast.success("Message forwarded");
+          }}
+        />
+      ) : null}
+
+      {groupMenuOpen && meta?.isGroup ? (
+        <GroupMenuSheet
+          conversationId={conversationId}
+          userId={userId}
+          title={meta.title}
+          onClose={() => setGroupMenuOpen(false)}
+          onLeft={() => navigate({ to: "/student/messages" })}
+        />
+      ) : null}
     </div>
   );
 }
@@ -684,4 +844,259 @@ function formatTime(iso: string) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function ForwardSheet({
+  userId,
+  source,
+  onClose,
+  onDone,
+}: {
+  userId: string;
+  source: CampusMessage;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const { data: convs = [], isLoading } = useQuery({
+    queryKey: ["campus-conversations", userId, "forward"],
+    enabled: Boolean(userId),
+    queryFn: () => listMyConversations(userId),
+  });
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const sendTo = async (targetId: string) => {
+    if (busy) return;
+    setBusy(targetId);
+    try {
+      const clientId = `fwd-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      if (!isOnlineNow()) {
+        enqueueOutbox({
+          clientId,
+          kind: "campus_forward",
+          text: source.body || "",
+          mediaUrl: source.attachment_url,
+          mediaType: source.attachment_type,
+          role: "student",
+          userId,
+          conversationId: targetId,
+          durationSec: source.duration_sec,
+          forwardedFromId: source.id,
+        });
+        toast.message("Queued — will send when online");
+        onDone();
+        return;
+      }
+      await forwardCampusMessage({
+        targetConversationId: targetId,
+        senderId: userId,
+        source,
+        clientId,
+      });
+      onDone();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Forward failed");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 sm:items-center">
+      <div className="flex max-h-[70dvh] w-full max-w-md flex-col rounded-t-3xl bg-white shadow-xl sm:rounded-3xl">
+        <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+          <div className="flex items-center gap-2">
+            <Forward className="h-4 w-4 text-[#2563eb]" />
+            <h2 className="text-sm font-bold">Forward to…</h2>
+          </div>
+          <button type="button" onClick={onClose} className="text-sm font-semibold text-slate-500">
+            Cancel
+          </button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          {isLoading ? (
+            <p className="px-4 py-8 text-center text-sm text-slate-400">Loading…</p>
+          ) : convs.length === 0 ? (
+            <p className="px-4 py-8 text-center text-sm text-slate-500">No chats yet</p>
+          ) : (
+            convs.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                disabled={busy === c.id || c.id === source.conversation_id}
+                onClick={() => void sendTo(c.id)}
+                className="flex w-full items-center gap-3 border-b border-slate-50 px-4 py-3 text-left hover:bg-slate-50 disabled:opacity-40"
+              >
+                <div className="grid h-10 w-10 place-items-center rounded-full bg-[#0b1b3a] text-xs font-bold text-white">
+                  {c.isGroup ? <UsersRound className="h-4 w-4" /> : c.title.slice(0, 2).toUpperCase()}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold">{c.title}</p>
+                  <p className="truncate text-[11px] text-slate-500">{c.isGroup ? "Group" : "Chat"}</p>
+                </div>
+              </button>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function GroupMenuSheet({
+  conversationId,
+  userId,
+  title,
+  onClose,
+  onLeft,
+}: {
+  conversationId: string;
+  userId: string;
+  title: string;
+  onClose: () => void;
+  onLeft: () => void;
+}) {
+  const qc = useQueryClient();
+  const [rename, setRename] = useState(title);
+  const [renaming, setRenaming] = useState(false);
+  const membersQ = useQuery({
+    queryKey: ["campus-members", conversationId],
+    queryFn: () => listConversationMembers(conversationId),
+  });
+  const me = (membersQ.data || []).find((m) => m.user_id === userId);
+  const isAdmin = me?.role === "admin" || me?.role === "owner";
+
+  const saveRename = async () => {
+    if (!rename.trim()) return;
+    try {
+      await updateGroupMeta(conversationId, { title: rename.trim() });
+      void qc.invalidateQueries({ queryKey: ["campus-conv-meta", conversationId] });
+      void qc.invalidateQueries({ queryKey: ["campus-conversations"] });
+      toast.success("Group renamed");
+      setRenaming(false);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Rename failed");
+    }
+  };
+
+  const doLeave = async () => {
+    try {
+      await leaveGroup(conversationId, userId);
+      toast.success("Left group");
+      onLeft();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not leave");
+    }
+  };
+
+  const toggleMute = async () => {
+    try {
+      await setGroupMuted(conversationId, userId, !me?.muted);
+      void membersQ.refetch();
+      toast.success(me?.muted ? "Unmuted" : "Muted");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed");
+    }
+  };
+
+  const removeMember = async (uid: string) => {
+    try {
+      await removeGroupMember(conversationId, uid);
+      void membersQ.refetch();
+      toast.success("Member removed");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Remove failed");
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 sm:items-center">
+      <div className="flex max-h-[80dvh] w-full max-w-md flex-col rounded-t-3xl bg-white shadow-xl sm:rounded-3xl">
+        <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+          <h2 className="text-sm font-bold">Group settings</h2>
+          <button type="button" onClick={onClose} className="text-sm font-semibold text-slate-500">
+            Close
+          </button>
+        </div>
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3">
+          {isAdmin ? (
+            <div>
+              <p className="text-xs font-semibold text-slate-500">Group name</p>
+              {renaming ? (
+                <div className="mt-1 flex gap-2">
+                  <input
+                    value={rename}
+                    onChange={(e) => setRename(e.target.value)}
+                    className="h-10 flex-1 rounded-xl border border-slate-200 px-3 text-sm"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void saveRename()}
+                    className="rounded-xl bg-[#2563eb] px-3 text-xs font-bold text-white"
+                  >
+                    Save
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setRenaming(true)}
+                  className="mt-1 text-sm font-semibold text-[#2563eb]"
+                >
+                  {title} · Rename
+                </button>
+              )}
+            </div>
+          ) : (
+            <p className="text-sm font-semibold text-slate-800">{title}</p>
+          )}
+
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => void toggleMute()}
+              className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-slate-200 py-2.5 text-xs font-bold text-slate-700"
+            >
+              {me?.muted ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+              {me?.muted ? "Unmute" : "Mute"}
+            </button>
+            <button
+              type="button"
+              onClick={() => void doLeave()}
+              className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-rose-200 py-2.5 text-xs font-bold text-rose-600"
+            >
+              <LogOut className="h-4 w-4" />
+              Leave
+            </button>
+          </div>
+
+          <div>
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Members ({(membersQ.data || []).length})
+            </p>
+            {(membersQ.data || []).map((m) => (
+              <div key={m.user_id} className="flex items-center gap-2 border-b border-slate-50 py-2">
+                <div className="grid h-8 w-8 place-items-center rounded-full bg-slate-200 text-[10px] font-bold">
+                  {m.full_name.slice(0, 2).toUpperCase()}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold">{m.full_name}</p>
+                  <p className="text-[10px] text-slate-500">{m.role}</p>
+                </div>
+                {isAdmin && m.user_id !== userId ? (
+                  <button
+                    type="button"
+                    onClick={() => void removeMember(m.user_id)}
+                    className="grid h-8 w-8 place-items-center rounded-full text-rose-500 hover:bg-rose-50"
+                    aria-label="Remove"
+                  >
+                    <UserMinus className="h-4 w-4" />
+                  </button>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
