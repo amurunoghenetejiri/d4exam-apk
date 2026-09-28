@@ -1,1 +1,21 @@
-PLACEHOLDER_SEE_NEXT
+name: fix-video-optimistic-swipe
+on:
+  workflow_dispatch:
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Assemble and run patch
+        run: |
+          set -euo pipefail
+          cat scripts/fv_parts/p*.txt > scripts/fix_video_ux.py
+          python3 scripts/fix_video_ux.py
+          git config user.name d4exam-bot
+          git config user.email bot@d4exam.name.ng
+          git add src/routes/student.contact-officer.tsx src/components/messaging/MessageMedia.tsx
+          git status
+          git commit -m "fix(messaging): optimistic video/image, video lightbox, smooth swipe, voice reply duration" || echo nochanges
+          git push
