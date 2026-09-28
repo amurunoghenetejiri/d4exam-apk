@@ -554,25 +554,31 @@ export function ConversationChat({
   const ss = String(recSecs % 60).padStart(2, "0");
 
   return (
-    <div className="relative flex h-dvh min-h-0 flex-col bg-[#e8f4fc]">
-      {/* Soft sky-blue chat wallpaper + D4EXAM logo watermark */}
+    <div
+      className="fixed inset-0 z-[80] flex flex-col bg-[#e8f4fc]"
+      style={{ height: "100dvh", maxHeight: "100dvh" }}
+    >
+      {/* Sky-blue wallpaper + large centered D4 logo (behind chat UI) */}
       <div
         className="pointer-events-none absolute inset-0 z-0 overflow-hidden"
         aria-hidden
       >
-        <div className="absolute inset-0 bg-gradient-to-b from-[#dbeafe]/80 via-[#e8f4fc] to-[#f0f9ff]" />
+        <div className="absolute inset-0 bg-gradient-to-b from-[#dbeafe] via-[#e8f4fc] to-[#f0f9ff]" />
         <img
           src="/logo.png"
           alt=""
-          className="absolute left-1/2 top-1/2 h-40 w-40 -translate-x-1/2 -translate-y-1/2 object-contain opacity-[0.07]"
+          className="absolute left-1/2 top-1/2 h-[min(65vh,520px)] max-w-[90%] -translate-x-1/2 -translate-y-1/2 object-contain opacity-[0.1] sm:h-[min(70vh,600px)]"
           style={{
-            animation: "d4ChatLogoFloat 8s ease-in-out infinite",
+            animation: "d4ChatLogoFloat 7s ease-in-out infinite",
+            filter: "grayscale(0.3) brightness(0.95)",
           }}
         />
-        <style>{`@keyframes d4ChatLogoFloat { 0%,100% { transform: translate(-50%, -50%) scale(1); opacity: 0.06; } 50% { transform: translate(-50%, -52%) scale(1.06); opacity: 0.1; } }`}</style>
+        <style>{`@keyframes d4ChatLogoFloat { 0%,100% { transform: translate(-50%, -50%) scale(1); opacity: 0.07; } 50% { transform: translate(-50%, -53%) scale(1.08); opacity: 0.12; } }`}</style>
       </div>
+
+      {/* Navy header — peer/group name */}
       <header
-        className="flex shrink-0 items-center gap-3 border-b border-slate-200 bg-[#0b1b3a] px-3 py-2.5 text-white"
+        className="relative z-30 flex shrink-0 items-center gap-3 border-b border-white/10 bg-[#0b1b3a] px-3 py-2.5 text-white shadow-md"
         style={{ paddingTop: "max(0.5rem, env(safe-area-inset-top, 0px))" }}
       >
         <button
@@ -613,9 +619,19 @@ export function ConversationChat({
       <div
         ref={scrollerRef}
         onScroll={onScroll}
-        className="relative min-h-0 flex-1 overflow-y-auto px-3 py-3"
+        className="relative z-10 min-h-0 flex-1 overflow-y-auto px-3 py-3"
       >
-        <div className="mx-auto flex max-w-2xl flex-col gap-2">
+        <div className="mx-auto flex min-h-full max-w-2xl flex-col gap-2">
+          {merged.length === 0 ? (
+            <div className="flex flex-1 flex-col items-center justify-center px-6 py-16 text-center">
+              <p className="text-sm font-semibold text-slate-600">
+                No messages yet
+              </p>
+              <p className="mt-1 text-xs text-slate-500">
+                Say hello — send a text or voice note below.
+              </p>
+            </div>
+          ) : null}
           {merged.map((m) => {
             const mine = m.sender_id === userId;
             const urls = parseMediaUrls(m.attachment_url);
@@ -722,7 +738,7 @@ export function ConversationChat({
       </div>
 
       <div
-        className="shrink-0 border-t border-slate-200 bg-white px-2 py-2"
+        className="relative z-30 shrink-0 border-t border-slate-200 bg-white px-2 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom,0px))] shadow-[0_-4px_12px_rgba(15,23,42,0.06)]"
         style={{
           paddingBottom: "max(0.5rem, env(safe-area-inset-bottom, 0px))",
         }}

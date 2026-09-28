@@ -440,7 +440,9 @@ export function AppShell({
   return (
     <div className={cn("relative min-h-dvh overflow-x-hidden overflow-y-visible bg-slate-50", immersiveMessaging && "bg-white")}>
       <NetworkBanner />
-      <Watermark opacity={0.08} size="xl" className="pointer-events-none lg:left-64" />
+      {!immersiveMessaging ? (
+        <Watermark opacity={0.08} size="xl" className="pointer-events-none lg:left-64" />
+      ) : null}
 
       <aside className={cn("sa-sidebar fixed inset-y-0 left-0 z-40 hidden h-dvh max-h-dvh w-64 flex-col bg-[#0b1b3a] lg:flex", immersiveMessaging && "!hidden")}>
         <div className="flex h-[4.5rem] shrink-0 items-center border-b border-white/10 px-4">

@@ -255,10 +255,13 @@ function MessagesHub() {
         <img
           src="/logo.png"
           alt=""
-          className="absolute left-1/2 top-[45%] h-44 w-44 -translate-x-1/2 -translate-y-1/2 object-contain opacity-[0.08]"
-          style={{ animation: "d4MsgLogoFloat 8s ease-in-out infinite" }}
+          className="absolute left-1/2 top-1/2 h-[min(65vh,520px)] max-w-[90%] -translate-x-1/2 -translate-y-1/2 object-contain opacity-[0.1] sm:h-[min(70vh,600px)]"
+          style={{
+            animation: "d4MsgLogoFloat 7s ease-in-out infinite",
+            filter: "grayscale(0.3) brightness(0.95)",
+          }}
         />
-        <style>{`@keyframes d4MsgLogoFloat { 0%,100% { transform: translate(-50%, -50%) scale(1); opacity: 0.06; } 50% { transform: translate(-50%, -54%) scale(1.08); opacity: 0.11; } }`}</style>
+        <style>{`@keyframes d4MsgLogoFloat { 0%,100% { transform: translate(-50%, -50%) scale(1); opacity: 0.07; } 50% { transform: translate(-50%, -53%) scale(1.08); opacity: 0.12; } }`}</style>
       </div>
       {/* Navy header */}
       <header
