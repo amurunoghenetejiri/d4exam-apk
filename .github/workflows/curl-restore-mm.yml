@@ -10,202 +10,29 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
-      - name: Patch
+      - name: Fix WaveBars seek
         run: |
-          python3 << 'PY'
+          python3 -c "
           from pathlib import Path
-          import re
-
-          mm = Path("src/components/messaging/MessageMedia.tsx")
-          t = mm.read_text()
-
-          # Insert dragRef after trackRef
-          if "dragRef = useRef<{ x: number; y: number; active" not in t:
+          p = Path('src/components/messaging/MessageMedia.tsx')
+          t = p.read_text()
+          if 'dragRef = useRef<{ x: number; y: number; active' not in t:
             t = t.replace(
-              "const trackRef = useRef<HTMLDivElement>(null);",
-              "const trackRef = useRef<HTMLDivElement>(null);\n  const dragRef = useRef<{ x: number; y: number; active: boolean; seeking: boolean } | null>(null);",
+              'const trackRef = useRef<HTMLDivElement>(null);',
+              'const trackRef = useRef<HTMLDivElement>(null);\n  const dragRef = useRef<{ x: number; y: number; active: boolean; seeking: boolean } | null>(null);',
               1,
             )
-            print("dragRef inserted")
-
-          # Replace pointer handlers on WaveBars track
-          old_handlers = '''      onPointerDown={(e) => {
-        if (!onSeek) return;
-        e.stopPropagation();
-        e.preventDefault();
-        (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
-        seekFromClientX(e.clientX);
-      }}
-      onPointerMove={(e) => {
-        if (!onSeek || e.buttons !== 1) return;
-        e.stopPropagation();
-        seekFromClientX(e.clientX);
-      }}
-      onPointerUp={(e) => e.stopPropagation()}
-      onClick={(e) => e.stopPropagation()}
-      onTouchStart={(e) => {
-        if (!onSeek) return;
-        e.stopPropagation();
-      }}
-      onTouchMove={(e) => {
-        if (!onSeek) return;
-        e.stopPropagation();
-      }}'''
-
-          new_handlers = '''      onPointerDown={(e) => {
-        if (!onSeek) return;
-        // Mere touch does not move the ball — only intentional horizontal drag
-        dragRef.current = { x: e.clientX, y: e.clientY, active: true, seeking: false };
-      }}
-      onPointerMove={(e) => {
-        if (!onSeek || !dragRef.current?.active) return;
-        const d = dragRef.current;
-        const dx = e.clientX - d.x;
-        const dy = e.clientY - d.y;
-        if (!d.seeking) {
-          if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
-          if (Math.abs(dy) >= Math.abs(dx)) { d.active = false; return; }
-          d.seeking = true;
-          try { (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId); } catch {}
-          e.preventDefault();
-          e.stopPropagation();
-          seekFromClientX(e.clientX);
-          return;
-        }
-        e.preventDefault();
-        e.stopPropagation();
-        seekFromClientX(e.clientX);
-      }}
-      onPointerUp={(e) => {
-        if (dragRef.current?.seeking) e.stopPropagation();
-        dragRef.current = null;
-      }}
-      onPointerCancel={() => { dragRef.current = null; }}
-      onClick={(e) => {
-        if (dragRef.current?.seeking) e.stopPropagation();
-      }}'''
-
-          if old_handlers in t:
-            t = t.replace(old_handlers, new_handlers, 1)
-            print("handlers OK")
-          else:
-            print("handlers MISS")
-            raise SystemExit(1)
-
-          t = t.replace(
-            'style={{ left: `${pct * 100}%`, transition: active ? "none" : "left 50ms linear" }}',
-            'style={{ left: `${pct * 100}%`, transition: "none" }}',
-          )
-          mm.write_text(t)
-          print("mm", len(t))
-
-          # Optimistic onFile
-          sp = Path("src/routes/student.contact-officer.tsx")
-          s = sp.read_text()
-          m = re.search(r"async function onFile\(files: FileList \| File\[\]\) \{.*?\n  \}", s, re.S)
-          if not m:
-            print("onFile miss"); raise SystemExit(1)
-          new_on = """  async function onFile(files: FileList | File[]) {
-    const list = Array.from(files);
-    if (!list.length) return;
-    for (const file of list) {
-      const mime = (file.type || "").toLowerCase();
-      let kind: "image" | "video" | "audio" | "file" = "file";
-      if (mime.startsWith("image/") || /\\.(jpe?g|png|gif|webp)$/i.test(file.name)) kind = "image";
-      else if (mime.startsWith("video/") || /\\.(mp4|webm|mov)$/i.test(file.name)) kind = "video";
-      else if (mime.startsWith("audio/")) kind = "audio";
-      const localUrl = URL.createObjectURL(file);
-      const clientId = "opt-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8);
-      const nowIso = new Date().toISOString();
-      const replySnap = replyTo;
-      const optMsg: ChatMsg = {
-        key: clientId + "-s",
-        side: "out",
-        text: "(attachment)",
-        at: nowIso,
-        subject: replySnap ? ("Re: " + (replySnap.text || "").slice(0, 40)) : subject.trim() || null,
-        attachment_url: localUrl,
-        attachment_type: kind,
-        reportId: clientId,
-        replyPreview: null,
-        replyToKey: replySnap ? (replySnap.id + "-" + (replySnap.fromSelf ? "s" : "o")) : null,
-      };
-      setOptimisticMsgs((prev) => [...prev, optMsg]);
-      setReplyTo(null);
-      setPendingAttach(null);
-      setNearBottom(true);
-      setNewBelow(0);
-      requestAnimationFrame(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }));
-      void (async () => {
-        try {
-          const up = await uploadMessageMedia(file, file.type || "application/octet-stream", "msg/" + schoolId + "/" + userId);
-          const name = session?.fullName || student?.fullName || "Student";
-          const payload: Record<string, unknown> = {
-            school_id: schoolId,
-            student_id: studentId || null,
-            student_user_id: userId || null,
-            student_name: name,
-            student_matric: student?.matric || null,
-            exam_id: selectedExamIds[0] || null,
-            exam_title: null,
-            exam_ids: selectedExamIds.length ? selectedExamIds : [],
-            exam_titles: [],
-            subject: optMsg.subject,
-            body: "(attachment)",
-            attachment_url: up.url,
-            attachment_type: kind === "file" ? (up.type || "file") : kind,
-            status: "open",
-            reply_to_id: replySnap?.id || null,
-          };
-          const { error } = await supabase.from("student_officer_reports").insert(payload);
-          if (error) throw error;
-          setOptimisticMsgs((prev) => prev.filter((m) => m.reportId !== clientId));
-          await qc.invalidateQueries({ queryKey: ["student-my-reports"] });
-          try { URL.revokeObjectURL(localUrl); } catch {}
-        } catch (e) {
-          setFailedIds((s) => new Set(s).add(clientId));
-          toast.error(e instanceof Error ? e.message : "Upload failed");
-        }
-      })();
-    }
-  }"""
-          s = s[:m.start()] + new_on + s[m.end():]
-          print("onFile OK")
-
-          for a, b in [
-            ("Math.max(-72, Math.min(72, dx))", "Math.max(-96, Math.min(96, dx))"),
-            ("Math.max(-80, Math.min(80, rawX))", "Math.max(-96, Math.min(96, rawX))"),
-            ("Math.abs(dx) > 48", "Math.abs(dx) > 40"),
-            ("Math.abs(finalDx) > 48", "Math.abs(finalDx) > 40"),
-          ]:
-            if a in s:
-              s = s.replace(a, b)
-
-          if 'willChange: "transform"' not in s and 'touchAction: "pan-y"' in s:
-            s = s.replace('touchAction: "pan-y",', 'touchAction: "pan-y",\n                  willChange: "transform",')
-
-          needle = """              <p className="line-clamp-2 text-xs text-slate-700">
-                {replyTo.text}
-              </p>
-            </div>
-            <button type="button" onClick={() => setReplyTo(null)}"""
-          insert = """              <p className="line-clamp-2 text-xs text-slate-700">
-                {replyTo.text}
-              </p>
-            </div>
-            {replyTo.isVoice && replyTo.durationSec != null && replyTo.durationSec > 0 ? (
-              <span className="shrink-0 self-center rounded-md bg-blue-100 px-2 py-0.5 text-[11px] font-bold tabular-nums text-blue-800">{fmtVoiceDur(replyTo.durationSec)}</span>
-            ) : null}
-            <button type="button" onClick={() => setReplyTo(null)}"""
-          if needle in s and "fmtVoiceDur(replyTo.durationSec)" not in s:
-            s = s.replace(needle, insert, 1)
-            print("badge")
-
-          sp.write_text(s)
-          print("DONE")
-          PY
+          old = '''      onPointerDown={(e) => {\n        if (!onSeek) return;\n        e.stopPropagation();\n        e.preventDefault();\n        (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);\n        seekFromClientX(e.clientX);\n      }}\n      onPointerMove={(e) => {\n        if (!onSeek || e.buttons !== 1) return;\n        e.stopPropagation();\n        seekFromClientX(e.clientX);\n      }}\n      onPointerUp={(e) => e.stopPropagation()}\n      onClick={(e) => e.stopPropagation()}\n      onTouchStart={(e) => {\n        if (!onSeek) return;\n        e.stopPropagation();\n      }}\n      onTouchMove={(e) => {\n        if (!onSeek) return;\n        e.stopPropagation();\n      }}'''
+          new = '''      onPointerDown={(e) => {\n        if (!onSeek) return;\n        dragRef.current = { x: e.clientX, y: e.clientY, active: true, seeking: false };\n      }}\n      onPointerMove={(e) => {\n        if (!onSeek || !dragRef.current?.active) return;\n        const d = dragRef.current;\n        const dx = e.clientX - d.x;\n        const dy = e.clientY - d.y;\n        if (!d.seeking) {\n          if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;\n          if (Math.abs(dy) >= Math.abs(dx)) { d.active = false; return; }\n          d.seeking = true;\n          try { (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId); } catch {}\n          e.preventDefault();\n          e.stopPropagation();\n          seekFromClientX(e.clientX);\n          return;\n        }\n        e.preventDefault();\n        e.stopPropagation();\n        seekFromClientX(e.clientX);\n      }}\n      onPointerUp={(e) => {\n        if (dragRef.current?.seeking) e.stopPropagation();\n        dragRef.current = null;\n      }}\n      onPointerCancel={() => { dragRef.current = null; }}\n      onClick={(e) => {\n        if (dragRef.current?.seeking) e.stopPropagation();\n      }}'''
+          if old not in t:
+            raise SystemExit('handlers not found')
+          t = t.replace(old, new, 1)
+          t = t.replace('transition: active ? \"none\" : \"left 50ms linear\"', 'transition: \"none\"')
+          p.write_text(t)
+          print('wave ok', len(t))
+          "
           git config user.name d4exam-bot
           git config user.email bot@d4exam.name.ng
-          git add src/components/messaging/MessageMedia.tsx src/routes/student.contact-officer.tsx
-          git commit -m "fix(messaging): voice progress only on horizontal drag; optimistic media; smooth swipe" || echo nochange
+          git add src/components/messaging/MessageMedia.tsx
+          git commit -m "fix(messaging): voice progress ball only moves on intentional horizontal drag" || echo nochange
           git push
