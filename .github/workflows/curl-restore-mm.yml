@@ -10,26 +10,35 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
-      - name: Restore onFile from commit before break
+        with:
+          fetch-depth: 0
+      - name: Restore onFile only from good commit
         run: |
           set -euo pipefail
-          git show 10bfb17c1a1705b0cbc23d642857105bcbaa13ff:src/routes/student.contact-officer.tsx > /tmp/old.tsx
+          git show 10bfb17c1a1705b0cbc23d642857105bcbaa13ff:src/routes/student.contact-officer.tsx > /tmp/good.tsx
+          # Extract lines for onFile function from good file and current file using awk
           python3 -c "
           from pathlib import Path
           import re
-          old = Path('/tmp/old.tsx').read_text()
+          good = Path('/tmp/good.tsx').read_text()
           cur = Path('src/routes/student.contact-officer.tsx').read_text()
-          m_old = re.search(r'async function onFile\\(files: FileList \\| File\\[\\]\\) \\{.*?\\n  \\}', old, re.S)
-          m_cur = re.search(r'async function onFile\\(files: FileList \\| File\\[\\]\\) \\{.*?\\n  \\}', cur, re.S)
-          assert m_old and m_cur
-          # keep swipe improvements from cur, only restore onFile body from old + optimistic wrapper later
-          # For safety restore old onFile exactly so build works
-          fixed = cur[:m_cur.start()] + m_old.group(0) + cur[m_cur.end():]
+          pat = re.compile(r'  async function onFile\(files: FileList \| File\[\]\) \{[\s\S]*?\n  \}\n')
+          mg = pat.search(good)
+          mc = pat.search(cur)
+          print('good', bool(mg), 'cur', bool(mc))
+          if not mg or not mc:
+            # try without leading spaces
+            pat2 = re.compile(r'async function onFile\(files: FileList \| File\[\]\) \{[\s\S]*?\n  \}')
+            mg = pat2.search(good)
+            mc = pat2.search(cur)
+            print('retry', bool(mg), bool(mc))
+          assert mg and mc
+          fixed = cur[:mc.start()] + mg.group(0) + cur[mc.end():]
           Path('src/routes/student.contact-officer.tsx').write_text(fixed)
-          print('restored onFile from 10bfb17')
+          print('ok', len(fixed))
           "
           git config user.name d4exam-bot
           git config user.email bot@d4exam.name.ng
           git add src/routes/student.contact-officer.tsx
-          git commit -m 'fix(messaging): restore working onFile (build-safe); keep smoother swipe' || echo nochange
+          git commit -m 'fix(messaging): restore working onFile from 10bfb17; keep swipe polish' || echo nochange
           git push
