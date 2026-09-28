@@ -585,6 +585,23 @@ export async function discoverStudents(opts: {
 }
 
 export async function listDepartmentOfficers(schoolId: string) {
+  // Prefer SECURITY DEFINER RPC (correct profile_id → auth_user_id mapping)
+  const { data: rpcRows, error: rpcErr } = await supabase.rpc(
+    "list_school_officers_for_messaging",
+  );
+  if (!rpcErr && Array.isArray(rpcRows)) {
+    return (rpcRows as Record<string, unknown>[])
+      .filter((r) => r.auth_user_id)
+      .filter((r) => !schoolId || !r.school_id || r.school_id === schoolId)
+      .map((r) => ({
+        id: r.auth_user_id as string,
+        full_name: (r.full_name as string) || "Departmental Officer",
+        avatar_url: (r.avatar_url as string) || null,
+        roleLabel: (r.role_label as string) || "Departmental Officer",
+      }));
+  }
+  if (rpcErr) console.warn("[listDepartmentOfficers] rpc", rpcErr.message);
+
   const results: {
     id: string;
     full_name: string;
@@ -592,7 +609,6 @@ export async function listDepartmentOfficers(schoolId: string) {
     roleLabel: string;
   }[] = [];
   const seen = new Set<string>();
-
   const push = (
     authId: string | null | undefined,
     name: string | null | undefined,
@@ -608,100 +624,52 @@ export async function listDepartmentOfficers(schoolId: string) {
     });
   };
 
-  // 1) examination_officers table (canonical)
+  // examination_officers.officer_id is a staff code (text), NOT auth uuid — use profile_id
   let eoQ = supabase
     .from("examination_officers")
-    .select("officer_id, profile_id, school_id, status")
+    .select("profile_id, school_id, department_id, status")
     .limit(50);
   if (schoolId) eoQ = eoQ.eq("school_id", schoolId);
   const { data: eos } = await eoQ;
-
-  if (eos?.length) {
-    const profileIds = eos.map((e) => e.profile_id).filter(Boolean) as string[];
-    const officerIds = eos.map((e) => e.officer_id).filter(Boolean) as string[];
-    const { data: byProfile } = profileIds.length
-      ? await supabase
-          .from("profiles")
-          .select("id, auth_user_id, full_name, avatar_url")
-          .in("id", profileIds)
-      : { data: [] as Record<string, unknown>[] };
-    const { data: byAuth } = officerIds.length
-      ? await supabase
-          .from("profiles")
-          .select("id, auth_user_id, full_name, avatar_url")
-          .in("auth_user_id", officerIds)
-      : { data: [] as Record<string, unknown>[] };
-
-    const byProfId = new Map(
-      (byProfile || []).map((p) => [p.id as string, p]),
-    );
-    const byAuthId = new Map(
-      (byAuth || []).map((p) => [p.auth_user_id as string, p]),
-    );
-
-    for (const e of eos) {
-      const p =
-        (e.profile_id && byProfId.get(e.profile_id as string)) ||
-        (e.officer_id && byAuthId.get(e.officer_id as string)) ||
-        null;
-      const authId =
-        (p?.auth_user_id as string) || (e.officer_id as string) || null;
-      push(authId, p?.full_name as string, p?.avatar_url as string);
+  const profileIds = (eos || [])
+    .map((e) => e.profile_id as string)
+    .filter(Boolean);
+  if (profileIds.length) {
+    const { data: profs } = await supabase
+      .from("profiles")
+      .select("id, auth_user_id, full_name, profile_photo_url")
+      .in("id", profileIds);
+    for (const p of profs || []) {
+      push(
+        p.auth_user_id as string,
+        p.full_name as string,
+        p.profile_photo_url as string,
+      );
     }
   }
 
-  // 2) user_roles with examination_officer
+  // user_roles examination_officer
   const { data: roles } = await supabase
     .from("user_roles")
-    .select("user_id, role, school_id")
+    .select("user_id, school_id")
     .eq("role", "examination_officer")
     .limit(50);
-  const roleUserIds = (roles || [])
+  const uids = (roles || [])
     .filter((r) => !schoolId || !r.school_id || r.school_id === schoolId)
     .map((r) => r.user_id as string)
     .filter(Boolean);
-  if (roleUserIds.length) {
+  if (uids.length) {
     const { data: profs } = await supabase
       .from("profiles")
-      .select("auth_user_id, full_name, avatar_url, school_id")
-      .in("auth_user_id", roleUserIds);
+      .select("auth_user_id, full_name, profile_photo_url")
+      .in("auth_user_id", uids);
     for (const p of profs || []) {
-      if (schoolId && p.school_id && p.school_id !== schoolId) continue;
-      push(p.auth_user_id as string, p.full_name as string, p.avatar_url as string);
+      push(
+        p.auth_user_id as string,
+        p.full_name as string,
+        p.profile_photo_url as string,
+      );
     }
-  }
-
-  // 3) People you've already messaged via student_officer_reports
-  try {
-    const { data: auth } = await supabase.auth.getUser();
-    const uid = auth.user?.id;
-    if (uid) {
-      const { data: reps } = await supabase
-        .from("student_officer_reports")
-        .select("officer_id")
-        .eq("student_id", uid)
-        .limit(20);
-      const oids = [
-        ...new Set(
-          (reps || []).map((r) => r.officer_id as string).filter(Boolean),
-        ),
-      ];
-      if (oids.length) {
-        const { data: profs } = await supabase
-          .from("profiles")
-          .select("auth_user_id, full_name, avatar_url")
-          .in("auth_user_id", oids);
-        for (const p of profs || []) {
-          push(
-            p.auth_user_id as string,
-            p.full_name as string,
-            p.avatar_url as string,
-          );
-        }
-      }
-    }
-  } catch {
-    /* optional */
   }
 
   return results;
@@ -744,11 +712,11 @@ export async function getConversationMeta(conversationId: string, myUserId: stri
   if (conv.type === "direct" && peerIds[0]) {
     const { data: peer } = await supabase
       .from("profiles")
-      .select("full_name, avatar_url, auth_user_id")
+      .select("full_name, profile_photo_url, auth_user_id")
       .eq("auth_user_id", peerIds[0])
       .maybeSingle();
     peerName = (peer?.full_name as string) || null;
-    peerAvatar = (peer?.avatar_url as string) || null;
+    peerAvatar = (peer?.profile_photo_url as string) || null;
   }
 
   const myRole =

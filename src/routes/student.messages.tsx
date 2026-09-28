@@ -180,7 +180,19 @@ function MessagesHub() {
 
   const openConversation = useCallback(
     (id: string) => {
-      navigate({ to: "/student/messages/$conversationId", params: { conversationId: id } });
+      if (!id) return;
+      try {
+        void navigate({
+          to: "/student/messages/$conversationId",
+          params: { conversationId: id },
+        });
+      } catch (e) {
+        // Native hash-router fallback
+        const path = `/student/messages/${id}`;
+        if (typeof window !== "undefined") {
+          window.location.hash = path;
+        }
+      }
     },
     [navigate],
   );
