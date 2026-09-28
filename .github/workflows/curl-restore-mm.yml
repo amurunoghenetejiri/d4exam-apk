@@ -12,32 +12,88 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Patch ImageLightbox pinchRef
+      - name: Repair onFile optimistic send
         run: |
           set -euo pipefail
           python3 << 'PY'
           from pathlib import Path
-          p = Path("src/components/messaging/MessageMedia.tsx")
+          import re
+          p = Path("src/routes/student.contact-officer.tsx")
           t = p.read_text()
-          # Only patch ImageLightbox block (before VideoLightbox)
-          a = t.find("export function ImageLightbox")
-          b = t.find("export function VideoLightbox")
-          assert a > 0 and b > a, (a, b)
-          head, mid, tail = t[:a], t[a:b], t[b:]
-          if "const pinchRef = useRef" not in mid:
-              old = "  const touchRef = useRef<{ x: number; y: number; dist?: number } | null>(null);\n"
-              new = old + "  const pinchRef = useRef<{ dist: number; scale: number } | null>(null);\n"
-              if old not in mid:
-                  raise SystemExit("touchRef anchor missing in ImageLightbox")
-              mid = mid.replace(old, new, 1)
-              print("patched ImageLightbox pinchRef")
-          else:
-              print("ImageLightbox already has pinchRef")
-          p.write_text(head + mid + tail)
-          print("size", p.stat().st_size)
+          m = re.search(r"async function onFile\(files: FileList \| File\[\]\) \{.*?\n  \}", t, re.S)
+          if not m:
+            raise SystemExit("onFile not found")
+          new = r'''  async function onFile(files: FileList | File[]) {
+    const list = Array.from(files);
+    if (!list.length) return;
+    for (const file of list) {
+      const mime = (file.type || "").toLowerCase();
+      let kind: "image" | "video" | "audio" | "file" = "file";
+      if (mime.startsWith("image/") || /\.(jpe?g|png|gif|webp)$/i.test(file.name)) kind = "image";
+      else if (mime.startsWith("video/") || /\.(mp4|webm|mov)$/i.test(file.name)) kind = "video";
+      else if (mime.startsWith("audio/")) kind = "audio";
+      const localUrl = URL.createObjectURL(file);
+      const clientId = "opt-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8);
+      const nowIso = new Date().toISOString();
+      const replySnap = replyTo;
+      const optMsg: ChatMsg = {
+        key: clientId + "-s",
+        side: "out",
+        text: "(attachment)",
+        at: nowIso,
+        subject: replySnap ? ("Re: " + (replySnap.text || "").slice(0, 40)) : subject.trim() || null,
+        attachment_url: localUrl,
+        attachment_type: kind,
+        reportId: clientId,
+        replyPreview: null,
+        replyToKey: replySnap ? (replySnap.id + "-" + (replySnap.fromSelf ? "s" : "o")) : null,
+      };
+      setOptimisticMsgs((prev) => [...prev, optMsg]);
+      setReplyTo(null);
+      setPendingAttach(null);
+      setNearBottom(true);
+      setNewBelow(0);
+      requestAnimationFrame(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }));
+      void (async () => {
+        try {
+          const up = await uploadMessageMedia(file, file.type || "application/octet-stream", "msg/" + schoolId + "/" + userId);
+          const name = session?.fullName || student?.fullName || "Student";
+          const payload: Record<string, unknown> = {
+            school_id: schoolId,
+            student_id: studentId || null,
+            student_user_id: userId || null,
+            student_name: name,
+            student_matric: student?.matric || null,
+            exam_id: selectedExamIds[0] || null,
+            exam_title: null,
+            exam_ids: selectedExamIds.length ? selectedExamIds : [],
+            exam_titles: [],
+            subject: optMsg.subject,
+            body: "(attachment)",
+            attachment_url: up.url,
+            attachment_type: kind === "file" ? (up.type || "file") : kind,
+            status: "open",
+            reply_to_id: replySnap?.id || null,
+          };
+          const { error } = await supabase.from("student_officer_reports").insert(payload);
+          if (error) throw error;
+          setOptimisticMsgs((prev) => prev.filter((m) => m.reportId !== clientId));
+          await qc.invalidateQueries({ queryKey: ["student-my-reports"] });
+          try { URL.revokeObjectURL(localUrl); } catch {}
+        } catch (e) {
+          setFailedIds((s) => new Set(s).add(clientId));
+          toast.error(e instanceof Error ? e.message : "Upload failed");
+        }
+      })();
+    }
+  }'''
+          t = t[:m.start()] + new + t[m.end():]
+          t = t.replace("\n    async function onFile", "\n  async function onFile")
+          p.write_text(t)
+          print("onFile repaired", len(t))
           PY
           git config user.name "d4exam-bot"
           git config user.email "bot@d4exam.name.ng"
-          git add src/components/messaging/MessageMedia.tsx
-          git commit -m "fix(messaging): declare pinchRef inside ImageLightbox" || echo nochange
+          git add src/routes/student.contact-officer.tsx
+          git commit -m "fix(messaging): repair optimistic onFile (string concat, no broken templates)" || echo nochange
           git push origin HEAD:main
