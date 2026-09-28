@@ -40,6 +40,7 @@ import {
   VideoBubble,
   FileBubble,
   VideoLightbox,
+  VoiceRecorderBar,
   stopAllVoices,
   parseMediaUrls,
 } from "@/components/messaging/MessageMedia";
@@ -439,6 +440,7 @@ export function ConversationChat({
     const t = text.trim();
     if (!t || !userId || !conversationId || sendLock.current) return;
     const clientId = `opt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const replyId = replyTo?.id || null;
     setOptimistic((p) => [
       ...p,
       {
@@ -448,7 +450,7 @@ export function ConversationChat({
         body: t,
         attachment_url: null,
         attachment_type: null,
-        reply_to_id: null,
+        reply_to_id: replyId,
         forwarded_from_id: null,
         client_id: clientId,
         duration_sec: null,
@@ -458,6 +460,7 @@ export function ConversationChat({
       },
     ]);
     setText("");
+    setReplyTo(null);
     scrollToEnd();
     sendLock.current = true;
     try {
@@ -478,6 +481,7 @@ export function ConversationChat({
         senderId: userId,
         body: t,
         clientId,
+        replyToId: replyId,
       });
       void qc.invalidateQueries({ queryKey: ["campus-messages", conversationId] });
       void qc.invalidateQueries({ queryKey: ["campus-conversations"] });
@@ -676,7 +680,52 @@ export function ConversationChat({
             return (
               <div
                 key={m.id}
-                className={cn("flex w-full", mine ? "justify-end" : "justify-start")}
+                className={cn(
+                  "relative flex w-full touch-pan-y",
+                  mine ? "justify-end" : "justify-start",
+                )}
+                style={{
+                  transform: `translateX(${swipeDx[m.id] || 0}px)`,
+                  transition: swipeRef.current?.key === m.id ? "none" : "transform 0.2s ease",
+                }}
+                onTouchStart={(e) => {
+                  swipeRef.current = {
+                    key: m.id,
+                    x: e.touches[0]?.clientX ?? 0,
+                    y: e.touches[0]?.clientY ?? 0,
+                    axis: "none",
+                    dx: 0,
+                  };
+                }}
+                onTouchMove={(e) => {
+                  const s = swipeRef.current;
+                  if (!s || s.key !== m.id) return;
+                  const x = e.touches[0]?.clientX ?? 0;
+                  const y = e.touches[0]?.clientY ?? 0;
+                  const rawX = x - s.x;
+                  const rawY = y - s.y;
+                  if (s.axis === "none") {
+                    if (Math.abs(rawX) < 12 && Math.abs(rawY) < 12) return;
+                    s.axis = Math.abs(rawX) > Math.abs(rawY) * 1.15 ? "h" : "v";
+                  }
+                  if (s.axis === "v") return;
+                  const next = Math.max(-72, Math.min(72, rawX));
+                  s.dx = next;
+                  setSwipeDx((prev) =>
+                    prev[m.id] === next ? prev : { ...prev, [m.id]: next },
+                  );
+                }}
+                onTouchEnd={() => {
+                  const s = swipeRef.current;
+                  const dx = s?.key === m.id ? s.dx : 0;
+                  swipeRef.current = null;
+                  setSwipeDx((prev) => {
+                    const n = { ...prev };
+                    delete n[m.id];
+                    return n;
+                  });
+                  if (Math.abs(dx) > 40) setReplyTo(m);
+                }}
                 onContextMenu={(e) => {
                   e.preventDefault();
                   setForwardMsg(m);
@@ -771,54 +820,32 @@ export function ConversationChat({
         }}
       >
         {recording ? (
-          <div className="mx-auto max-w-2xl rounded-xl border border-blue-200/80 bg-gradient-to-b from-[#eff6ff] to-white px-3 py-2.5">
-            <div className="mb-2 text-center">
-              <p className="text-sm font-bold tabular-nums text-slate-800">
-                {mm}:{ss}
-              </p>
-              <p className="text-[10px] text-slate-500">
-                {recPaused ? "Paused" : "Recording…"}
-              </p>
-            </div>
-            <div className="flex items-center justify-center gap-4">
-              <button
-                type="button"
-                onClick={cancelRecording}
-                className="grid h-10 w-10 place-items-center rounded-full bg-slate-100 text-slate-600"
-                aria-label="Cancel"
-              >
-                <X className="h-5 w-5" />
-              </button>
-              {recPaused ? (
-                <button
-                  type="button"
-                  onClick={continueRecording}
-                  className="grid h-10 w-10 place-items-center rounded-full bg-slate-100 text-slate-700"
-                  aria-label="Continue"
-                >
-                  <Play className="h-5 w-5" />
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={pauseRecording}
-                  className="grid h-10 w-10 place-items-center rounded-full bg-slate-100 text-slate-700"
-                  aria-label="Pause"
-                >
-                  <Pause className="h-5 w-5" />
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={() => void finishAndSendVoice()}
-                className="grid h-10 w-10 place-items-center rounded-full bg-[#2563eb] text-white"
-                aria-label="Send"
-              >
-                <Send className="h-5 w-5" />
-              </button>
-            </div>
-          </div>
+          <VoiceRecorderBar
+            recording={recording}
+            paused={recPaused}
+            seconds={recSecs}
+            previewUrl={null}
+            onCancel={cancelRecording}
+            onPause={pauseRecording}
+            onContinue={continueRecording}
+            onPreviewPlay={() => {}}
+            onSend={() => void finishAndSendVoice()}
+          />
         ) : (
+          <>
+          {replyTo ? (
+            <div className="mx-auto mb-2 flex max-w-2xl items-start gap-2 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2">
+              <div className="min-w-0 flex-1">
+                <p className="text-[11px] font-bold text-blue-800">Replying</p>
+                <p className="line-clamp-2 text-xs text-slate-700">
+                  {replyTo.body || (replyTo.attachment_type === "audio" ? "Voice note" : "Attachment")}
+                </p>
+              </div>
+              <button type="button" onClick={() => setReplyTo(null)} className="text-slate-400" aria-label="Cancel reply">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          ) : null}
           <div className="mx-auto flex max-w-2xl items-end gap-1.5">
             <button
               type="button"
@@ -878,6 +905,7 @@ export function ConversationChat({
               </button>
             )}
           </div>
+          </>
         )}
       </div>
 
@@ -1083,6 +1111,19 @@ function GroupMenuSheet({
     }
   };
 
+  const iconRef = useRef<HTMLInputElement>(null);
+  const changeIcon = async (file: File) => {
+    try {
+      const up = await uploadMessageMedia(file, file.type || "image/jpeg", `campus-group/${conversationId}`);
+      await updateGroupMeta(conversationId, { avatar_url: up.url });
+      void qc.invalidateQueries({ queryKey: ["campus-conv-meta", conversationId] });
+      void qc.invalidateQueries({ queryKey: ["campus-conversations"] });
+      toast.success("Group icon updated");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Icon update failed");
+    }
+  };
+
   const doLeave = async () => {
     try {
       await leaveGroup(conversationId, userId);
@@ -1179,7 +1220,26 @@ function GroupMenuSheet({
           )}
           {isAdmin ? (
             <div>
-              <p className="text-xs font-semibold text-slate-500">Group name</p>
+              <p className="text-xs font-semibold text-slate-500">Group icon</p>
+              <button
+                type="button"
+                onClick={() => iconRef.current?.click()}
+                className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 text-sm font-semibold text-[#2563eb]"
+              >
+                Change group icon
+              </button>
+              <input
+                ref={iconRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) void changeIcon(f);
+                  e.target.value = "";
+                }}
+              />
+              <p className="mt-3 text-xs font-semibold text-slate-500">Group name</p>
               {renaming ? (
                 <div className="mt-1 flex gap-2">
                   <input

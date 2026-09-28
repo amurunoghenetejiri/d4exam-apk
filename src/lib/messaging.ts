@@ -153,48 +153,41 @@ export async function listMyConversations(
 
     const peerUserIds = [...new Set((peers || []).map((p) => p.user_id))];
     if (peerUserIds.length) {
-      const { data: profiles } = await supabase
-        .from("profiles")
-        .select("id, auth_user_id, full_name, profile_photo_url")
-        .in("auth_user_id", peerUserIds);
-
       const nameByUser = new Map<
         string,
         { name: string; avatar: string | null }
       >();
-      const profileIds: string[] = [];
-      for (const p of profiles || []) {
-        const uid = p.auth_user_id as string;
-        nameByUser.set(uid, {
-          name: ((p.full_name as string) || "").trim() || "Student",
-          avatar: (p.profile_photo_url as string) || null,
-        });
-        if (p.id) profileIds.push(p.id as string);
+
+      // SECURITY DEFINER RPC — reliable full names across RLS
+      const { data: rpcNames } = await supabase.rpc(
+        "resolve_messaging_peer_names",
+        { p_user_ids: peerUserIds },
+      );
+      if (Array.isArray(rpcNames)) {
+        for (const r of rpcNames as Record<string, unknown>[]) {
+          const uid = r.auth_user_id as string;
+          if (!uid) continue;
+          nameByUser.set(uid, {
+            name: ((r.full_name as string) || "").trim() || "Student",
+            avatar: (r.avatar_url as string) || null,
+          });
+        }
       }
 
-      if (profileIds.length) {
-        const { data: stRows } = await supabase
-          .from("students")
-          .select("profile_id, full_name, profile_photo_url")
-          .in("profile_id", profileIds);
-        const byProf = new Map(
-          (stRows || []).map((s) => [s.profile_id as string, s]),
-        );
+      // Fallback direct profile read
+      if (nameByUser.size < peerUserIds.length) {
+        const { data: profiles } = await supabase
+          .from("profiles")
+          .select("id, auth_user_id, full_name, profile_photo_url")
+          .in("auth_user_id", peerUserIds);
         for (const p of profiles || []) {
-          const st = byProf.get(p.id as string);
-          if (!st) continue;
           const uid = p.auth_user_id as string;
-          const cur = nameByUser.get(uid);
-          const stName = ((st.full_name as string) || "").trim();
-          if (stName) {
-            nameByUser.set(uid, {
-              name: !cur || cur.name === "Student" ? stName : cur.name,
-              avatar:
-                cur?.avatar ||
-                (st.profile_photo_url as string) ||
-                null,
-            });
-          }
+          if (nameByUser.has(uid) && nameByUser.get(uid)!.name !== "Student")
+            continue;
+          nameByUser.set(uid, {
+            name: ((p.full_name as string) || "").trim() || "Student",
+            avatar: (p.profile_photo_url as string) || null,
+          });
         }
       }
 
@@ -747,13 +740,24 @@ export async function getConversationMeta(conversationId: string, myUserId: stri
   let peerName: string | null = null;
   let peerAvatar: string | null = null;
   if (conv.type === "direct" && peerIds[0]) {
-    const { data: peer } = await supabase
-      .from("profiles")
-      .select("full_name, profile_photo_url, auth_user_id")
-      .eq("auth_user_id", peerIds[0])
-      .maybeSingle();
-    peerName = (peer?.full_name as string) || null;
-    peerAvatar = (peer?.profile_photo_url as string) || null;
+    const { data: rpcNames } = await supabase.rpc(
+      "resolve_messaging_peer_names",
+      { p_user_ids: [peerIds[0]] },
+    );
+    const row = Array.isArray(rpcNames) ? (rpcNames as Record<string, unknown>[])[0] : null;
+    if (row) {
+      peerName = ((row.full_name as string) || "").trim() || null;
+      peerAvatar = (row.avatar_url as string) || null;
+    }
+    if (!peerName) {
+      const { data: peer } = await supabase
+        .from("profiles")
+        .select("full_name, profile_photo_url, auth_user_id")
+        .eq("auth_user_id", peerIds[0])
+        .maybeSingle();
+      peerName = (peer?.full_name as string) || null;
+      peerAvatar = (peer?.profile_photo_url as string) || null;
+    }
   }
 
   const myRole =

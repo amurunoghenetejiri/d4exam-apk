@@ -167,19 +167,21 @@ function MessagesHub() {
   });
 
   const conversations = convQuery.data || [];
-  const chats = conversations.filter((c) => !c.isGroup);
   const groups = conversations.filter((c) => c.isGroup);
+  // Chats tab = every conversation (students, officers, groups)
+  const allChats = conversations;
 
   const filteredChats = useMemo(() => {
     const q = search.trim().toLowerCase();
-    const list = tab === "groups" ? groups : chats;
+    const list = tab === "groups" ? groups : allChats;
     if (!q) return list;
     return list.filter(
       (c) =>
         c.title.toLowerCase().includes(q) ||
-        c.preview.toLowerCase().includes(q),
+        c.preview.toLowerCase().includes(q) ||
+        (c.subtitle || "").toLowerCase().includes(q),
     );
-  }, [chats, groups, search, tab]);
+  }, [allChats, groups, search, tab]);
 
   const openConversation = useCallback(
     (id: string) => {
