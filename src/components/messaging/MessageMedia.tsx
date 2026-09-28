@@ -81,9 +81,11 @@ function WaveBars({
   return (
     <div
       ref={trackRef}
-      className={cn("relative flex h-7 w-full items-center gap-[1.5px] overflow-visible px-1", onSeek && "cursor-pointer touch-none")}
+      className={cn("relative flex h-7 w-full items-center gap-[1.5px] overflow-visible px-1", onSeek && "cursor-pointer")}
+      style={onSeek ? { touchAction: "pan-y" } : undefined}
       onPointerDown={(e) => {
         if (!onSeek) return;
+        // Arm only - do NOT move board/ball on mere touch or click
         dragRef.current = { x: e.clientX, y: e.clientY, active: true, seeking: false };
       }}
       onPointerMove={(e) => {
@@ -92,8 +94,9 @@ function WaveBars({
         const dx = e.clientX - d.x;
         const dy = e.clientY - d.y;
         if (!d.seeking) {
-          if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
-          if (Math.abs(dy) >= Math.abs(dx)) { d.active = false; return; }
+          // Require clear intentional horizontal drag (22px). Vertical never seeks.
+          if (Math.abs(dx) < 22) return;
+          if (Math.abs(dy) >= Math.abs(dx) * 0.55) { d.active = false; return; }
           d.seeking = true;
           try { (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId); } catch {}
           e.preventDefault();
@@ -111,7 +114,8 @@ function WaveBars({
       }}
       onPointerCancel={() => { dragRef.current = null; }}
       onClick={(e) => {
-        if (dragRef.current?.seeking) e.stopPropagation();
+        // Never seek on click/tap - only drag moves the board
+        e.stopPropagation();
       }}
     >
       {heights.map((h, i) => {
