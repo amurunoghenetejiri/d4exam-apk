@@ -1,1 +1,1 @@
-redeploy 20260909110000 app-like footer hide swipe tabs settings about pricing legal
+redeploy 20260929173600 messages-ssr-off + webrtc ready + parallel unread

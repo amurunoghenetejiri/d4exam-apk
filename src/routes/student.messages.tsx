@@ -50,8 +50,29 @@ import { CallOverlay, MinimizedCallBubble, type ActiveCall } from "@/components/
 import { IncomingCallWatcher } from "@/components/calls/IncomingCallWatcher";
 
 export const Route = createFileRoute("/student/messages")({
+  ssr: false,
   head: () => ({ meta: [{ title: "Messages — D4EXAM" }] }),
   component: MessagesHub,
+  errorComponent: function MessagesRouteError({ error, reset }) {
+    return (
+      <div className="flex min-h-dvh flex-col items-center justify-center gap-3 bg-[#e0f2fe] px-6 text-center">
+        <p className="text-lg font-bold text-slate-900">Messages could not load</p>
+        <p className="max-w-sm text-sm text-slate-600">
+          {(error as Error)?.message || "Something went wrong opening Messages."}
+        </p>
+        <button
+          type="button"
+          onClick={() => reset()}
+          className="rounded-full bg-[#2563eb] px-5 py-2.5 text-sm font-semibold text-white"
+        >
+          Try again
+        </button>
+        <a href="/student" className="text-sm font-semibold text-[#2563eb]">
+          Back to home
+        </a>
+      </div>
+    );
+  },
 });
 
 type TabKey = "chats" | "groups" | "students" | "officers";
@@ -295,6 +316,16 @@ function MessagesHub() {
     setTab("officers");
     setSearch("");
   }, []);
+
+  // Session still resolving — show shell so route never looks "broken"
+  if (!userId) {
+    return (
+      <div className="flex h-dvh flex-col items-center justify-center gap-3 bg-[#e0f2fe] px-6">
+        <div className="h-10 w-10 animate-spin rounded-full border-2 border-[#2563eb] border-t-transparent" />
+        <p className="text-sm font-semibold text-slate-600">Loading messages…</p>
+      </div>
+    );
+  }
 
   if (activeChatId) {
     return (

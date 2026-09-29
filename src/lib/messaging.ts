@@ -150,7 +150,7 @@ export async function listMyConversations(
     .from("conversations")
     .select("*")
     .in("id", ids)
-    .order("last_message_at", { ascending: false, nullsFirst: false });
+    .order("updated_at", { ascending: false });
 
   if (cErr || !convs?.length) return [];
 
@@ -219,20 +219,25 @@ export async function listMyConversations(
     }
   }
 
-  // Unread counts (approx: messages after last_read_at)
+  // Unread counts (approx) — parallel, capped so Messages never hangs
   const unreadMap = new Map<string, number>();
-  for (const id of ids) {
-    const since = readMap.get(id);
-    let q = supabase
-      .from("campus_messages")
-      .select("id", { count: "exact", head: true })
-      .eq("conversation_id", id)
-      .neq("sender_id", userId)
-      .is("deleted_at", null);
-    if (since) q = q.gt("created_at", since);
-    const { count } = await q;
-    unreadMap.set(id, count || 0);
-  }
+  const unreadJobs = ids.slice(0, 40).map(async (id) => {
+    try {
+      const since = readMap.get(id);
+      let q = supabase
+        .from("campus_messages")
+        .select("id", { count: "exact", head: true })
+        .eq("conversation_id", id)
+        .neq("sender_id", userId)
+        .is("deleted_at", null);
+      if (since) q = q.gt("created_at", since);
+      const { count } = await q;
+      unreadMap.set(id, count || 0);
+    } catch {
+      unreadMap.set(id, 0);
+    }
+  });
+  await Promise.all(unreadJobs);
 
   const mapped = (convs as ConversationRow[]).map((c) => {
     const peer = peerName.get(c.id);

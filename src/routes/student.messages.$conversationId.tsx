@@ -95,8 +95,29 @@ function ConversationChatRoute() {
 }
 
 export const Route = createFileRoute("/student/messages/$conversationId")({
+  ssr: false,
   head: () => ({ meta: [{ title: "Chat — D4EXAM" }] }),
   component: ConversationChatRoute,
+  errorComponent: function ChatRouteError({ error, reset }) {
+    return (
+      <div className="flex min-h-dvh flex-col items-center justify-center gap-3 bg-[#e0f2fe] px-6 text-center">
+        <p className="text-lg font-bold text-slate-900">Chat could not load</p>
+        <p className="max-w-sm text-sm text-slate-600">
+          {(error as Error)?.message || "Something went wrong opening this chat."}
+        </p>
+        <button
+          type="button"
+          onClick={() => reset()}
+          className="rounded-full bg-[#2563eb] px-5 py-2.5 text-sm font-semibold text-white"
+        >
+          Try again
+        </button>
+        <a href="/student/messages" className="text-sm font-semibold text-[#2563eb]">
+          Back to messages
+        </a>
+      </div>
+    );
+  },
 });
 
 /** Shared chat UI — used by route and inline from Messages hub (APK-safe). */

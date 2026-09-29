@@ -62,6 +62,7 @@ let state: CallSessionState | null = null;
 let pc: RTCPeerConnection | null = null;
 let localStream: MediaStream | null = null;
 let remoteStream: MediaStream | null = null;
+let pendingIce: RTCIceCandidateInit[] = [];
 let channel: RealtimeChannel | null = null;
 let timer: ReturnType<typeof setInterval> | null = null;
 let ringTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -140,6 +141,7 @@ async function hardTeardown() {
   }
   localStream = null;
   remoteStream = null;
+  pendingIce = [];
   try {
     pc?.close();
   } catch {
@@ -532,6 +534,11 @@ function handleSignal(ev: SignalEvent) {
         }
       } else if (ev.type === "offer" && pc.signalingState !== "closed") {
         await pc.setRemoteDescription(ev.sdp);
+        // Flush any ICE that arrived before remote description
+        for (const c of pendingIce) {
+          try { await pc.addIceCandidate(c); } catch { /* ignore */ }
+        }
+        pendingIce = [];
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
         if (channel) {
@@ -547,13 +554,21 @@ function handleSignal(ev: SignalEvent) {
         }
       } else if (ev.type === "answer" && pc.signalingState !== "closed") {
         await pc.setRemoteDescription(ev.sdp);
+        for (const c of pendingIce) {
+          try { await pc.addIceCandidate(c); } catch { /* ignore */ }
+        }
+        pendingIce = [];
         if (state) {
           state.phase = "connecting";
           emit();
         }
       } else if (ev.type === "ice" && ev.candidate) {
         try {
-          await pc.addIceCandidate(ev.candidate);
+          if (pc.remoteDescription) {
+            await pc.addIceCandidate(ev.candidate);
+          } else {
+            pendingIce.push(ev.candidate);
+          }
         } catch {
           /* ignore */
         }
