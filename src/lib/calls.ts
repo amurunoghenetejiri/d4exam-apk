@@ -249,12 +249,19 @@ export async function inviteCalleeOnPersonalChannel(opts: {
   callerName?: string;
   fromUserId: string;
 }) {
+  const payload = {
+    callId: opts.callId,
+    callType: opts.callType,
+    fromUserId: opts.fromUserId,
+    conversationId: opts.conversationId || null,
+    callerName: opts.callerName || "D4EXAM",
+  };
   try {
     const ch = supabase.channel(`user-calls:${opts.calleeId}`, {
       config: { broadcast: { self: false } },
     });
     await new Promise<void>((resolve) => {
-      const t = window.setTimeout(() => resolve(), 1500);
+      const t = window.setTimeout(() => resolve(), 2500);
       ch.subscribe((status) => {
         if (status === "SUBSCRIBED") {
           window.clearTimeout(t);
@@ -262,21 +269,12 @@ export async function inviteCalleeOnPersonalChannel(opts: {
         }
       });
     });
-    await ch.send({
-      type: "broadcast",
-      event: "incoming_call",
-      payload: {
-        callId: opts.callId,
-        callType: opts.callType,
-        fromUserId: opts.fromUserId,
-        conversationId: opts.conversationId || null,
-        callerName: opts.callerName || "D4EXAM",
-      },
-    });
-    // leave channel shortly after
+    // send twice for reliability
+    await ch.send({ type: "broadcast", event: "incoming_call", payload });
+    await ch.send({ type: "broadcast", event: "incoming_call", payload });
     window.setTimeout(() => {
       void ch.unsubscribe();
-    }, 2000);
+    }, 8000);
   } catch (e) {
     console.warn("[calls] invite broadcast failed", e);
   }

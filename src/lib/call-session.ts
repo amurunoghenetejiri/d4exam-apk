@@ -296,7 +296,7 @@ async function markNoAnswer() {
   await postSystemMessage(
     state.conversationId,
     state.myUserId,
-    state.callType === "video" ? "Video call · No answer" : "Voice call · No answer",
+    state.callType === "video" ? "Missed video call · No answer" : "Missed voice call · No answer",
   );
   // Keep UI on no_answer; media can stop
   try {

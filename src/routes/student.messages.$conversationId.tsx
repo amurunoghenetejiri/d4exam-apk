@@ -1837,61 +1837,62 @@ function CallEventBubble({
   const isDeclined = /declined/i.test(body);
   const isEnded = /ended/i.test(body) && !isMissed && !isNoAnswer;
 
+  // Recipient sees missed; caller sees no answer
+  const showAsMissed = !mine && (isMissed || isNoAnswer);
+  const showAsNoAnswer = mine && (isNoAnswer || isMissed);
+
   let headline = body;
   let sub = timeLabel;
-  let accent = mine ? "from-[#2563eb] to-[#1d4ed8]" : "from-[#0f766e] to-[#0d9488]";
   let actionLabel = "";
+  let iconBg = "bg-[#2563eb]";
 
-  if (isMissed) {
+  if (showAsMissed) {
     headline = isVideo ? "You missed a video call" : "You missed a call";
     sub = "Tap to call back · " + timeLabel;
-    accent = "from-[#e11d48] to-[#be123c]";
     actionLabel = "Call back";
-  } else if (isNoAnswer) {
+    iconBg = "bg-gradient-to-br from-rose-500 to-rose-700";
+  } else if (showAsNoAnswer) {
     headline = isVideo ? "Video call · No answer" : "No answer";
     sub = "They didn't pick up · " + timeLabel;
-    accent = "from-[#ea580c] to-[#c2410c]";
     actionLabel = "Call again";
+    iconBg = "bg-gradient-to-br from-orange-500 to-amber-600";
   } else if (isDeclined) {
     headline = "Call declined";
     sub = timeLabel;
-    accent = "from-[#64748b] to-[#475569]";
     actionLabel = "Call again";
+    iconBg = "bg-slate-600";
   } else if (isEnded) {
     headline = isVideo ? "Video call ended" : "Voice call ended";
     sub = timeLabel;
-    accent = mine ? "from-[#2563eb] to-[#1e40af]" : "from-[#334155] to-[#1e293b]";
+    iconBg = "bg-[#1e3a6e]";
   }
 
   return (
-    <div
-      className={
-        "relative w-[min(78vw,280px)] overflow-hidden rounded-2xl shadow-md " +
-        (mine ? "ml-auto" : "")
-      }
-    >
-      <div className={"bg-gradient-to-br " + accent + " p-[1px]"}>
-        <div className="rounded-[15px] bg-[#0b1b3a]/95 px-3.5 py-3 text-white backdrop-blur">
-          <div className="flex items-start gap-3">
-            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-white/15 text-lg ring-1 ring-white/20">
-              {isVideo ? "🎥" : "📞"}
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="text-[13.5px] font-extrabold leading-snug tracking-tight">{headline}</p>
-              <p className="mt-0.5 text-[11px] font-medium text-white/70">{sub}</p>
-            </div>
+    <div className={"w-[min(82vw,300px)] " + (mine ? "ml-auto" : "")}>
+      <div className="overflow-hidden rounded-[18px] border border-white/10 bg-[#0f172a] shadow-[0_8px_30px_rgba(0,0,0,0.25)]">
+        <div className="flex items-center gap-3 px-3.5 pt-3.5">
+          <span className={"grid h-12 w-12 shrink-0 place-items-center rounded-2xl text-xl text-white shadow-inner " + iconBg}>
+            {isVideo ? "🎥" : "📞"}
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="text-[14px] font-extrabold leading-tight text-white">{headline}</p>
+            <p className="mt-0.5 text-[11.5px] font-medium text-slate-400">{sub}</p>
           </div>
-          {actionLabel && onCallback ? (
+        </div>
+        {actionLabel && onCallback ? (
+          <div className="p-3 pt-2.5">
             <button
               type="button"
               onClick={() => onCallback(isVideo ? "video" : "voice")}
-              className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-white py-2.5 text-[12.5px] font-extrabold text-[#0b1b3a] shadow-sm active:scale-[0.98]"
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-white py-2.5 text-[13px] font-extrabold text-[#0b1b3a] shadow-sm transition active:scale-[0.98]"
             >
-              <span>{isVideo ? "📹" : "📞"}</span>
+              <span aria-hidden>{isVideo ? "📹" : "📞"}</span>
               {actionLabel}
             </button>
-          ) : null}
-        </div>
+          </div>
+        ) : (
+          <div className="h-3" />
+        )}
       </div>
     </div>
   );

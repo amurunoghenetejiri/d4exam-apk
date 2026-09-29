@@ -18,6 +18,7 @@ import { OfflineBootstrap } from "@/components/OfflineBootstrap";
 import { LocalDbBootstrap } from "@/components/LocalDbBootstrap";
 import { OfflineStatusPill } from "@/components/OfflineStatusPill";
 import { NotificationLiveListener } from "@/components/NotificationLiveListener";
+import { GlobalCallHost } from "@/components/calls/GlobalCallHost";
 import { NotificationPermissionPrompt } from "@/components/NotificationPermissionPrompt";
 import { hideSplashSafely } from "@/native/statusBar";
 import { AppUpdateGate } from "@/components/AppUpdateGate";
@@ -433,6 +434,7 @@ function RootComponent() {
       <OfflineBootstrap />
       <OfflineStatusPill />
       <NotificationLiveListener />
+            <GlobalCallHost />
       <NotificationPermissionPrompt />
       <AppUpdateGate />
       <AppUnlockSetupGate />
