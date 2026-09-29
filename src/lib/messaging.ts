@@ -774,8 +774,9 @@ export async function getConversationMeta(conversationId: string, myUserId: stri
     subtitle:
       conv.type === "group"
         ? `${(members || []).length} members · ${(conv.group_kind as string) || "study"}`
-        : "Direct message",
+        : "",
     avatar: (conv.avatar_url as string) || peerAvatar,
+    peerUserId: conv.type === "direct" ? (peerIds[0] || null) : null,
     created_by: (conv.created_by as string) || null,
     creatorName,
     created_at: (conv.created_at as string) || null,
@@ -975,5 +976,17 @@ export async function setConversationMemberRole(
     .eq("conversation_id", conversationId)
     .eq("user_id", memberUserId)
     .is("left_at", null);
+  if (error) throw new Error(error.message);
+}
+
+
+/** Soft-delete all messages in a conversation (clear chat). */
+export async function clearCampusConversation(conversationId: string) {
+  const now = new Date().toISOString();
+  const { error } = await supabase
+    .from("campus_messages")
+    .update({ deleted_at: now })
+    .eq("conversation_id", conversationId)
+    .is("deleted_at", null);
   if (error) throw new Error(error.message);
 }

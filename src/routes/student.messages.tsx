@@ -90,18 +90,22 @@ function Avatar({
 
   if (url) {
     return (
-      <img
-        src={url}
-        alt=""
-        className="h-12 w-12 shrink-0 rounded-full object-cover ring-2 ring-white"
-      />
+      <span className="relative grid h-12 w-12 shrink-0 place-items-center">
+        <img
+          src={url}
+          alt=""
+          className="h-12 w-12 rounded-full object-cover shadow-md ring-2 ring-[#2563eb]/40 ring-offset-2 ring-offset-[#e8f4fc] transition hover:ring-[#2563eb]/70"
+        />
+      </span>
     );
   }
   return (
     <div
       className={cn(
-        "grid h-12 w-12 shrink-0 place-items-center rounded-full text-sm font-bold text-white",
-        group ? "bg-[#2563eb]" : "bg-[#0b1b3a]",
+        "grid h-12 w-12 shrink-0 place-items-center rounded-full text-sm font-bold text-white shadow-md ring-2 ring-white/90 ring-offset-2 ring-offset-[#e8f4fc] transition hover:scale-105",
+        group
+          ? "bg-gradient-to-br from-[#3b82f6] to-[#1d4ed8]"
+          : "bg-gradient-to-br from-[#0b1b3a] to-[#1e3a5f]",
       )}
     >
       {group ? <UsersRound className="h-5 w-5" /> : initials}
@@ -555,7 +559,7 @@ function MessagesHub() {
         }}
         className={cn(
           "fixed bottom-6 right-5 z-30 grid h-[3.25rem] w-[3.25rem] place-items-center rounded-full bg-[#2563eb] text-white shadow-xl shadow-blue-500/35 sm:bottom-8 sm:right-8 sm:h-14 sm:w-14",
-          "ring-4 ring-blue-400/30 transition-all duration-300 ease-out",
+          "ring-4 ring-blue-400/30 transition-all duration-300 ease-out d4-fab-float",
           fabHidden
             ? "pointer-events-none translate-y-4 scale-90 opacity-0"
             : "translate-y-0 scale-100 opacity-100",
@@ -563,19 +567,12 @@ function MessagesHub() {
         style={{ marginBottom: "env(safe-area-inset-bottom, 0px)" }}
         aria-label="New message"
       >
+        <style>{`@keyframes d4FabFloat{0%,100%{box-shadow:0 10px 25px rgba(37,99,235,.35)}50%{box-shadow:0 14px 32px rgba(37,99,235,.55)}}.d4-fab-float{animation:d4FabFloat 2.4s ease-in-out infinite}`}</style>
+
         <PenLine
-          className="h-[1.35rem] w-[1.35rem] sm:h-6 sm:w-6 d4-pen-write"
+          className="h-[1.35rem] w-[1.35rem] sm:h-6 sm:w-6 "
           strokeWidth={2.25}
         />
-        <style>{`
-          @keyframes d4PenWrite {
-            0%, 100% { transform: translate(0,0) rotate(-12deg); }
-            25% { transform: translate(2px,1px) rotate(-6deg); }
-            50% { transform: translate(-1px,2px) rotate(-14deg); }
-            75% { transform: translate(1px,-1px) rotate(-8deg); }
-          }
-          .d4-pen-write { animation: d4PenWrite 1.6s ease-in-out infinite; transform-origin: 70% 90%; }
-        `}</style>
       </button>
     </div>
   );

@@ -13,6 +13,7 @@ import {
   Paperclip,
   Send,
   UsersRound,
+  User,
   X,
   Pause,
   Play,
@@ -41,9 +42,11 @@ import {
   FileBubble,
   VideoLightbox,
   VoiceRecorderBar,
+  lastSeenLabel,
   stopAllVoices,
   parseMediaUrls,
 } from "@/components/messaging/MessageMedia";
+import { joinMessagingPresence } from "@/lib/messaging-presence";
 import { isOnlineNow } from "@/lib/offline-sync";
 import {
   enqueueOutbox,
@@ -68,6 +71,7 @@ import {
   deleteGroup,
   getConversationMeta,
   setConversationMemberRole,
+  clearCampusConversation,
 } from "@/lib/messaging";
 import { toast } from "sonner";
 
@@ -139,9 +143,17 @@ export function ConversationChat({
   } | null>(null);
   const [forwardMsg, setForwardMsg] = useState<CampusMessage | null>(null);
   const [groupMenuOpen, setGroupMenuOpen] = useState(false);
+  const [chatMenuOpen, setChatMenuOpen] = useState(false);
+  const [clearOpen, setClearOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
   const [renameVal, setRenameVal] = useState("");
   const [addMembersOpen, setAddMembersOpen] = useState(false);
+  const [peerOnline, setPeerOnline] = useState(false);
+  const [peerTyping, setPeerTyping] = useState(false);
+  const [peerRecording, setPeerRecording] = useState(false);
+  const [peerLastAt, setPeerLastAt] = useState<number | null>(null);
+  const [localTitle, setLocalTitle] = useState<string | null>(null);
+  const presenceApi = useRef<ReturnType<typeof joinMessagingPresence> | null>(null);
 
   const metaQuery = useQuery({
     queryKey: ["campus-conv-meta", conversationId, userId],
@@ -159,11 +171,76 @@ export function ConversationChat({
           description: rich.description,
           memberCount: rich.memberCount,
           myRole: rich.myRole,
+          peerUserId: (rich as { peerUserId?: string | null }).peerUserId || null,
         };
       }
       return null;
     },
   });
+
+  const meta = metaQuery.data;
+  const displayTitle = localTitle || meta?.title || "Chat";
+
+  // Presence: online / typing / recording for peer
+  useEffect(() => {
+    if (!userId || !conversationId) return;
+    const schoolId = session?.schoolId;
+    if (!schoolId) return;
+    const api = joinMessagingPresence(
+      schoolId,
+      { userId, role: "student", conversationKey: conversationId },
+      {
+        onPresence(map) {
+          const peerId = metaQuery.data?.peerUserId;
+          if (!peerId) {
+            // group: any other member typing
+            let typing = false;
+            let recording = false;
+            let online = false;
+            let lastAt: number | null = null;
+            map.forEach((p, id) => {
+              if (id === userId) return;
+              if (p.conversationKey && p.conversationKey !== conversationId) return;
+              if (p.online) online = true;
+              if (p.typing) typing = true;
+              if (p.recording) recording = true;
+              if (p.at) lastAt = Math.max(lastAt || 0, p.at);
+            });
+            setPeerOnline(online);
+            setPeerTyping(typing);
+            setPeerRecording(recording);
+            setPeerLastAt(lastAt);
+            return;
+          }
+          const p = map.get(peerId);
+          setPeerOnline(Boolean(p?.online));
+          setPeerTyping(Boolean(p?.typing && p.conversationKey === conversationId));
+          setPeerRecording(Boolean(p?.recording && p.conversationKey === conversationId));
+          setPeerLastAt(p?.at || null);
+        },
+      },
+    );
+    presenceApi.current = api;
+    return () => {
+      api.leave();
+      presenceApi.current = null;
+    };
+  }, [userId, conversationId, session?.schoolId, metaQuery.data?.peerUserId]);
+
+  // Broadcast typing while composing
+  useEffect(() => {
+    const api = presenceApi.current;
+    if (!api) return;
+    const typing = text.trim().length > 0;
+    api.setTyping(typing, conversationId);
+    if (!typing) return;
+    const t = setTimeout(() => api.setTyping(false, conversationId), 2500);
+    return () => clearTimeout(t);
+  }, [text, conversationId]);
+
+  useEffect(() => {
+    presenceApi.current?.setRecording(recording, conversationId);
+  }, [recording, conversationId]);
 
   const msgQuery = useQuery({
     queryKey: ["campus-messages", conversationId],
@@ -563,7 +640,6 @@ export function ConversationChat({
     }
   };
 
-  const meta = metaQuery.data;
   const mm = String(Math.floor(recSecs / 60)).padStart(2, "0");
   const ss = String(recSecs % 60).padStart(2, "0");
 
@@ -611,7 +687,7 @@ export function ConversationChat({
         `}</style>
       </div>
 
-      {/* Navy header — peer/group name */}
+      {/* Chat header — matches departmental officer chat (commit 3548f25) */}
       <header
         className="relative z-30 flex shrink-0 items-center gap-3 border-b border-white/10 bg-[#0b1b3a] px-3 py-3 text-white"
         style={{ paddingTop: "max(0.75rem, env(safe-area-inset-top, 0px))" }}
@@ -624,37 +700,91 @@ export function ConversationChat({
         >
           <ArrowLeft className="h-5 w-5" />
         </button>
-        <span className="relative grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-full bg-white/15 ring-2 ring-white/90 shadow-md">
+        <span className="relative grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-full bg-white/15 ring-2 ring-white/90 shadow-md ring-offset-1 ring-offset-[#0b1b3a]">
           {meta?.avatar ? (
             <img src={meta.avatar} alt="" className="h-full w-full object-cover" />
           ) : meta?.isGroup ? (
             <UsersRound className="h-5 w-5 text-white" />
           ) : (
-            <span className="text-xs font-bold text-white">
-              {(meta?.title || "?").slice(0, 2).toUpperCase()}
-            </span>
+            <User className="h-5 w-5 text-white" />
           )}
+          {!meta?.isGroup ? (
+            <span
+              className={cn(
+                "absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-white",
+                peerOnline ? "bg-emerald-400" : "bg-slate-300",
+              )}
+            />
+          ) : null}
         </span>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-bold leading-tight">
-            {meta?.title || "Chat"}
-          </p>
-          <p className="truncate text-[11px] text-white/70">
-            {meta?.isGroup
-              ? meta?.subtitle || "Group"
-              : meta?.subtitle || "Last seen just now"}
+          <p className="truncate text-sm font-bold leading-tight">{displayTitle}</p>
+          <p
+            className={cn(
+              "truncate text-[11px] font-medium",
+              peerTyping || peerRecording ? "text-emerald-300" : "text-white/70",
+            )}
+          >
+            {peerRecording
+              ? "Recording a voice note…"
+              : peerTyping
+                ? "Typing…"
+                : peerOnline
+                  ? "Online"
+                  : peerLastAt
+                    ? lastSeenLabel(peerLastAt)
+                    : meta?.isGroup
+                      ? meta?.subtitle || "Group"
+                      : "Last seen just now"}
           </p>
         </div>
-        {meta?.isGroup ? (
+        <div className="relative">
           <button
             type="button"
-            onClick={() => setGroupMenuOpen(true)}
-            className="grid h-9 w-9 place-items-center rounded-full hover:bg-white/10"
-            aria-label="Group menu"
+            onClick={() => setChatMenuOpen((v) => !v)}
+            className="grid h-9 w-9 place-items-center rounded-full text-white hover:bg-white/10"
+            aria-label="Chat menu"
           >
             <MoreVertical className="h-5 w-5" />
           </button>
-        ) : null}
+          {chatMenuOpen ? (
+            <div className="absolute right-0 z-[70] mt-1 w-52 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 text-slate-900 shadow-lg">
+              <button
+                type="button"
+                className="block w-full px-3 py-2.5 text-left text-sm hover:bg-slate-50"
+                onClick={() => {
+                  setRenameVal(displayTitle);
+                  setRenameOpen(true);
+                  setChatMenuOpen(false);
+                }}
+              >
+                Rename
+              </button>
+              {meta?.isGroup ? (
+                <button
+                  type="button"
+                  className="block w-full px-3 py-2.5 text-left text-sm hover:bg-slate-50"
+                  onClick={() => {
+                    setGroupMenuOpen(true);
+                    setChatMenuOpen(false);
+                  }}
+                >
+                  Group settings
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className="block w-full px-3 py-2.5 text-left text-sm text-red-600 hover:bg-red-50"
+                onClick={() => {
+                  setClearOpen(true);
+                  setChatMenuOpen(false);
+                }}
+              >
+                Clear chat
+              </button>
+            </div>
+          ) : null}
+        </div>
       </header>
 
       <div
@@ -741,70 +871,85 @@ export function ConversationChat({
                   setForwardMsg(m);
                 }}
               >
-                <div
-                  className={cn(
-                    "max-w-[85%] md:max-w-[70%] rounded-2xl px-3 py-2 text-sm shadow-sm",
-                    mine
-                      ? "rounded-br-md border border-slate-200 bg-white text-slate-800"
-                      : "rounded-bl-md bg-[#2563eb] text-white",
-                    (isImage || isVideo) && "overflow-hidden p-1",
-                  )}
-                >
-                  {isVoice && m.attachment_url ? (
-                    <VoiceBubble
-                      src={m.attachment_url}
-                      mine={mine}
-                      timeLabel={timeLabel}
-                      tick={tick}
-                      id={m.id}
-                      durationSec={m.duration_sec}
-                    />
-                  ) : isImage && (urls[0] || m.attachment_url) ? (
-                    <ImageBubble
-                      src={urls[0] || m.attachment_url!}
-                      mine={mine}
-                      timeLabel={timeLabel}
-                      tick={tick}
-                      onOpen={() => setLightboxSrc(urls[0] || m.attachment_url!)}
-                    />
-                  ) : isVideo && m.attachment_url ? (
-                    <VideoBubble
-                      src={m.attachment_url}
-                      mine={mine}
-                      timeLabel={timeLabel}
-                      tick={tick}
-                      onOpen={() => setVideoSrc(m.attachment_url!)}
-                    />
-                  ) : isFile && m.attachment_url ? (
-                    <FileBubble
-                      src={m.attachment_url}
-                      mine={mine}
-                      timeLabel={timeLabel}
-                      tick={tick}
-                    />
-                  ) : (
-                    <>
+                {isVoice && m.attachment_url ? (
+                  <VoiceBubble
+                    id={m.id}
+                    src={m.attachment_url}
+                    mine={mine}
+                    timeLabel={timeLabel}
+                    tick={tick === "pending" ? "pending" : mine ? "delivered" : "none"}
+                    durationSec={m.duration_sec}
+                  />
+                ) : isImage && (urls[0] || m.attachment_url) ? (
+                  <ImageBubble
+                    id={m.id}
+                    src={urls[0] || m.attachment_url!}
+                    mine={mine}
+                    timeLabel={timeLabel}
+                    tick={tick === "pending" ? "pending" : mine ? "delivered" : "none"}
+                    onOpen={() => setLightboxSrc(urls[0] || m.attachment_url!)}
+                  />
+                ) : isVideo && m.attachment_url ? (
+                  <VideoBubble
+                    src={m.attachment_url}
+                    mine={mine}
+                    timeLabel={timeLabel}
+                    tick={tick === "pending" ? "pending" : mine ? "delivered" : "none"}
+                    onOpen={() => setVideoSrc(m.attachment_url!)}
+                  />
+                ) : isFile && m.attachment_url ? (
+                  <FileBubble
+                    src={m.attachment_url}
+                    mine={mine}
+                    timeLabel={timeLabel}
+                    tick={tick === "pending" ? "pending" : mine ? "delivered" : "none"}
+                  />
+                ) : (
+                  <div
+                    className={cn(
+                      "max-w-[85%] md:max-w-[70%] rounded-2xl px-3 py-2 text-sm shadow-sm",
+                      mine
+                        ? "rounded-br-md border border-slate-200 bg-white text-slate-800"
+                        : "rounded-bl-md bg-[#2563eb] text-white",
+                    )}
+                  >
+                    {m.reply_to_id ? (
+                      <div
+                        className={cn(
+                          "mb-1.5 rounded-lg border-l-2 px-2 py-1 text-left text-[11px]",
+                          mine
+                            ? "border-blue-400 bg-slate-50 text-slate-600"
+                            : "border-white/50 bg-white/15 text-blue-50",
+                        )}
+                      >
+                        <p className="font-bold opacity-90">
+                          {mine ? "You" : displayTitle}
+                        </p>
+                        <p className="line-clamp-2 opacity-80">Reply</p>
+                      </div>
+                    ) : null}
+                    {m.body ? (
                       <p className="whitespace-pre-wrap text-[15px] leading-snug">
                         {m.body}
                       </p>
-                      <div
-                        className={cn(
-                          "mt-1 flex items-center justify-end gap-1 text-[10px]",
-                          mine ? "text-slate-400" : "text-white/70",
-                        )}
-                      >
-                        <span>{timeLabel}</span>
-                        {mine ? (
-                          pending ? (
-                            <Check className="h-3 w-3" />
-                          ) : (
-                            <CheckCheck className="h-3 w-3" />
-                          )
-                        ) : null}
-                      </div>
-                    </>
-                  )}
-                </div>
+                    ) : null}
+                    <div
+                      className={cn(
+                        "mt-1 flex items-center justify-end gap-1 text-[10px]",
+                        mine ? "text-slate-400" : "text-white/70",
+                      )}
+                    >
+                      <span>{timeLabel}</span>
+                      {mine ? (
+                        pending ? (
+                          <Check className="h-3 w-3 opacity-70" />
+                        ) : (
+                          <CheckCheck className="h-3 w-3" />
+                        )
+                      ) : null}
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })}
@@ -846,9 +991,16 @@ export function ConversationChat({
           {replyTo ? (
             <div className="mx-auto mb-2 flex max-w-2xl items-start gap-2 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2">
               <div className="min-w-0 flex-1">
-                <p className="text-[11px] font-bold text-blue-800">Replying</p>
+                <p className="text-[11px] font-bold text-blue-800">
+                  Replying to {replyTo.sender_id === userId ? "yourself" : displayTitle}
+                </p>
                 <p className="line-clamp-2 text-xs text-slate-700">
-                  {replyTo.body || (replyTo.attachment_type === "audio" ? "Voice note" : "Attachment")}
+                  {replyTo.body ||
+                    ((replyTo.attachment_type || "").includes("audio")
+                      ? "🎤 Voice note"
+                      : (replyTo.attachment_type || "").includes("image")
+                        ? "📷 Photo"
+                        : "Attachment")}
                 </p>
               </div>
               <button type="button" onClick={() => setReplyTo(null)} className="text-slate-400" aria-label="Cancel reply">
@@ -918,6 +1070,86 @@ export function ConversationChat({
           </>
         )}
       </div>
+
+      {clearOpen ? (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl">
+            <h3 className="text-base font-extrabold text-slate-900">Clear this chat?</h3>
+            <p className="mt-1 text-xs text-slate-500">
+              All messages in this conversation will be deleted. This cannot be undone.
+            </p>
+            <div className="mt-4 flex gap-2">
+              <button
+                type="button"
+                className="flex-1 rounded-xl border border-slate-200 py-2.5 text-sm font-semibold"
+                onClick={() => setClearOpen(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="flex-1 rounded-xl bg-red-600 py-2.5 text-sm font-bold text-white hover:bg-red-700"
+                onClick={() => {
+                  void (async () => {
+                    try {
+                      await clearCampusConversation(conversationId);
+                      setOptimistic([]);
+                      void qc.invalidateQueries({ queryKey: ["campus-messages", conversationId] });
+                      void qc.invalidateQueries({ queryKey: ["campus-conversations"] });
+                      setClearOpen(false);
+                      toast.success("Chat cleared");
+                    } catch (e) {
+                      toast.error(e instanceof Error ? e.message : "Could not clear chat");
+                    }
+                  })();
+                }}
+              >
+                Clear chat
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {renameOpen && !meta?.isGroup ? (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl">
+            <h3 className="text-base font-extrabold text-slate-900">Rename</h3>
+            <input
+              value={renameVal}
+              onChange={(e) => setRenameVal(e.target.value)}
+              className="mt-3 h-11 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none focus:ring-2 focus:ring-[#2563eb]/25"
+              placeholder="Display name"
+            />
+            <div className="mt-4 flex gap-2">
+              <button
+                type="button"
+                className="flex-1 rounded-xl border border-slate-200 py-2.5 text-sm font-semibold"
+                onClick={() => setRenameOpen(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="flex-1 rounded-xl bg-[#2563eb] py-2.5 text-sm font-bold text-white"
+                onClick={() => {
+                  const v = renameVal.trim();
+                  if (v) {
+                    setLocalTitle(v);
+                    try {
+                      localStorage.setItem(`d4exam.msg.nick.${conversationId}`, v);
+                    } catch { /* ignore */ }
+                  }
+                  setRenameOpen(false);
+                  toast.success("Name updated");
+                }}
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {lightboxSrc ? (
         <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />
