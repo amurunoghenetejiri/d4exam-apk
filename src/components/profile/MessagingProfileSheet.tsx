@@ -177,9 +177,16 @@ export function MessagingProfileSheet({
         ) : !p ? (
           <div className="flex flex-col items-center gap-3 px-6 py-20 text-center">
             <div className="grid h-24 w-24 place-items-center rounded-full bg-[#1f2c34] text-3xl font-bold text-[#53bdeb]">?</div>
-            <p className="text-lg font-bold">Profile not found</p>
-            <p className="text-sm text-white/50">This user may not be available in your school.</p>
-            <button type="button" onClick={onClose} className="mt-2 rounded-full bg-white/10 px-5 py-2 text-sm font-semibold">
+            <p className="text-lg font-bold">Could not load profile</p>
+            <p className="text-sm text-white/50">Check your connection and try again.</p>
+            <button
+              type="button"
+              onClick={() => void qc.invalidateQueries({ queryKey: ["public-profile", userId] })}
+              className="mt-2 rounded-full bg-[#2563eb] px-5 py-2 text-sm font-semibold"
+            >
+              Retry
+            </button>
+            <button type="button" onClick={onClose} className="rounded-full bg-white/10 px-5 py-2 text-sm font-semibold">
               Close
             </button>
           </div>

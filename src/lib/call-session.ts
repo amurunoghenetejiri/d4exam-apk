@@ -15,11 +15,10 @@ import {
 import {
   nativeSetSpeaker,
   nativeStartCallService,
-  nativeStartRing,
   nativeStopCallService,
-  nativeStopRing,
   nativeShowIncoming,
 } from "@/lib/native-call";
+import { startCallRingtone, stopCallRingtone } from "@/lib/ringtone";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 
 export type CallPhase =
@@ -127,7 +126,7 @@ function clearTimers() {
 
 async function hardTeardown() {
   clearTimers();
-  await nativeStopRing();
+  await stopCallRingtone();
   await nativeStopCallService();
   try {
     localStream?.getTracks().forEach((t) => t.stop());
@@ -184,6 +183,10 @@ export async function startOutgoingCall(opts: {
     error: null,
   };
   emit();
+  void nativeStartCallService(
+    opts.peerName,
+    opts.callType === "video" ? "Video call · Calling…" : "Voice call · Calling…",
+  );
 
   try {
     localStream = await getLocalMedia(opts.callType === "video", "user");
@@ -284,7 +287,7 @@ async function markNoAnswer() {
   if (!state) return;
   state.phase = "no_answer";
   emit();
-  await nativeStopRing();
+  await stopCallRingtone();
   try {
     await updateCallStatus(state.callId, "missed");
   } catch {
@@ -328,7 +331,7 @@ export async function acceptIncomingCall(opts: {
   conversationId?: string | null;
   myUserId: string;
 }) {
-  await nativeStopRing();
+  await stopCallRingtone();
 
   state = {
     callId: opts.callId,
@@ -350,6 +353,10 @@ export async function acceptIncomingCall(opts: {
     error: null,
   };
   emit();
+  void nativeStartCallService(
+    opts.peerName,
+    opts.callType === "video" ? "Video call · Calling…" : "Voice call · Calling…",
+  );
 
   try {
     localStream = await getLocalMedia(opts.callType === "video", "user");
@@ -440,7 +447,7 @@ export async function notifyIncomingCall(opts: {
     error: null,
   };
   emit();
-  await nativeStartRing();
+  await startCallRingtone();
   await nativeShowIncoming({
     callId: opts.callId,
     callerName: opts.peerName,
@@ -463,7 +470,7 @@ async function markMissed() {
   if (!state) return;
   state.phase = "missed";
   emit();
-  await nativeStopRing();
+  await stopCallRingtone();
   await postSystemMessage(
     state.conversationId,
     state.myUserId,

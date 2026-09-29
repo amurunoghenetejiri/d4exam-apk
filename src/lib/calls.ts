@@ -238,3 +238,46 @@ export async function notifyCalleeOfIncomingCall(opts: {
     /* best-effort — Realtime still signals when app is open */
   }
 }
+
+
+/** Notify callee in realtime (works when their app is open). */
+export async function inviteCalleeOnPersonalChannel(opts: {
+  calleeId: string;
+  callId: string;
+  callType: "voice" | "video";
+  conversationId?: string | null;
+  callerName?: string;
+  fromUserId: string;
+}) {
+  try {
+    const ch = supabase.channel(`user-calls:${opts.calleeId}`, {
+      config: { broadcast: { self: false } },
+    });
+    await new Promise<void>((resolve) => {
+      const t = window.setTimeout(() => resolve(), 1500);
+      ch.subscribe((status) => {
+        if (status === "SUBSCRIBED") {
+          window.clearTimeout(t);
+          resolve();
+        }
+      });
+    });
+    await ch.send({
+      type: "broadcast",
+      event: "incoming_call",
+      payload: {
+        callId: opts.callId,
+        callType: opts.callType,
+        fromUserId: opts.fromUserId,
+        conversationId: opts.conversationId || null,
+        callerName: opts.callerName || "D4EXAM",
+      },
+    });
+    // leave channel shortly after
+    window.setTimeout(() => {
+      void ch.unsubscribe();
+    }, 2000);
+  } catch (e) {
+    console.warn("[calls] invite broadcast failed", e);
+  }
+}

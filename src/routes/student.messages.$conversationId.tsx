@@ -1,7 +1,8 @@
 import { openUserProfile, D4_OPEN_PROFILE_EVENT } from "@/components/profile/ClickableUser";
 import { MessagingProfileSheet } from "@/components/profile/MessagingProfileSheet";
-import { startDirectCall, notifyCalleeOfIncomingCall } from "@/lib/calls";
+import { startDirectCall, notifyCalleeOfIncomingCall, inviteCalleeOnPersonalChannel } from "@/lib/calls";
 import { CallOverlay, type ActiveCall } from "@/components/calls/CallOverlay";
+import { IncomingCallWatcher } from "@/components/calls/IncomingCallWatcher";
 import { isOnlineNow } from "@/lib/offline-guard";
 import { toast } from "sonner";
 /**
@@ -840,6 +841,14 @@ export function ConversationChat({
         callId,
         callType,
         callerName: displayTitle || "D4EXAM",
+      });
+      void inviteCalleeOnPersonalChannel({
+        calleeId: peer,
+        callId,
+        callType,
+        conversationId,
+        callerName: displayTitle || "D4EXAM",
+        fromUserId: userId,
       });
       setActiveCall({
         callId,
@@ -1715,6 +1724,20 @@ export function ConversationChat({
           onStartCall={(opts) => setActiveCall({ ...opts, conversationId })}
         />
       ) : null}
+      <IncomingCallWatcher
+        onIncoming={(call) => {
+          setActiveCall({
+            callId: call.callId,
+            callType: call.callType,
+            peerId: call.peerId,
+            peerName: call.peerName,
+            peerAvatar: call.peerAvatar,
+            peerMatric: call.peerMatric,
+            isCaller: false,
+            conversationId: call.conversationId,
+          });
+        }}
+      />
       {activeCall && userId ? (
         <CallOverlay
           call={activeCall}
@@ -1812,51 +1835,64 @@ function CallEventBubble({
   const isMissed = /missed/i.test(body);
   const isNoAnswer = /no answer/i.test(body);
   const isDeclined = /declined/i.test(body);
-  const title = isMissed
-    ? isVideo
-      ? "Missed video call"
-      : "Missed voice call"
-    : isNoAnswer
-      ? isVideo
-        ? "Video call · No answer"
-        : "Voice call · No answer"
-      : body;
+  const isEnded = /ended/i.test(body) && !isMissed && !isNoAnswer;
+
+  let headline = body;
+  let sub = timeLabel;
+  let accent = mine ? "from-[#2563eb] to-[#1d4ed8]" : "from-[#0f766e] to-[#0d9488]";
+  let actionLabel = "";
+
+  if (isMissed) {
+    headline = isVideo ? "You missed a video call" : "You missed a call";
+    sub = "Tap to call back · " + timeLabel;
+    accent = "from-[#e11d48] to-[#be123c]";
+    actionLabel = "Call back";
+  } else if (isNoAnswer) {
+    headline = isVideo ? "Video call · No answer" : "No answer";
+    sub = "They didn't pick up · " + timeLabel;
+    accent = "from-[#ea580c] to-[#c2410c]";
+    actionLabel = "Call again";
+  } else if (isDeclined) {
+    headline = "Call declined";
+    sub = timeLabel;
+    accent = "from-[#64748b] to-[#475569]";
+    actionLabel = "Call again";
+  } else if (isEnded) {
+    headline = isVideo ? "Video call ended" : "Voice call ended";
+    sub = timeLabel;
+    accent = mine ? "from-[#2563eb] to-[#1e40af]" : "from-[#334155] to-[#1e293b]";
+  }
+
   return (
     <div
       className={
-        "flex max-w-[min(78vw,260px)] flex-col gap-2 rounded-2xl px-3.5 py-3 shadow-sm " +
-        (mine ? "bg-white text-slate-800" : "bg-[#1e3a6e] text-white")
+        "relative w-[min(78vw,280px)] overflow-hidden rounded-2xl shadow-md " +
+        (mine ? "ml-auto" : "")
       }
     >
-      <div className="flex items-center gap-2.5">
-        <span
-          className={
-            "grid h-10 w-10 place-items-center rounded-full text-lg " +
-            (mine ? "bg-[#eff6ff] text-[#2563eb]" : "bg-white/15 text-white")
-          }
-        >
-          {isVideo ? "📹" : "📞"}
-        </span>
-        <div className="min-w-0">
-          <p className="text-[13px] font-bold leading-tight">{title}</p>
-          <p className={"text-[11px] " + (mine ? "text-slate-500" : "text-white/70")}>
-            {timeLabel}
-            {isMissed ? " · Tap to call back" : isNoAnswer ? " · Call again" : ""}
-          </p>
+      <div className={"bg-gradient-to-br " + accent + " p-[1px]"}>
+        <div className="rounded-[15px] bg-[#0b1b3a]/95 px-3.5 py-3 text-white backdrop-blur">
+          <div className="flex items-start gap-3">
+            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-white/15 text-lg ring-1 ring-white/20">
+              {isVideo ? "🎥" : "📞"}
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-[13.5px] font-extrabold leading-snug tracking-tight">{headline}</p>
+              <p className="mt-0.5 text-[11px] font-medium text-white/70">{sub}</p>
+            </div>
+          </div>
+          {actionLabel && onCallback ? (
+            <button
+              type="button"
+              onClick={() => onCallback(isVideo ? "video" : "voice")}
+              className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-white py-2.5 text-[12.5px] font-extrabold text-[#0b1b3a] shadow-sm active:scale-[0.98]"
+            >
+              <span>{isVideo ? "📹" : "📞"}</span>
+              {actionLabel}
+            </button>
+          ) : null}
         </div>
       </div>
-      {(isMissed || isNoAnswer || isDeclined) && onCallback ? (
-        <button
-          type="button"
-          onClick={() => onCallback(isVideo ? "video" : "voice")}
-          className={
-            "rounded-xl px-3 py-2 text-center text-[12px] font-bold " +
-            (mine ? "bg-[#2563eb] text-white" : "bg-white/20 text-white")
-          }
-        >
-          {isMissed ? "Call back" : "Call again"}
-        </button>
-      ) : null}
     </div>
   );
 }
