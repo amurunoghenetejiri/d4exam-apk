@@ -270,6 +270,11 @@ export function ConversationChat({
   const [chatMenuOpen, setChatMenuOpen] = useState(false);
   const [activeCall, setActiveCall] = useState<ActiveCall | null>(null);
   const [profileSheetUserId, setProfileSheetUserId] = useState<string | null>(null);
+  const [profileSheetSeed, setProfileSheetSeed] = useState<{
+    name?: string | null;
+    avatar?: string | null;
+    matric?: string | null;
+  }>({});
   useEffect(() => {
     const onOpen = (ev: Event) => {
       const detail = (ev as CustomEvent<{ userId?: string }>).detail;
@@ -1754,6 +1759,9 @@ export function ConversationChat({
       {profileSheetUserId ? (
         <MessagingProfileSheet
           userId={profileSheetUserId}
+          seedName={profileSheetSeed.name}
+          seedAvatar={profileSheetSeed.avatar}
+          seedMatric={profileSheetSeed.matric}
           open
           onClose={() => setProfileSheetUserId(null)}
           conversationId={conversationId}

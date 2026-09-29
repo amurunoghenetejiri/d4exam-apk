@@ -165,6 +165,11 @@ function MessagesHub() {
   const { data: student } = useStudentContext();
   const userId = session?.userId || "";
   const [profileSheetUserId, setProfileSheetUserId] = useState<string | null>(null);
+  const [profileSheetSeed, setProfileSheetSeed] = useState<{
+    name?: string | null;
+    avatar?: string | null;
+    matric?: string | null;
+  }>({});
   const [activeCall, setActiveCall] = useState<ActiveCall | null>(null);
 
   useEffect(() => {
@@ -684,6 +689,9 @@ function MessagesHub() {
       <MessagingProfileSheet
         userId={profileSheetUserId}
         open={Boolean(profileSheetUserId)}
+        seedName={profileSheetSeed.name}
+        seedAvatar={profileSheetSeed.avatar}
+        seedMatric={profileSheetSeed.matric}
         onClose={() => setProfileSheetUserId(null)}
         onStartCall={(opts) => setActiveCall(opts)}
       />
@@ -825,7 +833,11 @@ function ConversationList({
               group={c.isGroup}
               onOpenProfile={
                 !c.isGroup && c.peerUserId
-                  ? () => openUserProfile(c.peerUserId)
+                  ? () =>
+                      openUserProfile(c.peerUserId, {
+                        name: c.title,
+                        avatar: c.avatar_url,
+                      })
                   : undefined
               }
             />
@@ -1036,7 +1048,14 @@ function StudentRow({
       disabled={!s.auth_user_id}
       className="mx-3 mb-2 flex w-[calc(100%-1.5rem)] items-center gap-3 rounded-2xl border border-blue-100 bg-gradient-to-r from-[#eff6ff] to-white px-3 py-3 text-left shadow-sm transition active:scale-[0.99] hover:border-[#2563eb]/40 disabled:opacity-50"
     >
-      <Avatar name={s.full_name} url={s.avatar_url} onOpenProfile={() => s.auth_user_id && openUserProfile(s.auth_user_id)} />
+      <Avatar name={s.full_name} url={s.avatar_url} onOpenProfile={() =>
+        s.auth_user_id &&
+        openUserProfile(s.auth_user_id, {
+          name: s.full_name,
+          avatar: s.avatar_url,
+          matric: s.matric_number,
+        })
+      } />
       <div className="min-w-0 flex-1">
         <p className="truncate text-[15px] font-bold text-slate-900">
           {s.full_name}

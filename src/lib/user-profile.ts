@@ -156,52 +156,107 @@ export async function fetchPublicProfile(
   targetUserId: string,
   myUserId?: string | null,
 ): Promise<PublicUserProfile | null> {
-  const id = (targetUserId || "").trim();
-  if (!id || id === "undefined" || id === "null" || id === "me") {
-    // "me" → resolve current user
-    if (id === "me" || !id) {
-      try {
-        const { data: auth } = await supabase.auth.getUser();
-        const uid = auth.user?.id;
-        if (!uid) return null;
-        return fetchPublicProfile(uid, uid);
-      } catch {
-        return null;
-      }
+  let id = (targetUserId || "").trim();
+  if (!id || id === "undefined" || id === "null") return null;
+
+  if (id === "me") {
+    try {
+      const { data: auth } = await supabase.auth.getUser();
+      const uid = auth.user?.id;
+      if (!uid) return null;
+      id = uid;
+      myUserId = uid;
+    } catch {
+      return null;
     }
-    return null;
   }
+
+  // Validate UUID-ish ids (reject garbage)
+  if (id.length < 8) return null;
 
   let row: Record<string, unknown> | null = null;
 
+  // 1) SECURITY DEFINER RPC
   try {
     const { data, error } = await supabase.rpc("get_user_public_profile", {
       p_user_id: id,
     });
-    if (!error && data && typeof data === "object") {
-      row = data as Record<string, unknown>;
-      if (!row.auth_user_id && !row.full_name && !row.profile_id && !row.avatar_url) {
-        row = null;
+    if (error) {
+      console.warn("[profile] get_user_public_profile", error.message);
+    } else if (data && typeof data === "object") {
+      const d = data as Record<string, unknown>;
+      // RPC may return empty object
+      if (d.auth_user_id || d.full_name || d.profile_id || d.avatar_url) {
+        row = d;
       }
     }
-  } catch {
-    row = null;
+  } catch (e) {
+    console.warn("[profile] rpc threw", e);
   }
 
+  // 2) Messaging name resolver (often works when profile RLS is tight)
+  if (!row) {
+    try {
+      const { data: names } = await supabase.rpc("resolve_messaging_peer_names", {
+        p_user_ids: [id],
+      });
+      const first = Array.isArray(names) ? (names[0] as Record<string, unknown>) : null;
+      if (first && (first.full_name || first.auth_user_id)) {
+        row = {
+          auth_user_id: first.auth_user_id || id,
+          full_name: first.full_name || "Student",
+          avatar_url: first.avatar_url || null,
+        };
+        // Enrich matric/dept from students when we have auth id
+        try {
+          const { data: prof } = await supabase
+            .from("profiles")
+            .select("id, school_id")
+            .eq("auth_user_id", String(first.auth_user_id || id))
+            .maybeSingle();
+          if (prof) {
+            row.profile_id = (prof as { id?: string }).id;
+            row.school_id = (prof as { school_id?: string }).school_id;
+            const { data: st } = await supabase
+              .from("students")
+              .select("id, matric_number, department_id, level_id")
+              .eq("profile_id", (prof as { id: string }).id)
+              .limit(1)
+              .maybeSingle();
+            if (st) {
+              row.matric_number = (st as { matric_number?: string }).matric_number;
+              row.department_id = (st as { department_id?: string }).department_id;
+              row.level_id = (st as { level_id?: string }).level_id;
+              row.student_id = (st as { id?: string }).id;
+            }
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  // 3) Direct table fallback
   if (!row) {
     try {
       row = await fetchProfileFallback(id);
-    } catch {
+    } catch (e) {
+      console.warn("[profile] fallback", e);
       row = null;
     }
   }
 
-  // Last resort: profiles by auth_user_id with minimal fields (RLS may allow own row)
+  // 4) Minimal profiles select
   if (!row) {
     try {
       const { data: p } = await supabase
         .from("profiles")
-        .select("id, auth_user_id, full_name, first_name, last_name, profile_photo_url, school_id, status, phone")
+        .select(
+          "id, auth_user_id, full_name, first_name, last_name, profile_photo_url, school_id, status, phone",
+        )
         .or(`auth_user_id.eq.${id},id.eq.${id}`)
         .limit(1)
         .maybeSingle();
@@ -238,11 +293,32 @@ export async function fetchPublicProfile(
     }
   }
 
+  // 5) Students table by joining profiles (some schools store name on students)
+  if (!row) {
+    try {
+      const { data: st } = await supabase
+        .from("students")
+        .select("id, profile_id, matric_number, department_id, level_id, school_id, full_name")
+        .limit(1);
+      // can't filter by auth without join — skip if no profile
+    } catch {
+      /* ignore */
+    }
+  }
+
   if (!row) return null;
 
   let profile = mapRow(row, id, myUserId);
-  profile = await enrichDeptLevel(profile);
-  profile = await attachBlocks(profile, myUserId);
+  try {
+    profile = await enrichDeptLevel(profile);
+  } catch {
+    /* ignore */
+  }
+  try {
+    profile = await attachBlocks(profile, myUserId);
+  } catch {
+    /* ignore */
+  }
   return profile;
 }
 

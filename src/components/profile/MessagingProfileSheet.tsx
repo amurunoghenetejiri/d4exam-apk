@@ -50,11 +50,18 @@ export function MessagingProfileSheet({
   onClose,
   onStartCall,
   conversationId,
+  seedName,
+  seedAvatar,
+  seedMatric,
 }: {
   userId: string | null;
   open: boolean;
   onClose: () => void;
   conversationId?: string | null;
+  /** Instant display while network profile loads */
+  seedName?: string | null;
+  seedAvatar?: string | null;
+  seedMatric?: string | null;
   onStartCall?: (opts: {
     callId: string;
     callType: "voice" | "video";
@@ -97,8 +104,13 @@ export function MessagingProfileSheet({
 
   const deptLevel = [p?.departmentName, p?.levelName].filter(Boolean).join(" · ");
 
+  const peerId = p?.authUserId || userId || "";
+  const peerName = p?.fullName || seedName || "Student";
+  const peerAvatar = p?.avatarUrl ?? seedAvatar ?? null;
+  const peerMatric = p?.matricNumber ?? seedMatric ?? null;
+
   const goMessage = async () => {
-    if (!myId || !p || p.isMe) {
+    if (!myId || !peerId || (p?.isMe)) {
       onClose();
       return;
     }
@@ -108,8 +120,8 @@ export function MessagingProfileSheet({
     }
     setBusy("msg");
     try {
-      const schoolId = p.schoolId || session?.schoolId || "";
-      const id = await getOrCreateDirectConversation(myId, p.authUserId, schoolId);
+      const schoolId = p?.schoolId || session?.schoolId || "";
+      const id = await getOrCreateDirectConversation(myId, peerId, schoolId);
       onClose();
       appNavigate(`/student/messages?chat=${encodeURIComponent(id)}`);
     } catch (e) {
@@ -120,7 +132,7 @@ export function MessagingProfileSheet({
   };
 
   const startCall = async (callType: "voice" | "video") => {
-    if (!myId || !p || p.isMe) return;
+    if (!myId || !peerId || p?.isMe) return;
     if (!isOnlineNow()) {
       toast.error("Internet is required for calls");
       return;
@@ -128,17 +140,17 @@ export function MessagingProfileSheet({
     setBusy(callType);
     try {
       const callId = await startDirectCall({
-        calleeId: p.authUserId,
+        calleeId: peerId,
         callType,
         conversationId: conversationId || null,
       });
       onStartCall?.({
         callId,
         callType,
-        peerId: p.authUserId,
-        peerName: p.fullName,
-        peerAvatar: p.avatarUrl,
-        peerMatric: p.matricNumber,
+        peerId,
+        peerName,
+        peerAvatar,
+        peerMatric,
         isCaller: true,
       });
       onClose();
@@ -245,6 +257,35 @@ export function MessagingProfileSheet({
                 <Loader2 className="h-8 w-8 animate-spin text-[#60a5fa]" />
                 <p className="text-sm text-white/60">Loading profile…</p>
               </div>
+            ) : !p && (seedName || seedAvatar) ? (
+              <>
+                <button type="button" className="relative mt-1" onClick={() => seedAvatar && setPhotoOpen(true)}>
+                  <span className="absolute inset-0 rounded-full bg-[#2563eb]/40 blur-md" />
+                  <span className="relative grid h-[6.75rem] w-[6.75rem] place-items-center overflow-hidden rounded-full bg-[#1e3a5f] ring-[3px] ring-[#3b82f6]/80 ring-offset-2 ring-offset-[#0b1b3a]">
+                    {seedAvatar ? (
+                      <img src={seedAvatar} alt="" className="h-full w-full object-cover" />
+                    ) : (
+                      <span className="text-3xl font-extrabold text-[#93c5fd]">
+                        {initials(seedName || "?")}
+                      </span>
+                    )}
+                  </span>
+                  <span className="absolute bottom-1 right-1 h-3.5 w-3.5 rounded-full border-2 border-[#0b1b3a] bg-emerald-400" />
+                </button>
+                <h2 className="mt-4 text-center text-xl font-bold tracking-tight text-white">
+                  {seedName || "Student"}
+                </h2>
+                {seedMatric ? (
+                  <p className="mt-1 text-sm font-medium text-white/55">{seedMatric}</p>
+                ) : null}
+                <p className="mt-1 text-[11px] text-white/40">Loading full profile…</p>
+                <div className="mt-5 grid w-full grid-cols-4 gap-2">
+                  <QuickAction icon={<MessageCircle className="h-5 w-5" />} label="Message" tone="blue" busy={busy === "msg"} onClick={() => void goMessage()} />
+                  <QuickAction icon={<Phone className="h-5 w-5" />} label="Voice Call" tone="green" busy={busy === "voice"} onClick={() => void startCall("voice")} />
+                  <QuickAction icon={<Video className="h-5 w-5" />} label="Video Call" tone="blue" busy={busy === "video"} onClick={() => void startCall("video")} />
+                  <QuickAction icon={<Info className="h-5 w-5" />} label="Info" tone="navy" onClick={goInfo} />
+                </div>
+              </>
             ) : !p ? (
               <div className="flex flex-col items-center gap-2 py-10 text-center">
                 <div className="grid h-24 w-24 place-items-center rounded-full bg-white/10 text-3xl font-bold text-[#60a5fa]">
