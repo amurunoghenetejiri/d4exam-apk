@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, CheckCheck, Download, FileText, Mic, Pause, Play, Pencil, Trash2, X, Send, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { globalAudio } from "@/lib/global-audio";
 
 const SPEEDS = [1, 1.25, 1.5, 2] as const;
 
@@ -175,94 +176,60 @@ export function VoiceBubble({
   const voiceId = id || src;
 
   useEffect(() => {
+    // Prefetch duration only (playback is owned by globalAudio so it survives navigation)
     const a = new Audio();
-    a.preload = "auto";
+    a.preload = "metadata";
     a.src = src;
     audioRef.current = a;
-
     const applyDur = () => {
       const d = a.duration;
       if (Number.isFinite(d) && d > 0 && d < 1e6) setDur(d);
     };
-    const onMeta = () => {
-      if (!Number.isFinite(a.duration) || a.duration === Infinity) {
-        const fix = () => {
-          a.removeEventListener("timeupdate", fix);
-          applyDur();
-          try { a.currentTime = 0; } catch { /* ignore */ }
-        };
-        a.addEventListener("timeupdate", fix);
-        try { a.currentTime = 1e101; } catch { applyDur(); }
-      } else {
-        applyDur();
-      }
-    };
-    const onDur = () => applyDur();
-    const onEnd = () => {
-      setPlaying(false);
-      setCur(0);
-      try {
-        a.currentTime = 0;
-      } catch {
-        /* ignore */
-      }
-      if (rafRef.current) {
-        cancelAnimationFrame(rafRef.current);
-        rafRef.current = null;
-      }
-      onVoiceEnded(voiceId);
-    };
-    a.addEventListener("loadedmetadata", onMeta);
-    a.addEventListener("durationchange", onDur);
-    a.addEventListener("canplay", onMeta);
-    a.addEventListener("canplaythrough", onMeta);
-    a.addEventListener("ended", onEnd);
+    a.addEventListener("loadedmetadata", applyDur);
     void a.load();
-    const retries = [120, 400, 1000, 2500].map((ms) => window.setTimeout(() => onMeta(), ms));
+
+    const unsub = globalAudio.subscribe((s) => {
+      if (s.voiceId !== voiceId) {
+        setPlaying((prev) => (prev ? false : prev));
+        return;
+      }
+      setPlaying(s.playing);
+      setCur(s.currentTime || 0);
+      if (s.duration > 0) setDur(s.duration);
+    });
 
     registerVoice(voiceId, {
       id: voiceId,
       play: () => {
-        void a
-          .play()
-          .then(() => {
-            setPlaying(true);
-            const tick = () => {
-              if (!audioRef.current) return;
-              setCur(audioRef.current.currentTime || 0);
-              rafRef.current = requestAnimationFrame(tick);
-            };
-            if (rafRef.current) cancelAnimationFrame(rafRef.current);
-            rafRef.current = requestAnimationFrame(tick);
-          })
-          .catch(() => setPlaying(false));
+        globalAudio.playVoice(voiceId, src, mine ? "You" : "Contact", SPEEDS[speedIdx]);
       },
       pause: () => {
-        a.pause();
-        setPlaying(false);
-        if (rafRef.current) {
-          cancelAnimationFrame(rafRef.current);
-          rafRef.current = null;
-        }
+        globalAudio.pause();
       },
     });
 
-    return () => {
-      a.pause();
-      a.removeEventListener("loadedmetadata", onMeta);
-      a.removeEventListener("durationchange", onDur);
-      a.removeEventListener("canplay", onMeta);
-      a.removeEventListener("canplaythrough", onMeta);
-      a.removeEventListener("ended", onEnd);
-      try { retries.forEach((id) => clearTimeout(id)); } catch {}
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      unregisterVoice(voiceId);
+    const onEnded = (e: Event) => {
+      const d = (e as CustomEvent<{ voiceId?: string }>).detail;
+      if (d?.voiceId === voiceId) onVoiceEnded(voiceId);
     };
+    window.addEventListener("d4-voice-ended", onEnded);
+
+    return () => {
+      unsub();
+      unregisterVoice(voiceId);
+      window.removeEventListener("d4-voice-ended", onEnded);
+      a.removeEventListener("loadedmetadata", applyDur);
+      // Do NOT stop globalAudio here — allows continuous playback across pages
+      audioRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [src, voiceId]);
 
   useEffect(() => {
-    if (audioRef.current) audioRef.current.playbackRate = SPEEDS[speedIdx];
-  }, [speedIdx]);
+    if (globalAudio.getState().voiceId === voiceId) {
+      globalAudio.setRate(SPEEDS[speedIdx]);
+    }
+  }, [speedIdx, voiceId]);
 
   const toggle = (e?: React.MouseEvent) => {
     e?.stopPropagation();
@@ -325,11 +292,13 @@ export function VoiceBubble({
             light={!own}
             progress={effectiveDur > 0 ? Math.min(1, cur / effectiveDur) : 0}
             onSeek={(ratio) => {
-              const a = audioRef.current;
-              if (!a || !Number.isFinite(a.duration) || a.duration <= 0) return;
-              const t = ratio * a.duration;
-              a.currentTime = t;
-              setCur(t);
+              if (globalAudio.getState().voiceId === voiceId) {
+                globalAudio.seek(ratio);
+              } else {
+                const a = audioRef.current;
+                if (!a || !Number.isFinite(a.duration) || a.duration <= 0) return;
+                setCur(ratio * a.duration);
+              }
             }}
           />
         </div>

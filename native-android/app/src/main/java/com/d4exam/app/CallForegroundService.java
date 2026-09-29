@@ -10,12 +10,9 @@ import android.content.Intent;
 import android.content.pm.ServiceInfo;
 import android.os.Build;
 import android.os.IBinder;
+import android.os.PowerManager;
 import androidx.core.app.NotificationCompat;
 
-/**
- * Keeps an active D4EXAM VoIP call alive while the WebView is backgrounded.
- * Separate from ScreenCaptureService (exam MediaProjection).
- */
 public class CallForegroundService extends Service {
   public static final String CHANNEL_ID = "d4exam_active_call";
   public static final int NOTIF_ID = 7401;
@@ -24,10 +21,19 @@ public class CallForegroundService extends Service {
   public static final String EXTRA_TITLE = "title";
   public static final String EXTRA_SUBTITLE = "subtitle";
 
+  private PowerManager.WakeLock wakeLock;
+
   @Override
   public void onCreate() {
     super.onCreate();
     ensureChannel();
+    try {
+      PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+      if (pm != null) {
+        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "d4exam:call_keepalive");
+        wakeLock.acquire(4L * 60L * 60L * 1000L); // Max 4 hours
+      }
+    } catch (Throwable ignored) {}
   }
 
   @Override
@@ -36,10 +42,10 @@ public class CallForegroundService extends Service {
       stopSelf();
       return START_NOT_STICKY;
     }
-    String title = intent != null ? intent.getStringExtra(EXTRA_TITLE) : null;
-    String subtitle = intent != null ? intent.getStringExtra(EXTRA_SUBTITLE) : null;
+    String title = intent != null ? intent.getStringExtra(EXTRA_TITLE) : "D4EXAM Call";
+    String subtitle = intent != null ? intent.getStringExtra(EXTRA_SUBTITLE) : "In call · Tap to return";
     if (title == null || title.isEmpty()) title = "D4EXAM Call";
-    if (subtitle == null) subtitle = "Tap to return";
+    if (subtitle == null) subtitle = "In call · Tap to return";
 
     Intent open = new Intent(this, MainActivity.class);
     open.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
@@ -54,16 +60,19 @@ public class CallForegroundService extends Service {
         this, 1, endI,
         PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
+    int icon = getResources().getIdentifier("ic_stat_d4exam", "drawable", getPackageName());
+    if (icon == 0) icon = android.R.drawable.ic_menu_call;
+
     NotificationCompat.Builder b = new NotificationCompat.Builder(this, CHANNEL_ID)
         .setContentTitle(title)
         .setContentText(subtitle)
-        .setSmallIcon(getResources().getIdentifier("ic_stat_d4exam", "drawable", getPackageName()))
+        .setSmallIcon(icon)
         .setOngoing(true)
         .setCategory(NotificationCompat.CATEGORY_CALL)
         .setPriority(NotificationCompat.PRIORITY_HIGH)
         .setContentIntent(pi)
         .addAction(0, "Return", pi)
-        .addAction(0, "End", endPi)
+        .addAction(0, "End Call", endPi)
         .setVisibility(NotificationCompat.VISIBILITY_PUBLIC);
 
     Notification n = b.build();
@@ -72,11 +81,7 @@ public class CallForegroundService extends Service {
         startForeground(NOTIF_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
             | ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL);
       } catch (Throwable t) {
-        try {
-          startForeground(NOTIF_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE);
-        } catch (Throwable t2) {
-          startForeground(NOTIF_ID, n);
-        }
+        startForeground(NOTIF_ID, n);
       }
     } else if (Build.VERSION.SDK_INT >= 29) {
       try {
@@ -92,6 +97,11 @@ public class CallForegroundService extends Service {
 
   @Override
   public void onDestroy() {
+    try {
+      if (wakeLock != null && wakeLock.isHeld()) {
+        wakeLock.release();
+      }
+    } catch (Throwable ignored) {}
     stopForeground(true);
     super.onDestroy();
   }
@@ -106,7 +116,7 @@ public class CallForegroundService extends Service {
     NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
     if (nm == null) return;
     NotificationChannel ch = new NotificationChannel(
-        CHANNEL_ID, "Active calls", NotificationManager.IMPORTANCE_LOW);
+        CHANNEL_ID, "Active Calls", NotificationManager.IMPORTANCE_LOW);
     ch.setDescription("Ongoing D4EXAM voice and video calls");
     ch.setSound(null, null);
     nm.createNotificationChannel(ch);

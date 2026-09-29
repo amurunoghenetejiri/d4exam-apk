@@ -10,6 +10,7 @@ import { toast } from "sonner";
  */
 import { createFileRoute, useNavigate, useParams } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+// useEffect used for back flag
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -130,6 +131,26 @@ export function ConversationChat({
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { data: session } = useSessionUser();
+  useEffect(() => {
+    try {
+      (window as unknown as { __d4MsgInChat?: boolean }).__d4MsgInChat = true;
+      const onBack = () => {
+        // handled by backButton via history or navigate
+        try {
+          window.history.back();
+        } catch {
+          /* ignore */
+        }
+      };
+      window.addEventListener("d4-messaging-back", onBack);
+      return () => {
+        (window as unknown as { __d4MsgInChat?: boolean }).__d4MsgInChat = false;
+        window.removeEventListener("d4-messaging-back", onBack);
+      };
+    } catch {
+      return undefined;
+    }
+  }, []);
   const userId = session?.userId || "";
 
   const goBack = () => {

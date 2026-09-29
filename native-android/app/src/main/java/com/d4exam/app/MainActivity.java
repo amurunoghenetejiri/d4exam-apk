@@ -32,6 +32,17 @@ public class MainActivity extends BridgeActivity {
     super.onCreate(savedInstanceState);
     applyChromeColors();
     installInAppNavigationClient();
+    enableBackgroundMedia();
+  }
+
+  /** Allow voice notes / call audio without an extra user gesture after first interaction. */
+  private void enableBackgroundMedia() {
+    try {
+      Bridge bridge = getBridge();
+      if (bridge != null && bridge.getWebView() != null) {
+        bridge.getWebView().getSettings().setMediaPlaybackRequiresUserGesture(false);
+      }
+    } catch (Throwable ignored) {}
   }
 
   @Override

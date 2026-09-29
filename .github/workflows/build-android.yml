@@ -217,9 +217,9 @@ jobs:
           bunx cap sync android
           python3 scripts/ensure-capacitor-plugins.py
           if [ -f android/app/build.gradle ]; then
-            sed -i 's/versionCode [0-9]*/versionCode 46/' android/app/build.gradle || true
-            sed -i 's/versionName "[^"]*"/versionName "1.4.6-webrtc-call-fixed"/' android/app/build.gradle || true
-            echo "OK: versionName 1.4.6-webrtc-call-fixed"
+            sed -i 's/versionCode [0-9]*/versionCode 47/' android/app/build.gradle || true
+            sed -i 's/versionName "[^"]*"/versionName "1.4.7-bg-services-fixed"/' android/app/build.gradle || true
+            echo "OK: versionName 1.4.7-bg-services-fixed"
           fi
           python3 scripts/force-local-capacitor-assets.py || true
           if [ -f android/variables.gradle ]; then
@@ -262,6 +262,20 @@ jobs:
           chmod +x android/gradlew
           grep -q 'ExamImmersivePlugin' android/app/src/main/java/com/d4exam/app/MainActivity.java
           echo "OK: sync complete — hybrid live UI (Vercel) + native plugins (biometric, screen, notif)"
+
+      - name: Inject Google Services JSON
+        env:
+          GOOGLE_SERVICES_B64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
+        run: |
+          if [ -n "$GOOGLE_SERVICES_B64" ]; then
+            echo "$GOOGLE_SERVICES_B64" | base64 -d > android/app/google-services.json
+            echo "Injected android/app/google-services.json from secret"
+          elif [ -f native-android/app/google-services.json ]; then
+            cp native-android/app/google-services.json android/app/google-services.json
+            echo "Copied google-services.json from native-android"
+          else
+            echo "No google-services.json available — FCM may be disabled in this build"
+          fi
 
       - name: Build debug APK
         run: |

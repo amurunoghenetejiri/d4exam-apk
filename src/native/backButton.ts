@@ -15,6 +15,7 @@ function isActiveExamPath(path: string): boolean {
 function isRootishPath(path: string): boolean {
   const p = path.replace(/\/+$/, "") || "/";
   return (
+    p === "" ||
     p === "/" ||
     p === "/login" ||
     p === "/student" ||
@@ -63,60 +64,62 @@ export async function registerAndroidBackButton(): Promise<() => void> {
       }
       handle = null;
     }
+
     handle = await App.addListener("backButton", ({ canGoBack }) => {
       try {
         const path = window.location.pathname || "/";
-        // Close Settings overlays (manual / help) before leaving the page
+
         try {
           const w = window as unknown as { __d4SettingsOverlayOpen?: boolean };
           if (w.__d4SettingsOverlayOpen) {
             window.dispatchEvent(new CustomEvent("d4-settings-overlay-close"));
             return;
           }
-        } catch { /* ignore */ }
+        } catch {
+          /* ignore */
+        }
+
         if (isActiveExamPath(path)) {
-          // Close in-exam calculator first — do not leave the exam
           try {
-            const w = window as unknown as { __d4CalcOpen?: boolean; __d4CloseCalc?: () => void };
+            const w = window as unknown as {
+              __d4CalcOpen?: boolean;
+              __d4CloseCalc?: () => void;
+            };
             if (w.__d4CalcOpen) {
               w.__d4CloseCalc?.();
-              // Dispatch event so React state closes even without callback
               window.dispatchEvent(new CustomEvent("d4-close-calculator"));
               return;
             }
-          } catch { /* ignore */ }
-          if (canGoBack) window.history.back();
+          } catch {
+            /* ignore */
+          }
           return;
         }
-        // Messaging: close chat pane before leaving the route
+
         if (/contact-officer|officer\/reports|\/messages/i.test(path)) {
-          let handled = false;
-          const mark = () => { handled = true; };
-          window.addEventListener("d4-messaging-back-handled", mark, { once: true });
-          window.dispatchEvent(new CustomEvent("d4-messaging-back"));
-          window.setTimeout(() => {
-            window.removeEventListener("d4-messaging-back-handled", mark);
-          }, 0);
-          // Pages set handled via synchronous close; if still in messaging root, fall through
-          // Always prefer in-app navigation first
-          if (canGoBack && !isRootishPath(path)) {
-            // If chat was open, page closes it without history change — detect via flag
-            const w = window as unknown as { __d4MsgInChat?: boolean };
-            if (w.__d4MsgInChat) {
-              w.__d4MsgInChat = false;
-              lastBackAt = 0;
-              return;
-            }
-            window.history.back();
+          const w = window as unknown as { __d4MsgInChat?: boolean };
+          if (w.__d4MsgInChat) {
+            w.__d4MsgInChat = false;
+            window.dispatchEvent(new CustomEvent("d4-messaging-back"));
             lastBackAt = 0;
             return;
           }
         }
-        if (canGoBack && !isRootishPath(path)) {
-          window.history.back();
-          lastBackAt = 0;
-          return;
+
+        const atRoot = isRootishPath(path);
+        if (!atRoot) {
+          if (window.history.length > 1 || canGoBack) {
+            window.history.back();
+            lastBackAt = 0;
+            return;
+          }
+          const role = path.split("/").filter(Boolean)[0];
+          if (role && ["student", "teacher", "admin", "officer"].includes(role)) {
+            window.location.href = `/${role}`;
+            return;
+          }
         }
+
         const now = Date.now();
         if (now - lastBackAt < EXIT_WINDOW_MS) {
           lastBackAt = 0;
@@ -129,6 +132,7 @@ export async function registerAndroidBackButton(): Promise<() => void> {
         console.warn("[D4EXAM] backButton handler error", e);
       }
     });
+
     return () => {
       void handle?.remove();
       handle = null;
