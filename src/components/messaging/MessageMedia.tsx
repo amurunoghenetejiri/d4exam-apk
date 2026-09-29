@@ -544,7 +544,7 @@ export function ImageBubble({
       id={id}
       type="button"
       onClick={() => onOpen(0)}
-      className="relative block max-w-[min(72vw,280px)] md:max-w-[min(48vw,380px)] lg:max-w-[min(36vw,440px)] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
+      className="relative block max-w-[min(58vw,200px)] md:max-w-[min(38vw,260px)] lg:max-w-[min(30vw,300px)] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
       onContextMenu={(e) => e.preventDefault()}
     >
       <img src={src} alt="" className="max-h-[min(70vh,28rem)] w-full object-contain bg-black/5" draggable={false} />
@@ -594,7 +594,7 @@ export function VideoBubble({
       id={id}
       type="button"
       onClick={onOpen}
-      className="relative block max-w-[min(72vw,280px)] overflow-hidden rounded-2xl border border-slate-200 bg-slate-900 shadow-sm"
+      className="relative block max-w-[min(58vw,200px)] overflow-hidden rounded-2xl border border-slate-200 bg-slate-900 shadow-sm"
       onContextMenu={(e) => e.preventDefault()}
     >
       {forwarded ? (
@@ -651,6 +651,7 @@ export function FileBubble({
   tick,
   id,
   name,
+  mine,
 }: {
   src: string;
   mine?: boolean;
@@ -659,37 +660,65 @@ export function FileBubble({
   id?: string;
   name?: string;
 }) {
-  const label = name || src.split("/").pop() || "File";
+  const label = name || decodeURIComponent(src.split("/").pop()?.split("?")[0] || "Document");
   const isPdf = /\.pdf($|\?)/i.test(src) || /pdf/i.test(label);
+  const isDoc = /\.(docx?|rtf)($|\?)/i.test(src) || /word/i.test(label);
+  const isSheet = /\.(xlsx?|csv)($|\?)/i.test(src);
+  const isPpt = /\.(pptx?)($|\?)/i.test(src);
+  const kind = isPdf ? "PDF" : isDoc ? "DOC" : isSheet ? "XLS" : isPpt ? "PPT" : "FILE";
+  const color =
+    isPdf
+      ? "from-rose-500 to-rose-600"
+      : isDoc
+        ? "from-blue-500 to-blue-600"
+        : isSheet
+          ? "from-emerald-500 to-emerald-600"
+          : isPpt
+            ? "from-orange-500 to-orange-600"
+            : "from-slate-500 to-slate-600";
+
   return (
     <a
       id={id}
       href={src}
       target="_blank"
       rel="noopener noreferrer"
-      className="flex w-[min(72vw,260px)] md:w-[min(48vw,340px)] lg:w-[min(36vw,400px)] items-center gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-2.5 lg:px-4 lg:py-3 shadow-sm"
+      download={label}
+      className="block w-[min(62vw,220px)] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
       onContextMenu={(e) => e.preventDefault()}
     >
-      <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-slate-100 text-slate-600">
-        {isPdf ? <FileText className="h-5 w-5" /> : <Download className="h-5 w-5" />}
-      </span>
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-semibold text-slate-800">{isPdf ? "PDF document" : label}</p>
-        <p className="text-[10px] text-slate-400">Tap to open</p>
+      <div className={`flex h-28 items-center justify-center bg-gradient-to-br ${color}`}>
+        <div className="flex flex-col items-center gap-1 text-white">
+          <svg viewBox="0 0 24 24" className="h-10 w-10 fill-current opacity-95" aria-hidden>
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" fill="currentColor" opacity=".35" />
+            <path d="M14 2v6h6" fill="none" stroke="currentColor" strokeWidth="1.5" />
+            <text x="12" y="17" textAnchor="middle" fontSize="6" fontWeight="700" fill="white">
+              {kind}
+            </text>
+          </svg>
+          <span className="text-[11px] font-bold tracking-wide">{kind} document</span>
+        </div>
       </div>
-      <div className="flex shrink-0 flex-col items-end gap-0.5 text-[10px] text-slate-400">
-        <span>{timeLabel}</span>
-        {tick === "pending" ? (
-          <Clock className="h-3 w-3" />
-        ) : tick === "read" ? (
-          <CheckCheck className="h-3 w-3 text-[#2563eb]" />
-        ) : tick === "delivered" || tick === "sent" ? (
-          <CheckCheck className="h-3 w-3" />
-        ) : null}
+      <div className="px-3 py-2">
+        <p className="truncate text-[13px] font-semibold text-slate-800">{label}</p>
+        <div className="mt-1 flex items-center justify-between gap-2">
+          <span className="text-[11px] font-medium text-[#2563eb]">Open with…</span>
+          <span className="flex shrink-0 items-center gap-1 text-[10px] tabular-nums text-slate-400">
+            {timeLabel}
+            {tick && tick !== "none" ? (
+              tick === "pending" ? (
+                <Clock className="h-3 w-3" />
+              ) : (
+                <CheckCheck className="h-3 w-3" />
+              )
+            ) : null}
+          </span>
+        </div>
       </div>
     </a>
   );
 }
+
 
 export function ImageLightbox({
   src,

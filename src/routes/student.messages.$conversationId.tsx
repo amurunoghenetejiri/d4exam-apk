@@ -16,6 +16,7 @@ import {
   User,
   Reply,
   Copy,
+  CornerUpRight,
   X,
   Pause,
   Play,
@@ -121,8 +122,86 @@ export function ConversationChat({
   const [text, setText] = useState("");
   const typingLink = useMemo(() => {
     const m = text.match(/https?:\/\/[^\s]+/i);
-    return m ? m[0] : null;
+    const u = m ? m[0].replace(/[),.]+$/, "") : null;
+    // only treat as "complete enough" when it has a domain with a dot
+    if (!u) return null;
+    try {
+      const host = new URL(u).hostname;
+      if (!host.includes(".")) return null;
+      return u;
+    } catch {
+      return null;
+    }
   }, [text]);
+  const [linkMeta, setLinkMeta] = useState<{
+    url: string;
+    title?: string;
+    description?: string;
+    image?: string;
+    logo?: string;
+    loading: boolean;
+  } | null>(null);
+  useEffect(() => {
+    if (!typingLink) {
+      setLinkMeta(null);
+      return;
+    }
+    let cancelled = false;
+    setLinkMeta({ url: typingLink, loading: true });
+    const t = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const res = await fetch(
+            `https://api.microlink.io?url=${encodeURIComponent(typingLink)}&palette=false&audio=false&video=false&iframe=false`,
+          );
+          const json = (await res.json()) as {
+            status: string;
+            data?: {
+              title?: string;
+              description?: string;
+              image?: { url?: string };
+              logo?: { url?: string };
+              publisher?: string;
+            };
+          };
+          if (cancelled) return;
+          if (json.status === "success" && json.data) {
+            setLinkMeta({
+              url: typingLink,
+              title: json.data.title || new URL(typingLink).hostname,
+              description: json.data.description || "",
+              image: json.data.image?.url,
+              logo: json.data.logo?.url,
+              loading: false,
+            });
+          } else {
+            setLinkMeta({
+              url: typingLink,
+              title: new URL(typingLink).hostname,
+              description: "",
+              loading: false,
+            });
+          }
+        } catch {
+          if (cancelled) return;
+          try {
+            setLinkMeta({
+              url: typingLink,
+              title: new URL(typingLink).hostname,
+              description: "",
+              loading: false,
+            });
+          } catch {
+            setLinkMeta(null);
+          }
+        }
+      })();
+    }, 450);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(t);
+    };
+  }, [typingLink]);
   const [optimistic, setOptimistic] = useState<CampusMessage[]>([]);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const [lightboxUrls, setLightboxUrls] = useState<string[] | null>(null);
@@ -1043,7 +1122,7 @@ export function ConversationChat({
                             : "bg-[#dbeafe] text-[#1d4ed8]",
                         )}
                       >
-                        <span aria-hidden>↗</span> Forwarded
+                        <CornerUpRight className="h-3 w-3" aria-hidden /> Forwarded
                       </span>
                     ) : null}
                 {isVoice && m.attachment_url ? (
@@ -1153,9 +1232,7 @@ export function ConversationChat({
                       </button>
                     ) : null}
                     {m.body ? (
-                      <p className="break-words whitespace-pre-wrap text-[15px] leading-snug">
-                        {linkifyText(m.body, mine)}
-                      </p>
+                      <LinkMessageBody body={m.body} mine={mine} linkifyText={linkifyText} />
                     ) : null}
                     <div
                       className={cn(
@@ -1215,14 +1292,54 @@ export function ConversationChat({
         ) : (
           <>
           {typingLink ? (
-            <div className="mx-auto mb-2 flex max-w-2xl items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
-              <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-[#eff6ff] text-xs font-bold text-[#2563eb]">
-                🔗
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-xs font-semibold text-slate-800">Link preview</p>
-                <p className="truncate text-[11px] text-slate-500">{typingLink}</p>
-              </div>
+            <div className="mx-auto mb-2 max-w-2xl overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+              {linkMeta?.loading ? (
+                <div className="flex items-center gap-3 px-3 py-3">
+                  <div className="h-10 w-10 shrink-0 animate-pulse rounded-lg bg-slate-200" />
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <div className="h-3 w-2/3 animate-pulse rounded bg-slate-200" />
+                    <div className="h-2.5 w-full animate-pulse rounded bg-slate-100" />
+                    <p className="text-[10px] font-medium text-[#2563eb]">Generating link preview…</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex gap-0">
+                  {linkMeta?.image ? (
+                    <img
+                      src={linkMeta.image}
+                      alt=""
+                      className="h-[4.5rem] w-[4.5rem] shrink-0 object-cover"
+                    />
+                  ) : (
+                    <div className="grid h-[4.5rem] w-[4.5rem] shrink-0 place-items-center bg-[#eff6ff] text-lg font-bold text-[#2563eb]">
+                      {linkMeta?.logo ? (
+                        <img src={linkMeta.logo} alt="" className="h-8 w-8 object-contain" />
+                      ) : (
+                        "🔗"
+                      )}
+                    </div>
+                  )}
+                  <div className="min-w-0 flex-1 px-3 py-2">
+                    <p className="line-clamp-1 text-[13px] font-bold text-slate-900">
+                      {linkMeta?.title || "Link"}
+                    </p>
+                    {linkMeta?.description ? (
+                      <p className="mt-0.5 line-clamp-2 text-[11px] text-slate-500">
+                        {linkMeta.description}
+                      </p>
+                    ) : null}
+                    <p className="mt-1 truncate text-[10px] font-medium text-slate-400">
+                      {(() => {
+                        try {
+                          return new URL(typingLink).hostname;
+                        } catch {
+                          return typingLink;
+                        }
+                      })()}
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
           ) : null}
           {replyTo ? (
@@ -1581,6 +1698,91 @@ function formatTime(iso: string) {
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
+function LinkMessageBody({
+  body,
+  mine,
+  linkifyText,
+}: {
+  body: string;
+  mine: boolean;
+  linkifyText: (t: string, mine: boolean) => ReactNode;
+}) {
+  const urlMatch = body.trim().match(/^https?:\/\/[^\s]+$/i);
+  const [meta, setMeta] = useState<{
+    title?: string;
+    description?: string;
+    image?: string;
+    host?: string;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!urlMatch) return;
+    const url = urlMatch[0].replace(/[),.]+$/, "");
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(
+          `https://api.microlink.io?url=${encodeURIComponent(url)}&palette=false&audio=false&video=false&iframe=false`,
+        );
+        const json = await res.json();
+        if (cancelled || json.status !== "success") return;
+        setMeta({
+          title: json.data?.title,
+          description: json.data?.description,
+          image: json.data?.image?.url,
+          host: new URL(url).hostname,
+        });
+      } catch {
+        try {
+          if (!cancelled) setMeta({ host: new URL(url).hostname, title: new URL(url).hostname });
+        } catch { /* ignore */ }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [body]);
+
+  if (urlMatch && meta) {
+    const href = urlMatch[0].replace(/[),.]+$/, "");
+    return (
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={cn(
+          "block overflow-hidden rounded-xl border text-left",
+          mine ? "border-slate-200 bg-slate-50" : "border-white/25 bg-white/10",
+        )}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {meta.image ? (
+          <img src={meta.image} alt="" className="h-28 w-full object-cover" />
+        ) : null}
+        <div className="px-2.5 py-2">
+          <p className={cn("line-clamp-2 text-[13px] font-bold", mine ? "text-slate-900" : "text-white")}>
+            {meta.title || meta.host}
+          </p>
+          {meta.description ? (
+            <p className={cn("mt-0.5 line-clamp-2 text-[11px]", mine ? "text-slate-500" : "text-blue-50/90")}>
+              {meta.description}
+            </p>
+          ) : null}
+          <p className={cn("mt-1 truncate text-[10px] font-medium", mine ? "text-blue-600" : "text-blue-100")}>
+            {meta.host || href}
+          </p>
+        </div>
+      </a>
+    );
+  }
+
+  return (
+    <p className="break-words whitespace-pre-wrap text-[15px] leading-snug">
+      {linkifyText(body, mine)}
+    </p>
+  );
+}
+
 function ForwardSheet({
   userId,
   source,
@@ -1801,7 +2003,11 @@ function GroupMenuSheet({
   };
 
   const toggleAdmin = async (memberId: string, currentRole: string) => {
-    const next = currentRole === "admin" || currentRole === "owner" ? "member" : "admin";
+    if (currentRole === "owner") {
+      toast.error("You cannot demote the group owner");
+      return;
+    }
+    const next = currentRole === "admin" ? "member" : "admin";
     try {
       await setConversationMemberRole(conversationId, memberId, next);
       void membersQ.refetch();
@@ -1969,13 +2175,19 @@ function GroupMenuSheet({
                 </div>
                 {isAdmin && m.user_id !== userId ? (
                   <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => void toggleAdmin(m.user_id, m.role)}
-                      className="rounded-lg bg-[#eff6ff] px-2 py-1 text-[10px] font-bold text-[#2563eb]"
-                    >
-                      {m.role === "admin" || m.role === "owner" ? "Demote" : "Make admin"}
-                    </button>
+                    {m.role === "owner" ? (
+                      <span className="rounded-lg bg-amber-50 px-2 py-1 text-[10px] font-bold text-amber-700">
+                        Owner
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => void toggleAdmin(m.user_id, m.role)}
+                        className="rounded-lg bg-[#eff6ff] px-2 py-1 text-[10px] font-bold text-[#2563eb]"
+                      >
+                        {m.role === "admin" ? "Demote" : "Make admin"}
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => void removeMember(m.user_id)}

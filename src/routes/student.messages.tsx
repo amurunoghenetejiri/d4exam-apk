@@ -25,6 +25,8 @@ import {
   ArrowLeft,
   PenLine,
   Mic,
+  Reply,
+  CornerUpRight,
 } from "lucide-react";
 import { useSessionUser } from "@/lib/session";
 import { useStudentContext } from "@/lib/student";
@@ -552,18 +554,25 @@ function MessagesHub() {
       {/* Floating compose pen — writing motion; fades while scrolling */}
       <button
         type="button"
-        onClick={() => {
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setFabHidden(false);
           setTab("students");
           setFindOpen(true);
-          const el = document.getElementById("msg-global-search");
-          el?.focus();
+          // scroll to students list area
+          window.setTimeout(() => {
+            const el = document.getElementById("msg-global-search");
+            el?.scrollIntoView({ behavior: "smooth", block: "center" });
+            el?.focus();
+          }, 50);
         }}
         className={cn(
-          "fixed bottom-6 right-5 z-30 grid h-[3.25rem] w-[3.25rem] place-items-center rounded-full bg-[#2563eb] text-white shadow-xl shadow-blue-500/35 sm:bottom-8 sm:right-8 sm:h-14 sm:w-14",
-          "ring-4 ring-blue-400/30 transition-all duration-300 ease-out d4-fab-float",
+          "fixed bottom-6 right-5 z-[60] grid h-[3.25rem] w-[3.25rem] place-items-center rounded-full bg-[#2563eb] text-white shadow-xl shadow-blue-500/35 sm:bottom-8 sm:right-8 sm:h-14 sm:w-14",
+          "ring-4 ring-blue-400/30 transition-all duration-300 ease-out d4-fab-float cursor-pointer",
           fabHidden
             ? "pointer-events-none translate-y-4 scale-90 opacity-0"
-            : "translate-y-0 scale-100 opacity-100",
+            : "pointer-events-auto translate-y-0 scale-100 opacity-100",
         )}
         style={{ marginBottom: "env(safe-area-inset-bottom, 0px)" }}
         aria-label="New message"
@@ -702,33 +711,59 @@ function ConversationList({
               <div className="mt-0.5 flex items-center gap-1.5">
                 {(() => {
                   const p = c.preview || "";
-                  const isVoice = p.includes("Voice note") || p.startsWith("🎤");
-                  const isReply = p.startsWith("↩") || p.toLowerCase().includes("replied");
+                  const isVoice = /voice note/i.test(p) || p.includes("🎤");
+                  const isForward = /forwarded/i.test(p) || p.includes("↗") || p.startsWith("↪");
+                  const isReply =
+                    !isForward &&
+                    (p.startsWith("↩") || /you got a reply/i.test(p) || false);
+                  // cleaner: reply marker only
+                  const isReplyMark = p.startsWith("↩") || p.startsWith("↪ ");
                   const label = p
-                    .replace(/^🎤\s*/, "")
                     .replace(/^↩\s*/, "")
+                    .replace(/^↪\s*/, "")
+                    .replace(/^↗\s*/, "")
+                    .replace(/🎤\s*/g, "")
+                    .replace(/^Forwarded\s*[·•\-]?\s*/i, "")
                     .trim();
                   if (isVoice) {
+                    const clean = label.replace(/^Voice note/i, "Voice note").trim() || "Voice note";
                     return (
-                      <span className="flex min-w-0 items-center gap-1 truncate text-[13px] text-slate-500">
-                        {isReply ? <span className="shrink-0 text-[#2563eb]">↩</span> : null}
+                      <span className="flex min-w-0 items-center gap-1.5 truncate text-[13px] text-slate-500">
+                        {isForward ? (
+                          <CornerUpRight className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                        ) : isReplyMark ? (
+                          <Reply className="h-3.5 w-3.5 shrink-0 text-[#2563eb]" />
+                        ) : null}
                         <Mic className="h-3.5 w-3.5 shrink-0 text-slate-500" />
-                        <span className="truncate">{label || "Voice note"}</span>
+                        <span className="truncate">{clean}</span>
                       </span>
                     );
                   }
-                  // Only "You got a reply" when someone else replied (not when you reply)
-                  if (isReply && c.lastSenderId && c.lastSenderId !== myId) {
+                  if (isForward) {
                     return (
-                      <p className="truncate text-[13px] text-slate-500">
-                        <span className="font-semibold text-[#2563eb]">You got a reply · </span>
-                        {label}
-                      </p>
+                      <span className="flex min-w-0 items-center gap-1.5 truncate text-[13px] text-slate-500">
+                        <CornerUpRight className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                        <span className="truncate">{label || "Forwarded"}</span>
+                      </span>
                     );
                   }
-                  if (isReply) {
+                  if (isReplyMark && c.lastSenderId && c.lastSenderId !== myId) {
                     return (
-                      <p className="truncate text-[13px] text-slate-500">{label}</p>
+                      <span className="flex min-w-0 items-center gap-1.5 truncate text-[13px] text-slate-500">
+                        <Reply className="h-3.5 w-3.5 shrink-0 text-[#2563eb]" />
+                        <span className="truncate">
+                          <span className="font-semibold text-[#2563eb]">You got a reply · </span>
+                          {label}
+                        </span>
+                      </span>
+                    );
+                  }
+                  if (isReplyMark) {
+                    return (
+                      <span className="flex min-w-0 items-center gap-1.5 truncate text-[13px] text-slate-500">
+                        <Reply className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                        <span className="truncate">{label}</span>
+                      </span>
                     );
                   }
                   return (
