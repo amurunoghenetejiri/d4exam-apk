@@ -10,6 +10,8 @@ import {
   switchCameraFacing,
   updateCallStatus,
   updateParticipantStatus,
+  inviteCalleeOnPersonalChannel,
+  notifyCalleeOfIncomingCall,
   type SignalEvent,
 } from "@/lib/calls";
 import {
@@ -63,6 +65,7 @@ let remoteStream: MediaStream | null = null;
 let channel: RealtimeChannel | null = null;
 let timer: ReturnType<typeof setInterval> | null = null;
 let ringTimeout: ReturnType<typeof setTimeout> | null = null;
+let inviteInterval: ReturnType<typeof setInterval> | null = null;
 let listeners = new Set<Listener>();
 let localVideoEl: HTMLVideoElement | null = null;
 let remoteVideoEl: HTMLVideoElement | null = null;
@@ -122,6 +125,8 @@ function clearTimers() {
   timer = null;
   if (ringTimeout) clearTimeout(ringTimeout);
   ringTimeout = null;
+  if (inviteInterval) clearInterval(inviteInterval);
+  inviteInterval = null;
 }
 
 async function hardTeardown() {
@@ -243,25 +248,28 @@ export async function startOutgoingCall(opts: {
 
     channel = subscribeCallChannel(opts.callId, handleSignal);
 
-    window.setTimeout(() => {
-      void (async () => {
-        if (!pc || !channel || !state) return;
-        try {
-          const offer = await pc.createOffer({
-            offerToReceiveAudio: true,
-            offerToReceiveVideo: opts.callType === "video",
-          });
-          await pc.setLocalDescription(offer);
-          await broadcastSignal(channel, {
-            type: "offer",
-            sdp: offer,
-            from: state.myUserId,
-          });
-        } catch (e) {
-          console.error(e);
-        }
-      })();
-    }, 300);
+    // Pulse invite on personal channel until answered (fixes profile-page calls
+    // and lost realtime invites). Offer is created only after callee sends "ready".
+    const pulseInvite = () => {
+      if (!state || state.phase !== "calling") return;
+      void inviteCalleeOnPersonalChannel({
+        calleeId: opts.peerId,
+        callId: opts.callId,
+        callType: opts.callType,
+        conversationId: opts.conversationId,
+        callerName: opts.peerName || "D4EXAM",
+        fromUserId: opts.myUserId,
+      });
+      void notifyCalleeOfIncomingCall({
+        calleeId: opts.peerId,
+        callId: opts.callId,
+        callType: opts.callType,
+        callerName: opts.peerName || "D4EXAM",
+      });
+    };
+    pulseInvite();
+    if (inviteInterval) clearInterval(inviteInterval);
+    inviteInterval = setInterval(pulseInvite, 1500);
 
     // 30s no-answer
     ringTimeout = setTimeout(() => {
@@ -404,6 +412,15 @@ export async function acceptIncomingCall(opts: {
     };
     channel = subscribeCallChannel(opts.callId, handleSignal);
     await updateParticipantStatus(opts.callId, opts.myUserId, "joined");
+    // Announce to caller that callee is ready to receive offer
+    window.setTimeout(() => {
+      if (channel && state) {
+        void broadcastSignal(channel, {
+          type: "ready",
+          from: opts.myUserId,
+        });
+      }
+    }, 150);
   } catch (e) {
     console.error(e);
     if (state) {
@@ -488,7 +505,32 @@ function handleSignal(ev: SignalEvent) {
   if (ev.from === state.myUserId) return;
   void (async () => {
     try {
-      if (ev.type === "offer" && pc.signalingState !== "closed") {
+      if (ev.type === "ready" && state?.isCaller && pc) {
+        if (inviteInterval) {
+          clearInterval(inviteInterval);
+          inviteInterval = null;
+        }
+        try {
+          const offer = await pc.createOffer({
+            offerToReceiveAudio: true,
+            offerToReceiveVideo: state.callType === "video",
+          });
+          await pc.setLocalDescription(offer);
+          if (channel) {
+            await broadcastSignal(channel, {
+              type: "offer",
+              sdp: offer,
+              from: state.myUserId,
+            });
+          }
+          if (state) {
+            state.phase = "connecting";
+            emit();
+          }
+        } catch (err) {
+          console.error("[calls] Error creating offer on ready signal:", err);
+        }
+      } else if (ev.type === "offer" && pc.signalingState !== "closed") {
         await pc.setRemoteDescription(ev.sdp);
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);

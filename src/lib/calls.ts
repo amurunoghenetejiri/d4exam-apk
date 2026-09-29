@@ -173,6 +173,8 @@ export async function switchCameraFacing(
 
 
 export type SignalEvent =
+  | { type: "ready"; from: string }
+  | { type: "ringing"; from: string }
   | { type: "offer"; sdp: RTCSessionDescriptionInit; from: string }
   | { type: "answer"; sdp: RTCSessionDescriptionInit; from: string }
   | { type: "ice"; candidate: RTCIceCandidateInit; from: string }
