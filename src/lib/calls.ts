@@ -1,0 +1,150 @@
+import { supabase } from "@/integrations/supabase/client";
+
+export type CallType = "voice" | "video";
+export type CallStatus =
+  | "ringing"
+  | "active"
+  | "ended"
+  | "missed"
+  | "rejected"
+  | "busy"
+  | "cancelled";
+
+export type CallSession = {
+  id: string;
+  callType: CallType;
+  status: CallStatus;
+  initiatorId: string;
+  conversationId: string | null;
+  createdAt: string;
+  answeredAt: string | null;
+  endedAt: string | null;
+};
+
+const ICE_SERVERS: RTCIceServer[] = [
+  { urls: "stun:stun.l.google.com:19302" },
+  { urls: "stun:stun1.l.google.com:19302" },
+];
+
+export async function startDirectCall(opts: {
+  calleeId: string;
+  callType: CallType;
+  conversationId?: string | null;
+}): Promise<string> {
+  const { data, error } = await supabase.rpc("start_direct_call", {
+    p_callee_id: opts.calleeId,
+    p_call_type: opts.callType,
+    p_conversation_id: opts.conversationId || null,
+  });
+  if (error) throw new Error(error.message);
+  return data as string;
+}
+
+export async function updateCallStatus(
+  callId: string,
+  status: CallStatus,
+  endReason?: string,
+) {
+  const patch: Record<string, unknown> = { status };
+  if (status === "active") patch.answered_at = new Date().toISOString();
+  if (["ended", "missed", "rejected", "busy", "cancelled"].includes(status)) {
+    patch.ended_at = new Date().toISOString();
+    if (endReason) patch.end_reason = endReason;
+  }
+  const { error } = await supabase
+    .from("call_sessions")
+    .update(patch)
+    .eq("id", callId);
+  if (error) throw new Error(error.message);
+}
+
+export async function updateParticipantStatus(
+  callId: string,
+  userId: string,
+  status: string,
+) {
+  const patch: Record<string, unknown> = { status };
+  if (status === "joined") patch.joined_at = new Date().toISOString();
+  if (status === "left" || status === "rejected" || status === "missed") {
+    patch.left_at = new Date().toISOString();
+  }
+  const { error } = await supabase
+    .from("call_participants")
+    .update(patch)
+    .eq("call_id", callId)
+    .eq("user_id", userId);
+  if (error) throw new Error(error.message);
+}
+
+export async function listCallHistory(userId: string, limit = 40) {
+  const { data: parts, error } = await supabase
+    .from("call_participants")
+    .select("call_id, role, status")
+    .eq("user_id", userId)
+    .order("call_id", { ascending: false })
+    .limit(limit * 2);
+  if (error) throw new Error(error.message);
+  const callIds = [...new Set((parts || []).map((p) => p.call_id as string))];
+  if (!callIds.length) return [];
+  const { data: sessions, error: e2 } = await supabase
+    .from("call_sessions")
+    .select("*")
+    .in("id", callIds)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (e2) throw new Error(e2.message);
+  return sessions || [];
+}
+
+export function createPeerConnection() {
+  return new RTCPeerConnection({ iceServers: ICE_SERVERS });
+}
+
+export async function getLocalMedia(video: boolean) {
+  return navigator.mediaDevices.getUserMedia({
+    audio: true,
+    video: video
+      ? { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } }
+      : false,
+  });
+}
+
+export type SignalEvent =
+  | { type: "offer"; sdp: RTCSessionDescriptionInit; from: string }
+  | { type: "answer"; sdp: RTCSessionDescriptionInit; from: string }
+  | { type: "ice"; candidate: RTCIceCandidateInit; from: string }
+  | { type: "hangup"; from: string }
+  | { type: "reject"; from: string }
+  | { type: "busy"; from: string };
+
+export function callChannelName(callId: string) {
+  return `call:${callId}`;
+}
+
+export function subscribeCallChannel(
+  callId: string,
+  onEvent: (ev: SignalEvent) => void,
+) {
+  const channel = supabase.channel(callChannelName(callId), {
+    config: { broadcast: { self: false } },
+  });
+  channel
+    .on("broadcast", { event: "signal" }, ({ payload }) => {
+      if (payload && typeof payload === "object") {
+        onEvent(payload as SignalEvent);
+      }
+    })
+    .subscribe();
+  return channel;
+}
+
+export async function broadcastSignal(
+  channel: ReturnType<typeof supabase.channel>,
+  event: SignalEvent,
+) {
+  await channel.send({
+    type: "broadcast",
+    event: "signal",
+    payload: event,
+  });
+}

@@ -1,3 +1,4 @@
+import { openUserProfile } from "@/components/profile/ClickableUser";
 /**
  * Campus conversation chat (direct + group).
  * Reuses MessageMedia; stores in campus_messages.
@@ -899,7 +900,18 @@ export function ConversationChat({
           ) : null}
         </span>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-bold leading-tight">{displayTitle}</p>
+          <button
+            type="button"
+            className="block max-w-full truncate text-left text-sm font-bold leading-tight"
+            onClick={() => {
+              if (meta?.isGroup) return;
+              const peer = (meta as { peerUserId?: string } | null)?.peerUserId
+                || Object.keys(senderNames).find((id) => id !== userId);
+              if (peer) openUserProfile(peer);
+            }}
+          >
+            {displayTitle}
+          </button>
           <p
             className={cn(
               "truncate text-[11px] font-medium",
@@ -1092,17 +1104,23 @@ export function ConversationChat({
                 ) : null}
                 <div className={cn("flex max-w-[92%] items-start gap-2", mine ? "flex-row-reverse" : "flex-row")}>
                   {meta?.isGroup && !mine ? (
-                    <div className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center overflow-hidden rounded-full bg-[#0b1b3a] text-[10px] font-bold text-white ring-2 ring-white shadow">
+                    <button
+                      type="button"
+                      onClick={() => openUserProfile(m.sender_id)}
+                      className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center overflow-hidden rounded-full bg-[#0b1b3a] text-[10px] font-bold text-white ring-2 ring-white shadow"
+                    >
                       {senderNames[m.sender_id]?.avatar ? (
                         <img src={senderNames[m.sender_id]!.avatar!} alt="" className="h-full w-full object-cover" />
                       ) : (
                         (nameOf(m.sender_id).slice(0, 2) || "?").toUpperCase()
                       )}
-                    </div>
+                    </button>
                   ) : null}
                   <div className={cn("flex min-w-0 flex-col", mine ? "items-end" : "items-start")}>
                     {meta?.isGroup ? (
-                      <span
+                      <button
+                        type="button"
+                        onClick={() => openUserProfile(m.sender_id)}
                         className={cn(
                           "mb-1 inline-flex max-w-full items-center rounded-full px-2 py-0.5 text-[11px] font-bold",
                           mine
@@ -1111,7 +1129,7 @@ export function ConversationChat({
                         )}
                       >
                         {nameOf(m.sender_id)}
-                      </span>
+                      </button>
                     ) : null}
                     {m.forwarded_from_id ? (
                       <span

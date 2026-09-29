@@ -25,6 +25,7 @@ import {
   ArrowLeft,
   PenLine,
   Mic,
+  Bell,
   Reply,
   CornerUpRight,
 } from "lucide-react";
@@ -79,10 +80,12 @@ function Avatar({
   name,
   url,
   group,
+  onOpenProfile,
 }: {
   name: string;
   url?: string | null;
   group?: boolean;
+  onOpenProfile?: () => void;
 }) {
   const initials = name
     .split(/\s+/)
@@ -91,18 +94,15 @@ function Avatar({
     .map((p) => p[0]?.toUpperCase())
     .join("") || "?";
 
-  if (url) {
-    return (
-      <span className="relative grid h-12 w-12 shrink-0 place-items-center">
-        <img
-          src={url}
-          alt=""
-          className="h-12 w-12 rounded-full object-cover shadow-md ring-2 ring-[#2563eb]/40 ring-offset-2 ring-offset-[#e8f4fc] transition hover:ring-[#2563eb]/70"
-        />
-      </span>
-    );
-  }
-  return (
+  const inner = url ? (
+    <span className="relative grid h-12 w-12 shrink-0 place-items-center">
+      <img
+        src={url}
+        alt=""
+        className="h-12 w-12 rounded-full object-cover shadow-md ring-2 ring-[#2563eb]/40 ring-offset-2 ring-offset-[#e8f4fc] transition hover:ring-[#2563eb]/70"
+      />
+    </span>
+  ) : (
     <div
       className={cn(
         "grid h-12 w-12 shrink-0 place-items-center rounded-full text-sm font-bold text-white shadow-md ring-2 ring-white/90 ring-offset-2 ring-offset-[#e8f4fc] transition hover:scale-105",
@@ -114,6 +114,24 @@ function Avatar({
       {group ? <UsersRound className="h-5 w-5" /> : initials}
     </div>
   );
+
+  if (onOpenProfile) {
+    return (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onOpenProfile();
+        }}
+        className="shrink-0"
+        aria-label={`Open ${name} profile`}
+      >
+        {inner}
+      </button>
+    );
+  }
+  return inner;
 }
 
 function MessagesHub() {
@@ -338,6 +356,27 @@ function MessagesHub() {
             <p className="text-[10px] text-white/70 sm:text-[11px]">
               Campus messages · groups · officers
             </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => appNavigate({ to: "/student/notifications" })}
+              className="grid h-10 w-10 place-items-center rounded-full bg-white/10 text-white transition active:scale-95"
+              aria-label="Notifications"
+            >
+              <Bell className="h-5 w-5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (userId) openUserProfile(userId);
+                else appNavigate({ to: "/student/profile" });
+              }}
+              className="grid h-10 w-10 place-items-center rounded-full bg-white/10 text-white transition active:scale-95"
+              aria-label="My profile"
+            >
+              <User className="h-5 w-5" />
+            </button>
           </div>
         </div>
       </header>
@@ -685,7 +724,16 @@ function ConversationList({
             className="flex w-full items-center gap-3 rounded-2xl border border-blue-100 bg-gradient-to-r from-[#eff6ff] to-white px-3 py-3 text-left shadow-sm transition active:scale-[0.99] hover:border-[#2563eb]/40"
           >
             <div className="relative">
-              <Avatar name={c.title} url={c.avatar_url} group={c.isGroup} />
+              <Avatar
+              name={c.title}
+              url={c.avatar_url}
+              group={c.isGroup}
+              onOpenProfile={
+                !c.isGroup && c.peerUserId
+                  ? () => openUserProfile(c.peerUserId)
+                  : undefined
+              }
+            />
               {c.isGroup ? (
                 <span className="absolute -bottom-0.5 -right-0.5 grid h-5 w-5 place-items-center rounded-full border-2 border-white bg-[#2563eb] text-white">
                   <UsersRound className="h-3 w-3" />
@@ -875,7 +923,7 @@ function StudentRow({
       disabled={!s.auth_user_id}
       className="mx-3 mb-2 flex w-[calc(100%-1.5rem)] items-center gap-3 rounded-2xl border border-blue-100 bg-gradient-to-r from-[#eff6ff] to-white px-3 py-3 text-left shadow-sm transition active:scale-[0.99] hover:border-[#2563eb]/40 disabled:opacity-50"
     >
-      <Avatar name={s.full_name} url={s.avatar_url} />
+      <Avatar name={s.full_name} url={s.avatar_url} onOpenProfile={() => s.auth_user_id && openUserProfile(s.auth_user_id)} />
       <div className="min-w-0 flex-1">
         <p className="truncate text-[15px] font-bold text-slate-900">
           {s.full_name}
