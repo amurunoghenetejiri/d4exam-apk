@@ -7,6 +7,7 @@ import {
   createPeerConnection,
   getLocalMedia,
   subscribeCallChannel,
+  waitChannelReady,
   switchCameraFacing,
   updateCallStatus,
   updateParticipantStatus,
@@ -67,6 +68,7 @@ let channel: RealtimeChannel | null = null;
 let timer: ReturnType<typeof setInterval> | null = null;
 let ringTimeout: ReturnType<typeof setTimeout> | null = null;
 let inviteInterval: ReturnType<typeof setInterval> | null = null;
+let readyInterval: ReturnType<typeof setInterval> | null = null;
 let listeners = new Set<Listener>();
 let localVideoEl: HTMLVideoElement | null = null;
 let remoteVideoEl: HTMLVideoElement | null = null;
@@ -121,6 +123,40 @@ async function postSystemMessage(
   }
 }
 
+
+function wirePcConnectionHandlers() {
+  if (!pc) return;
+  pc.onconnectionstatechange = () => {
+    if (!pc || !state) return;
+    const st = pc.connectionState;
+    if (st === "connected") {
+      clearTimers();
+      if (state.phase !== "active" && state.phase !== "minimized") {
+        state.phase = "active";
+        state.error = null;
+        emit();
+        void nativeStartCallService(
+          state.peerName,
+          state.callType === "video" ? "Video call" : "Voice call",
+        );
+        timer = setInterval(() => {
+          if (state && (state.phase === "active" || state.phase === "minimized")) {
+            state.seconds += 1;
+            emit();
+          }
+        }, 1000);
+        void updateCallStatus(state.callId, "active").catch(() => {});
+      }
+    } else if (st === "failed") {
+      if (state.phase === "connecting" || state.phase === "calling") {
+        state.error = "Connection failed. Check network and try again.";
+        state.phase = "failed";
+        emit();
+      }
+    }
+  };
+}
+
 function clearTimers() {
   if (timer) clearInterval(timer);
   timer = null;
@@ -128,6 +164,8 @@ function clearTimers() {
   ringTimeout = null;
   if (inviteInterval) clearInterval(inviteInterval);
   inviteInterval = null;
+  if (readyInterval) clearInterval(readyInterval);
+  readyInterval = null;
 }
 
 async function hardTeardown() {
@@ -248,10 +286,12 @@ export async function startOutgoingCall(opts: {
       }
     };
 
+    wirePcConnectionHandlers();
     channel = subscribeCallChannel(opts.callId, handleSignal);
+    void waitChannelReady(channel, 3500);
 
-    // Pulse invite on personal channel until answered (fixes profile-page calls
-    // and lost realtime invites). Offer is created only after callee sends "ready".
+    // Pulse invite on personal channel until answered.
+    // Offer is created only after callee sends "ready".
     const pulseInvite = () => {
       if (!state || state.phase !== "calling") return;
       void inviteCalleeOnPersonalChannel({
@@ -259,14 +299,14 @@ export async function startOutgoingCall(opts: {
         callId: opts.callId,
         callType: opts.callType,
         conversationId: opts.conversationId,
-        callerName: opts.peerName || "D4EXAM",
+        callerName: "D4EXAM",
         fromUserId: opts.myUserId,
       });
       void notifyCalleeOfIncomingCall({
         calleeId: opts.peerId,
         callId: opts.callId,
         callType: opts.callType,
-        callerName: opts.peerName || "D4EXAM",
+        callerName: "D4EXAM",
       });
     };
     pulseInvite();
@@ -365,7 +405,7 @@ export async function acceptIncomingCall(opts: {
   emit();
   void nativeStartCallService(
     opts.peerName,
-    opts.callType === "video" ? "Video call · Calling…" : "Voice call · Calling…",
+    opts.callType === "video" ? "Video call · Connecting…" : "Voice call · Connecting…",
   );
 
   try {
@@ -380,27 +420,30 @@ export async function acceptIncomingCall(opts: {
       state.phase = "failed";
       emit();
     }
+    console.error(e);
     return;
   }
 
   try {
     pc = createPeerConnection();
     localStream.getTracks().forEach((t) => pc!.addTrack(t, localStream!));
+    wirePcConnectionHandlers();
     pc.ontrack = (ev) => {
       remoteStream = ev.streams[0] || null;
       if (remoteVideoEl && remoteStream) remoteVideoEl.srcObject = remoteStream;
       if (state) {
+        clearTimers();
         state.phase = "active";
+        state.error = null;
         emit();
         void nativeStartCallService(state.peerName, "In call");
-        clearTimers();
         timer = setInterval(() => {
           if (state && (state.phase === "active" || state.phase === "minimized")) {
             state.seconds += 1;
             emit();
           }
         }, 1000);
-        void updateCallStatus(state.callId, "active");
+        void updateCallStatus(state.callId, "active").catch(() => {});
       }
     };
     pc.onicecandidate = (ev) => {
@@ -413,16 +456,35 @@ export async function acceptIncomingCall(opts: {
       }
     };
     channel = subscribeCallChannel(opts.callId, handleSignal);
-    await updateParticipantStatus(opts.callId, opts.myUserId, "joined");
-    // Announce to caller that callee is ready to receive offer
-    window.setTimeout(() => {
-      if (channel && state) {
-        void broadcastSignal(channel, {
-          type: "ready",
-          from: opts.myUserId,
-        });
-      }
-    }, 150);
+    await waitChannelReady(channel, 4000);
+
+    // Best-effort DB status — never fail the answer path on RLS
+    try {
+      await updateParticipantStatus(opts.callId, opts.myUserId, "joined");
+    } catch {
+      /* ignore */
+    }
+    try {
+      await updateCallStatus(opts.callId, "active");
+    } catch {
+      /* ignore */
+    }
+
+    // Pulse "ready" until we get an offer / become active (caller may have missed first one)
+    const sendReady = () => {
+      if (!channel || !state) return;
+      if (state.phase === "active" || state.phase === "minimized") return;
+      if (state.phase === "failed" || state.phase === "ended" || state.phase === "declined") return;
+      void broadcastSignal(channel, {
+        type: "ready",
+        from: opts.myUserId,
+      });
+    };
+    sendReady();
+    window.setTimeout(sendReady, 300);
+    window.setTimeout(sendReady, 900);
+    if (readyInterval) clearInterval(readyInterval);
+    readyInterval = setInterval(sendReady, 1200);
   } catch (e) {
     console.error(e);
     if (state) {
@@ -512,6 +574,26 @@ function handleSignal(ev: SignalEvent) {
           clearInterval(inviteInterval);
           inviteInterval = null;
         }
+        // Only create the offer once (ignore further ready pulses)
+        if (pc.signalingState !== "stable" && pc.signalingState !== "have-local-offer") {
+          return;
+        }
+        if (pc.localDescription && pc.signalingState === "have-local-offer") {
+          // Re-broadcast existing offer in case callee missed it
+          if (channel && pc.localDescription) {
+            await broadcastSignal(channel, {
+              type: "offer",
+              sdp: pc.localDescription.toJSON
+                ? (pc.localDescription as RTCSessionDescription).toJSON()
+                : {
+                    type: pc.localDescription.type,
+                    sdp: pc.localDescription.sdp,
+                  },
+              from: state.myUserId,
+            });
+          }
+          return;
+        }
         try {
           const offer = await pc.createOffer({
             offerToReceiveAudio: true,
@@ -533,6 +615,10 @@ function handleSignal(ev: SignalEvent) {
           console.error("[calls] Error creating offer on ready signal:", err);
         }
       } else if (ev.type === "offer" && pc.signalingState !== "closed") {
+        if (readyInterval) {
+          clearInterval(readyInterval);
+          readyInterval = null;
+        }
         await pc.setRemoteDescription(ev.sdp);
         // Flush any ICE that arrived before remote description
         for (const c of pendingIce) {

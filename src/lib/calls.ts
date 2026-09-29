@@ -24,6 +24,22 @@ export type CallSession = {
 const ICE_SERVERS: RTCIceServer[] = [
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "stun:stun1.l.google.com:19302" },
+  // Public TURN (needed on mobile cellular where pure STUN often fails)
+  {
+    urls: "turn:openrelay.metered.ca:80",
+    username: "openrelayproject",
+    credential: "openrelayproject",
+  },
+  {
+    urls: "turn:openrelay.metered.ca:443",
+    username: "openrelayproject",
+    credential: "openrelayproject",
+  },
+  {
+    urls: "turn:openrelay.metered.ca:443?transport=tcp",
+    username: "openrelayproject",
+    credential: "openrelayproject",
+  },
 ];
 
 export async function startDirectCall(opts: {
@@ -190,17 +206,51 @@ export function subscribeCallChannel(
   callId: string,
   onEvent: (ev: SignalEvent) => void,
 ) {
-  const channel = supabase.channel(callChannelName(callId), {
-    config: { broadcast: { self: false } },
+  // Drop any stale channel with the same topic (Strict Mode / redial)
+  const topic = callChannelName(callId);
+  try {
+    void supabase.removeChannel(supabase.channel(topic));
+  } catch {
+    /* ignore */
+  }
+  const channel = supabase.channel(topic, {
+    config: { broadcast: { self: false, ack: true } },
   });
-  channel
-    .on("broadcast", { event: "signal" }, ({ payload }) => {
-      if (payload && typeof payload === "object") {
-        onEvent(payload as SignalEvent);
-      }
-    })
-    .subscribe();
+  channel.on("broadcast", { event: "signal" }, ({ payload }) => {
+    if (payload && typeof payload === "object") {
+      onEvent(payload as SignalEvent);
+    }
+  });
+  channel.subscribe();
   return channel;
+}
+
+/** Wait until Realtime channel is SUBSCRIBED (or timeout). */
+export function waitChannelReady(
+  channel: ReturnType<typeof supabase.channel>,
+  timeoutMs = 4000,
+): Promise<boolean> {
+  return new Promise((resolve) => {
+    const t = window.setTimeout(() => resolve(false), timeoutMs);
+    // supabase-js exposes state via subscribe callback if we re-subscribe; poll instead
+    const start = Date.now();
+    const tick = () => {
+      const st = (channel as unknown as { state?: string }).state;
+      if (st === "joined" || st === "subscribed") {
+        window.clearTimeout(t);
+        resolve(true);
+        return;
+      }
+      // Also accept after short delay — broadcast may still work once client is connected
+      if (Date.now() - start > timeoutMs) {
+        window.clearTimeout(t);
+        resolve(false);
+        return;
+      }
+      window.setTimeout(tick, 80);
+    };
+    tick();
+  });
 }
 
 export async function broadcastSignal(
@@ -259,11 +309,17 @@ export async function inviteCalleeOnPersonalChannel(opts: {
     callerName: opts.callerName || "D4EXAM",
   };
   try {
-    const ch = supabase.channel(`user-calls:${opts.calleeId}`, {
+    const topic = `user-calls:${opts.calleeId}`;
+    try {
+      void supabase.removeChannel(supabase.channel(topic));
+    } catch {
+      /* ignore */
+    }
+    const ch = supabase.channel(topic, {
       config: { broadcast: { self: false } },
     });
     await new Promise<void>((resolve) => {
-      const t = window.setTimeout(() => resolve(), 2500);
+      const t = window.setTimeout(() => resolve(), 3000);
       ch.subscribe((status) => {
         if (status === "SUBSCRIBED") {
           window.clearTimeout(t);
@@ -271,12 +327,17 @@ export async function inviteCalleeOnPersonalChannel(opts: {
         }
       });
     });
-    // send twice for reliability
+    // Triple-send for reliability across flaky mobile networks
+    await ch.send({ type: "broadcast", event: "incoming_call", payload });
     await ch.send({ type: "broadcast", event: "incoming_call", payload });
     await ch.send({ type: "broadcast", event: "incoming_call", payload });
     window.setTimeout(() => {
-      void ch.unsubscribe();
-    }, 8000);
+      try {
+        void supabase.removeChannel(ch);
+      } catch {
+        /* ignore */
+      }
+    }, 10000);
   } catch (e) {
     console.warn("[calls] invite broadcast failed", e);
   }

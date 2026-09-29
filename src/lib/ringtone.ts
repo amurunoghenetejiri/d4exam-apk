@@ -68,10 +68,42 @@ export async function startCallRingtone() {
   }
   // Always also try web tone (covers browser + when native silent)
   startWebRing();
+  // Android Chrome WebView vibration pattern (loop-ish via interval)
+  try {
+    const nav = navigator as Navigator & { vibrate?: (p: number | number[]) => boolean };
+    if (typeof nav.vibrate === "function") {
+      const pulse = () => {
+        if (!playing) return;
+        try {
+          nav.vibrate?.([400, 200, 400, 200, 400, 600]);
+        } catch {
+          /* ignore */
+        }
+      };
+      pulse();
+      if (!(window as unknown as { __d4RingVib?: ReturnType<typeof setInterval> }).__d4RingVib) {
+        (window as unknown as { __d4RingVib?: ReturnType<typeof setInterval> }).__d4RingVib =
+          setInterval(pulse, 1800);
+      }
+    }
+  } catch {
+    /* ignore */
+  }
 }
 
 export async function stopCallRingtone() {
   playing = false;
   stopWebRing();
   await nativeStopRing();
+  try {
+    const w = window as unknown as { __d4RingVib?: ReturnType<typeof setInterval> };
+    if (w.__d4RingVib) {
+      clearInterval(w.__d4RingVib);
+      w.__d4RingVib = undefined;
+    }
+    const nav = navigator as Navigator & { vibrate?: (p: number | number[]) => boolean };
+    nav.vibrate?.(0);
+  } catch {
+    /* ignore */
+  }
 }
