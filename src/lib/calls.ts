@@ -100,14 +100,48 @@ export function createPeerConnection() {
   return new RTCPeerConnection({ iceServers: ICE_SERVERS });
 }
 
-export async function getLocalMedia(video: boolean) {
+export async function getLocalMedia(video: boolean, facingMode: "user" | "environment" = "user") {
   return navigator.mediaDevices.getUserMedia({
     audio: true,
     video: video
-      ? { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } }
+      ? { facingMode: { ideal: facingMode }, width: { ideal: 640 }, height: { ideal: 480 } }
       : false,
   });
 }
+
+/** Swap front/back camera on an existing stream + peer connection. */
+export async function switchCameraFacing(
+  localStream: MediaStream,
+  pc: RTCPeerConnection | null,
+  nextFacing: "user" | "environment",
+): Promise<MediaStream> {
+  const oldVideo = localStream.getVideoTracks()[0];
+  const newStream = await navigator.mediaDevices.getUserMedia({
+    audio: false,
+    video: { facingMode: { exact: nextFacing }, width: { ideal: 640 }, height: { ideal: 480 } },
+  }).catch(() =>
+    navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: { facingMode: { ideal: nextFacing }, width: { ideal: 640 }, height: { ideal: 480 } },
+    }),
+  );
+  const newTrack = newStream.getVideoTracks()[0];
+  if (!newTrack) throw new Error("No camera available");
+
+  if (pc) {
+    const sender = pc.getSenders().find((s) => s.track?.kind === "video");
+    if (sender) await sender.replaceTrack(newTrack);
+  }
+  if (oldVideo) {
+    localStream.removeTrack(oldVideo);
+    oldVideo.stop();
+  }
+  localStream.addTrack(newTrack);
+  // stop extra tracks from temp stream
+  newStream.getAudioTracks().forEach((t) => t.stop());
+  return localStream;
+}
+
 
 export type SignalEvent =
   | { type: "offer"; sdp: RTCSessionDescriptionInit; from: string }

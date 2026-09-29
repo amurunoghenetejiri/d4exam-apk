@@ -1,11 +1,17 @@
-import { appNavigate } from "@/lib/app-navigate";
 import { cn } from "@/lib/utils";
 
-/** Makes any user identity open the profile page. */
+export const D4_OPEN_PROFILE_EVENT = "d4-open-profile";
+
+/** Open messaging profile sheet for a user (WhatsApp-style). */
 export function openUserProfile(userId: string | null | undefined) {
   if (!userId) return;
-  // appNavigate accepts a path STRING only (not { to, params })
-  appNavigate(`/student/user/${encodeURIComponent(userId)}`);
+  try {
+    window.dispatchEvent(
+      new CustomEvent(D4_OPEN_PROFILE_EVENT, { detail: { userId: String(userId) } }),
+    );
+  } catch {
+    /* ignore */
+  }
 }
 
 export function ClickableUser({

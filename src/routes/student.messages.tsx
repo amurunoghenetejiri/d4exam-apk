@@ -44,6 +44,9 @@ import {
   type GroupKind,
 } from "@/lib/messaging";
 import { toast } from "sonner";
+import { openUserProfile, D4_OPEN_PROFILE_EVENT } from "@/components/profile/ClickableUser";
+import { MessagingProfileSheet } from "@/components/profile/MessagingProfileSheet";
+import { CallOverlay, type ActiveCall } from "@/components/calls/CallOverlay";
 
 export const Route = createFileRoute("/student/messages")({
   head: () => ({ meta: [{ title: "Messages — D4EXAM" }] }),
@@ -140,6 +143,17 @@ function MessagesHub() {
   const { data: session } = useSessionUser();
   const { data: student } = useStudentContext();
   const userId = session?.userId || "";
+  const [profileSheetUserId, setProfileSheetUserId] = useState<string | null>(null);
+  const [activeCall, setActiveCall] = useState<ActiveCall | null>(null);
+
+  useEffect(() => {
+    const onOpen = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ userId?: string }>).detail;
+      if (detail?.userId) setProfileSheetUserId(detail.userId);
+    };
+    window.addEventListener(D4_OPEN_PROFILE_EVENT, onOpen);
+    return () => window.removeEventListener(D4_OPEN_PROFILE_EVENT, onOpen);
+  }, []);
   const schoolIdHint =
     student?.schoolId || session?.schoolId || "";
   const schoolQ = useQuery({
@@ -370,7 +384,7 @@ function MessagesHub() {
               type="button"
               onClick={() => {
                 if (userId) openUserProfile(userId);
-                else appNavigate("/student/profile");
+                else setProfileSheetUserId(userId || "me");
               }}
               className="grid h-10 w-10 place-items-center rounded-full bg-white/10 text-white transition active:scale-95"
               aria-label="My profile"
@@ -623,6 +637,20 @@ function MessagesHub() {
           strokeWidth={2.25}
         />
       </button>
+
+      <MessagingProfileSheet
+        userId={profileSheetUserId}
+        open={Boolean(profileSheetUserId)}
+        onClose={() => setProfileSheetUserId(null)}
+        onStartCall={(opts) => setActiveCall(opts)}
+      />
+      {activeCall && userId ? (
+        <CallOverlay
+          call={activeCall}
+          myUserId={userId}
+          onClose={() => setActiveCall(null)}
+        />
+      ) : null}
     </div>
   );
 }

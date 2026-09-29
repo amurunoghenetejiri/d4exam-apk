@@ -1,4 +1,5 @@
-import { openUserProfile } from "@/components/profile/ClickableUser";
+import { openUserProfile, D4_OPEN_PROFILE_EVENT } from "@/components/profile/ClickableUser";
+import { MessagingProfileSheet } from "@/components/profile/MessagingProfileSheet";
 import { startDirectCall } from "@/lib/calls";
 import { CallOverlay, type ActiveCall } from "@/components/calls/CallOverlay";
 import { isOnlineNow } from "@/lib/offline-guard";
@@ -247,6 +248,15 @@ export function ConversationChat({
   const [groupMenuOpen, setGroupMenuOpen] = useState(false);
   const [chatMenuOpen, setChatMenuOpen] = useState(false);
   const [activeCall, setActiveCall] = useState<ActiveCall | null>(null);
+  const [profileSheetUserId, setProfileSheetUserId] = useState<string | null>(null);
+  useEffect(() => {
+    const onOpen = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ userId?: string }>).detail;
+      if (detail?.userId) setProfileSheetUserId(detail.userId);
+    };
+    window.addEventListener(D4_OPEN_PROFILE_EVENT, onOpen);
+    return () => window.removeEventListener(D4_OPEN_PROFILE_EVENT, onOpen);
+  }, []);
   const [clearOpen, setClearOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
   const [renameVal, setRenameVal] = useState("");
@@ -833,6 +843,7 @@ export function ConversationChat({
         peerAvatar: senderNames[peer]?.avatar || null,
         peerMatric: null,
         isCaller: true,
+        conversationId,
       });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not start call");
@@ -1060,11 +1071,12 @@ export function ConversationChat({
             const mine = m.sender_id === userId;
             const urls = parseMediaUrls(m.attachment_url);
             const att = (m.attachment_type || "").toLowerCase();
-            const isVoice = att.includes("audio") || att === "voice";
-            const isImage = att.includes("image") || att === "photo";
-            const isVideo = att.includes("video");
+            const isCall = att === "call" || att.includes("call");
+            const isVoice = !isCall && (att.includes("audio") || att === "voice");
+            const isImage = !isCall && (att.includes("image") || att === "photo");
+            const isVideo = !isCall && att.includes("video") && !att.includes("call");
             const isFile =
-              Boolean(m.attachment_url) && !isVoice && !isImage && !isVideo;
+              Boolean(m.attachment_url) && !isVoice && !isImage && !isVideo && !isCall;
             const pending =
               m.id.startsWith("opt-") || Boolean(m.client_id?.startsWith("opt-"));
             const timeLabel = formatTime(m.created_at);
@@ -1203,7 +1215,14 @@ export function ConversationChat({
                         <CornerUpRight className="h-3 w-3" aria-hidden /> Forwarded
                       </span>
                     ) : null}
-                {isVoice && m.attachment_url ? (
+                {isCall ? (
+                  <CallEventBubble
+                    body={m.body || "Call"}
+                    mine={mine}
+                    timeLabel={timeLabel}
+                    onCallback={(t) => void startPeerCall(t)}
+                  />
+                ) : isVoice && m.attachment_url ? (
                   <div className="flex flex-col gap-1">
                     {m.reply_to_id ? (
                       <button
@@ -1370,17 +1389,34 @@ export function ConversationChat({
         ) : (
           <>
           {typingLink ? (
-            <div className="mx-auto mb-2 flex max-w-2xl items-center gap-3 rounded-2xl border border-slate-200/80 bg-white/95 px-3 py-2.5 shadow-sm">
-              <div className="relative grid h-9 w-9 shrink-0 place-items-center">
-                <span className="absolute inset-0 animate-ping rounded-full bg-[#2563eb]/25" />
-                <span className="relative grid h-9 w-9 place-items-center rounded-full bg-slate-100">
-                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-[#2563eb]" />
-                </span>
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-[12px] font-bold text-slate-800">Generating link…</p>
-                <p className="truncate text-[11px] text-slate-500">{typingLink}</p>
-              </div>
+            <div className="mx-auto mb-2 max-w-2xl overflow-hidden rounded-xl border border-slate-200/80 bg-white/95 shadow-sm">
+              {linkMeta?.loading || !linkMeta ? (
+                <div className="flex items-center gap-3 px-3 py-2.5">
+                  <div className="relative grid h-9 w-9 shrink-0 place-items-center">
+                    <span className="absolute inset-0 animate-ping rounded-full bg-[#2563eb]/20" />
+                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-200 border-t-[#2563eb]" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[12px] font-bold text-slate-800">Generating link…</p>
+                    <p className="truncate text-[11px] text-slate-500">{typingLink}</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex gap-3 p-2.5">
+                  {linkMeta.image ? (
+                    <img src={linkMeta.image} alt="" className="h-14 w-14 shrink-0 rounded-lg object-cover" />
+                  ) : (
+                    <div className="grid h-14 w-14 shrink-0 place-items-center rounded-lg bg-slate-100 text-lg">🔗</div>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <p className="line-clamp-1 text-[13px] font-bold text-slate-900">{linkMeta.title || linkMeta.host}</p>
+                    {linkMeta.description ? (
+                      <p className="mt-0.5 line-clamp-2 text-[11px] text-slate-500">{linkMeta.description}</p>
+                    ) : null}
+                    <p className="mt-1 truncate text-[10px] font-semibold uppercase tracking-wide text-slate-400">{linkMeta.host}</p>
+                  </div>
+                </div>
+              )}
             </div>
           ) : null}
           {replyTo ? (
@@ -1664,6 +1700,15 @@ export function ConversationChat({
         </div>
       ) : null}
 
+      {profileSheetUserId ? (
+        <MessagingProfileSheet
+          userId={profileSheetUserId}
+          open
+          onClose={() => setProfileSheetUserId(null)}
+          conversationId={conversationId}
+          onStartCall={(opts) => setActiveCall({ ...opts, conversationId })}
+        />
+      ) : null}
       {activeCall && userId ? (
         <CallOverlay
           call={activeCall}
@@ -1746,6 +1791,60 @@ function formatTime(iso: string) {
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
+function CallEventBubble({
+  body,
+  mine,
+  timeLabel,
+  onCallback,
+}: {
+  body: string;
+  mine: boolean;
+  timeLabel: string;
+  onCallback?: (type: "voice" | "video") => void;
+}) {
+  const isVideo = /video/i.test(body);
+  const isMissed = /missed/i.test(body);
+  const isNoAnswer = /no answer/i.test(body);
+  return (
+    <div
+      className={cn(
+        "flex max-w-[min(75vw,240px)] flex-col gap-1 rounded-2xl px-3.5 py-2.5 shadow-sm",
+        mine ? "bg-white text-slate-800" : "bg-[#1e3a6e] text-white",
+      )}
+    >
+      <div className="flex items-center gap-2">
+        <span
+          className={cn(
+            "grid h-9 w-9 place-items-center rounded-full",
+            mine ? "bg-[#eff6ff] text-[#2563eb]" : "bg-white/15 text-white",
+          )}
+        >
+          {isVideo ? "📹" : "📞"}
+        </span>
+        <div className="min-w-0">
+          <p className="text-[13px] font-bold">{body}</p>
+          <p className={cn("text-[11px]", mine ? "text-slate-500" : "text-white/70")}>
+            {timeLabel}
+            {isMissed || isNoAnswer ? " · Tap to call back" : ""}
+          </p>
+        </div>
+      </div>
+      {(isMissed || isNoAnswer) && onCallback ? (
+        <button
+          type="button"
+          onClick={() => onCallback(isVideo ? "video" : "voice")}
+          className={cn(
+            "mt-1 rounded-xl px-3 py-1.5 text-center text-[12px] font-bold",
+            mine ? "bg-[#2563eb] text-white" : "bg-white/20 text-white",
+          )}
+        >
+          {isVideo ? "Video call again" : "Call again"}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 function LinkMessageBody({
   body,
   mine,
@@ -1798,7 +1897,7 @@ function LinkMessageBody({
         href={href}
         target="_blank"
         rel="noopener noreferrer"
-        className="block max-w-[min(58vw,200px)] overflow-hidden rounded-xl bg-black/25 text-left backdrop-blur-[2px]"
+        className="block max-w-[min(52vw,190px)] overflow-hidden rounded-xl bg-black/10 text-left"
         onClick={(e) => e.stopPropagation()}
       >
         {meta.image ? (
@@ -1823,7 +1922,7 @@ function LinkMessageBody({
 
   if (urlMatch && !meta) {
     return (
-      <p className={cn("break-all text-[13px] underline decoration-white/30", mine ? "text-slate-800" : "text-white")}>
+      <p className={cn("break-all text-[13px] underline", mine ? "text-slate-800" : "text-white")}>
         {body.trim()}
       </p>
     );
