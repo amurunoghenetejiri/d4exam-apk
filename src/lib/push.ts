@@ -49,7 +49,7 @@ let webOnMessageBound = false;
 
 /** Real FCM registration (needs google-services.json in APK build). */
 /** false until APK is built with google-services.json — register() crashes the process without it. */
-const ENABLE_NATIVE_FCM_REGISTER = true;
+const ENABLE_NATIVE_FCM_REGISTER = false; // enable only when APK is built with google-services.json
 
 export type PushPermissionState = "granted" | "denied" | "default" | "unsupported";
 

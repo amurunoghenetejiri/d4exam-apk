@@ -1,7 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  Ban,
   Info,
   Loader2,
   MessageCircle,
@@ -23,10 +22,7 @@ import { appNavigate } from "@/lib/app-navigate";
 import { startDirectCall } from "@/lib/calls";
 import { isOnlineNow } from "@/lib/offline-guard";
 import { ProfilePhotoViewer } from "@/components/profile/ProfilePhotoViewer";
-import {
-  isFavorite,
-  toggleFavorite,
-} from "@/lib/profile-favorites";
+import { isFavorite, toggleFavorite } from "@/lib/profile-favorites";
 
 function initials(name: string) {
   return (
@@ -41,8 +37,7 @@ function initials(name: string) {
 
 /**
  * Centered PROFILE QUICK VIEW modal (not full-screen).
- * Avatar / chat list / directory → this sheet.
- * Info → full profile page.
+ * Clean dark card — no full-page blur wash.
  */
 export function MessagingProfileSheet({
   userId,
@@ -53,15 +48,17 @@ export function MessagingProfileSheet({
   seedName,
   seedAvatar,
   seedMatric,
+  isPeerOnline,
 }: {
   userId: string | null;
   open: boolean;
   onClose: () => void;
   conversationId?: string | null;
-  /** Instant display while network profile loads */
   seedName?: string | null;
   seedAvatar?: string | null;
   seedMatric?: string | null;
+  /** Only show Online when this is true */
+  isPeerOnline?: boolean;
   onStartCall?: (opts: {
     callId: string;
     callType: "voice" | "video";
@@ -102,15 +99,19 @@ export function MessagingProfileSheet({
 
   if (!open || !userId) return null;
 
+  const displayName = p?.fullName || seedName || "Student";
+  const displayMatric = p?.matricNumber || seedMatric || null;
+  const displayAvatar = p?.avatarUrl ?? seedAvatar ?? null;
   const deptLevel = [p?.departmentName, p?.levelName].filter(Boolean).join(" · ");
+  const showOnline = Boolean(isPeerOnline);
 
   const peerId = p?.authUserId || userId || "";
-  const peerName = p?.fullName || seedName || "Student";
-  const peerAvatar = p?.avatarUrl ?? seedAvatar ?? null;
-  const peerMatric = p?.matricNumber ?? seedMatric ?? null;
+  const peerName = displayName;
+  const peerAvatar = displayAvatar;
+  const peerMatric = displayMatric;
 
   const goMessage = async () => {
-    if (!myId || !peerId || (p?.isMe)) {
+    if (!myId || !peerId || p?.isMe) {
       onClose();
       return;
     }
@@ -188,17 +189,21 @@ export function MessagingProfileSheet({
   };
 
   const onToggleFav = () => {
-    if (!myId || !userId || !p || p.isMe) return;
+    if (!myId || !userId || p?.isMe) return;
     const next = toggleFavorite(myId, userId);
     setFav(next);
     toast.success(next ? "Added to favorites" : "Removed from favorites");
     setMenuOpen(false);
   };
 
+  // Synthetic data URL for initials avatar viewer
+  const photoSrc = displayAvatar;
+
   return (
     <>
+      {/* Dim overlay only — no heavy blur wash */}
       <div
-        className="fixed inset-0 z-[120] flex items-center justify-center bg-[#0b1b3a]/55 px-4 backdrop-blur-[3px] animate-in fade-in duration-200"
+        className="fixed inset-0 z-[120] flex items-center justify-center bg-black/45 px-5"
         role="dialog"
         aria-modal="true"
         aria-label="Profile preview"
@@ -206,19 +211,11 @@ export function MessagingProfileSheet({
       >
         <div
           className={cn(
-            "relative w-full max-w-[22rem] overflow-hidden rounded-[1.75rem]",
-            "bg-gradient-to-b from-[#0d213f] via-[#0b1b3a] to-[#071225]",
-            "shadow-2xl shadow-blue-950/50 ring-1 ring-white/10",
-            "animate-in zoom-in-95 fade-in duration-200",
+            "relative w-full max-w-[20.5rem] overflow-hidden rounded-[1.5rem]",
+            "bg-[#0d213f] shadow-2xl ring-1 ring-white/10",
           )}
           onClick={(e) => e.stopPropagation()}
         >
-          {/* soft glow */}
-          <div
-            aria-hidden
-            className="pointer-events-none absolute -top-16 left-1/2 h-40 w-40 -translate-x-1/2 rounded-full bg-[#2563eb]/25 blur-3xl"
-          />
-
           <div className="relative flex items-center justify-between px-3 pt-3">
             <button
               type="button"
@@ -238,12 +235,12 @@ export function MessagingProfileSheet({
             </button>
           </div>
 
-          {menuOpen && p && !p.isMe ? (
+          {menuOpen && !p?.isMe ? (
             <div className="absolute right-3 top-12 z-10 min-w-[11rem] overflow-hidden rounded-xl border border-white/10 bg-[#122a52] py-1 shadow-xl">
               <MenuItem label={fav ? "Remove favorite" : "Add to favorites"} onClick={onToggleFav} />
               <MenuItem label="Message" onClick={() => void goMessage()} />
               <MenuItem
-                label={p.isBlockedByMe ? "Unblock" : "Block"}
+                label={p?.isBlockedByMe ? "Unblock" : "Block"}
                 danger
                 onClick={() => void toggleBlock()}
               />
@@ -252,96 +249,51 @@ export function MessagingProfileSheet({
           ) : null}
 
           <div className="relative flex flex-col items-center px-5 pb-6 pt-1">
-            {profileQ.isLoading && !p ? (
+            {profileQ.isLoading && !p && !seedName ? (
               <div className="flex flex-col items-center gap-3 py-12">
                 <Loader2 className="h-8 w-8 animate-spin text-[#60a5fa]" />
                 <p className="text-sm text-white/60">Loading profile…</p>
-              </div>
-            ) : !p && (seedName || seedAvatar) ? (
-              <>
-                <button type="button" className="relative mt-1" onClick={() => seedAvatar && setPhotoOpen(true)}>
-                  <span className="absolute inset-0 rounded-full bg-[#2563eb]/40 blur-md" />
-                  <span className="relative grid h-[6.75rem] w-[6.75rem] place-items-center overflow-hidden rounded-full bg-[#1e3a5f] ring-[3px] ring-[#3b82f6]/80 ring-offset-2 ring-offset-[#0b1b3a]">
-                    {seedAvatar ? (
-                      <img src={seedAvatar} alt="" className="h-full w-full object-cover" />
-                    ) : (
-                      <span className="text-3xl font-extrabold text-[#93c5fd]">
-                        {initials(seedName || "?")}
-                      </span>
-                    )}
-                  </span>
-                  <span className="absolute bottom-1 right-1 h-3.5 w-3.5 rounded-full border-2 border-[#0b1b3a] bg-emerald-400" />
-                </button>
-                <h2 className="mt-4 text-center text-xl font-bold tracking-tight text-white">
-                  {seedName || "Student"}
-                </h2>
-                {seedMatric ? (
-                  <p className="mt-1 text-sm font-medium text-white/55">{seedMatric}</p>
-                ) : null}
-                <p className="mt-1 text-[11px] text-white/40">Loading full profile…</p>
-                <div className="mt-5 grid w-full grid-cols-4 gap-2">
-                  <QuickAction icon={<MessageCircle className="h-5 w-5" />} label="Message" tone="blue" busy={busy === "msg"} onClick={() => void goMessage()} />
-                  <QuickAction icon={<Phone className="h-5 w-5" />} label="Voice Call" tone="green" busy={busy === "voice"} onClick={() => void startCall("voice")} />
-                  <QuickAction icon={<Video className="h-5 w-5" />} label="Video Call" tone="blue" busy={busy === "video"} onClick={() => void startCall("video")} />
-                  <QuickAction icon={<Info className="h-5 w-5" />} label="Info" tone="navy" onClick={goInfo} />
-                </div>
-              </>
-            ) : !p ? (
-              <div className="flex flex-col items-center gap-2 py-10 text-center">
-                <div className="grid h-24 w-24 place-items-center rounded-full bg-white/10 text-3xl font-bold text-[#60a5fa]">
-                  ?
-                </div>
-                <p className="text-base font-bold text-white">Could not load profile</p>
-                <p className="text-xs text-white/50">Check connection and try again.</p>
-                <button
-                  type="button"
-                  onClick={() => void profileQ.refetch()}
-                  className="mt-2 rounded-full bg-[#2563eb] px-4 py-2 text-xs font-semibold text-white"
-                >
-                  Retry
-                </button>
               </div>
             ) : (
               <>
                 <button
                   type="button"
-                  onClick={() => p.avatarUrl && setPhotoOpen(true)}
+                  onClick={() => setPhotoOpen(true)}
                   className="relative mt-1"
                   aria-label="View photo"
                 >
-                  <span className="absolute inset-0 rounded-full bg-[#2563eb]/40 blur-md" />
-                  <span className="relative grid h-[6.75rem] w-[6.75rem] place-items-center overflow-hidden rounded-full bg-[#1e3a5f] ring-[3px] ring-[#3b82f6]/80 ring-offset-2 ring-offset-[#0b1b3a]">
-                    {p.avatarUrl ? (
-                      <img src={p.avatarUrl} alt="" className="h-full w-full object-cover" />
+                  <span className="relative grid h-[6.5rem] w-[6.5rem] place-items-center overflow-hidden rounded-full bg-[#1e3a5f] ring-[3px] ring-[#3b82f6]/90">
+                    {displayAvatar ? (
+                      <img src={displayAvatar} alt="" className="h-full w-full object-cover" />
                     ) : (
                       <span className="text-3xl font-extrabold text-[#93c5fd]">
-                        {initials(p.fullName)}
+                        {initials(displayName)}
                       </span>
                     )}
                   </span>
-                  <span className="absolute bottom-1 right-1 h-3.5 w-3.5 rounded-full border-2 border-[#0b1b3a] bg-emerald-400" />
+                  {showOnline ? (
+                    <span className="absolute bottom-1 right-1 h-3.5 w-3.5 rounded-full border-2 border-[#0d213f] bg-emerald-400" />
+                  ) : null}
                 </button>
 
-                <h2 className="mt-4 text-center text-xl font-bold tracking-tight text-white">
-                  {p.fullName}
+                <h2 className="mt-4 text-center text-lg font-bold tracking-tight text-white leading-snug">
+                  {displayName}
                 </h2>
-                {p.matricNumber ? (
-                  <p className="mt-1 text-sm font-medium text-white/55">{p.matricNumber}</p>
+                {displayMatric ? (
+                  <p className="mt-1 text-sm font-medium text-white/60">{displayMatric}</p>
                 ) : null}
                 {deptLevel ? (
-                  <p className="mt-0.5 text-center text-xs font-medium text-white/45">
-                    {deptLevel}
-                  </p>
-                ) : (
-                  <p className="mt-0.5 text-xs text-white/40">D4EXAM member</p>
-                )}
+                  <p className="mt-0.5 text-center text-xs font-medium text-white/45">{deptLevel}</p>
+                ) : null}
 
-                <span className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-300">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                  Online
-                </span>
+                {showOnline ? (
+                  <span className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-300">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                    Online
+                  </span>
+                ) : null}
 
-                {!p.isMe ? (
+                {!p?.isMe ? (
                   <div className="mt-5 grid w-full grid-cols-4 gap-2">
                     <QuickAction
                       icon={<MessageCircle className="h-5 w-5" />}
@@ -372,9 +324,13 @@ export function MessagingProfileSheet({
                     />
                   </div>
                 ) : (
-                  <p className="mt-4 text-center text-xs text-white/40">
-                    This is how others see you in Messages
-                  </p>
+                  <button
+                    type="button"
+                    onClick={goInfo}
+                    className="mt-4 rounded-full bg-[#2563eb] px-5 py-2 text-sm font-semibold text-white"
+                  >
+                    Open my profile
+                  </button>
                 )}
               </>
             )}
@@ -384,9 +340,10 @@ export function MessagingProfileSheet({
 
       <ProfilePhotoViewer
         open={photoOpen}
-        src={p?.avatarUrl}
-        name={p?.fullName}
-        subtitle={[p?.matricNumber, deptLevel].filter(Boolean).join(" · ")}
+        src={photoSrc}
+        name={displayName}
+        subtitle={[displayMatric, deptLevel].filter(Boolean).join(" · ") || undefined}
+        fallbackInitials={initials(displayName)}
         onClose={() => setPhotoOpen(false)}
       />
     </>
@@ -408,10 +365,10 @@ function QuickAction({
 }) {
   const bg =
     tone === "green"
-      ? "bg-emerald-500 text-white shadow-emerald-500/30"
+      ? "bg-emerald-500 text-white"
       : tone === "navy"
-        ? "bg-[#1e3a5f] text-white shadow-blue-900/30"
-        : "bg-[#2563eb] text-white shadow-blue-500/30";
+        ? "bg-[#1e3a5f] text-white"
+        : "bg-[#2563eb] text-white";
   return (
     <button
       type="button"
@@ -419,12 +376,7 @@ function QuickAction({
       disabled={busy}
       className="flex flex-col items-center gap-1.5 active:scale-95 disabled:opacity-60"
     >
-      <span
-        className={cn(
-          "grid h-12 w-12 place-items-center rounded-2xl shadow-lg",
-          bg,
-        )}
-      >
+      <span className={cn("grid h-12 w-12 place-items-center rounded-2xl shadow-lg", bg)}>
         {busy ? <Loader2 className="h-5 w-5 animate-spin" /> : icon}
       </span>
       <span className="text-[10px] font-semibold leading-tight text-white/75">{label}</span>

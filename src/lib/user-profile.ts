@@ -41,9 +41,9 @@ function mapRow(
     schoolId: (row.school_id as string) || null,
     matricNumber: (row.matric_number as string) || null,
     departmentId: (row.department_id as string) || null,
-    departmentName: extras?.departmentName ?? null,
+    departmentName: extras?.departmentName ?? ((row.department_name as string) || null),
     levelId: (row.level_id as string) || null,
-    levelName: extras?.levelName ?? null,
+    levelName: extras?.levelName ?? ((row.level_name as string) || null),
     studentId: (row.student_id as string) || null,
     status: (row.status as string) || null,
     isMe: Boolean(myUserId && myUserId === authUserId),
@@ -55,6 +55,7 @@ function mapRow(
 async function enrichDeptLevel(p: PublicUserProfile): Promise<PublicUserProfile> {
   let departmentName = p.departmentName;
   let levelName = p.levelName;
+  if (departmentName && levelName) return p;
   if (p.departmentId && !departmentName) {
     const { data: d } = await supabase
       .from("departments")

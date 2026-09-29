@@ -269,7 +269,7 @@ export function UserProfileView({
   const groups = groupsQ.data || [];
 
   return (
-    <div className="relative min-h-full overflow-hidden bg-[#0b1b3a] text-white">
+    <div className="fixed inset-0 z-[90] overflow-y-auto overflow-x-hidden bg-[#0b1b3a] text-white">
       <div
         className="pointer-events-none absolute inset-0 opacity-[0.08]"
         style={{
@@ -322,44 +322,54 @@ export function UserProfileView({
 
       <div className="relative z-10 mx-auto max-w-lg px-4 pb-24">
         <div className="flex flex-col items-center pt-4">
-          <button
-            type="button"
-            onClick={() => p.avatarUrl && setPhotoOpen(true)}
-            className="relative"
-          >
-            <span className="absolute inset-0 rounded-full bg-[#2563eb]/35 blur-lg" />
-            <span className="relative grid h-28 w-28 place-items-center overflow-hidden rounded-full bg-[#1e3a5f] ring-[3px] ring-[#3b82f6]/90 ring-offset-2 ring-offset-[#0b1b3a]">
-              {p.avatarUrl ? (
-                <img src={p.avatarUrl} alt="" className="h-full w-full object-cover" />
-              ) : (
-                <span className="text-4xl font-extrabold text-[#93c5fd]">{initials(p.fullName)}</span>
-              )}
-            </span>
-            <span className="absolute bottom-1 right-1 h-4 w-4 rounded-full border-2 border-[#0b1b3a] bg-emerald-400" />
-          </button>
-          {p.isMe && session?.profileId ? (
-            <label className="mt-2 cursor-pointer text-xs font-semibold text-[#60a5fa]">
-              Change photo
-              <input
-                type="file"
-                accept="image/*"
-                capture="user"
-                className="hidden"
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (!f || !session.profileId) return;
-                  setBusy("photo");
-                  void updateMyProfilePhoto(session.profileId, f)
-                    .then(() => {
-                      toast.success("Photo updated");
-                      void qc.invalidateQueries({ queryKey: ["public-profile", userId] });
-                      void qc.invalidateQueries({ queryKey: ["session-user"] });
-                    })
-                    .catch((err) => toast.error(err instanceof Error ? err.message : "Upload failed"))
-                    .finally(() => setBusy(null));
-                }}
-              />
-            </label>
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setPhotoOpen(true)}
+              className="relative"
+              aria-label="View photo"
+            >
+              <span className="relative grid h-28 w-28 place-items-center overflow-hidden rounded-full bg-[#1e3a5f] ring-[3px] ring-[#3b82f6]/90">
+                {p.avatarUrl ? (
+                  <img src={p.avatarUrl} alt="" className="h-full w-full object-cover" />
+                ) : (
+                  <span className="text-4xl font-extrabold text-[#93c5fd]">{initials(p.fullName)}</span>
+                )}
+              </span>
+            </button>
+            {p.isMe && session?.profileId ? (
+              <label className="absolute bottom-0 right-0 grid h-9 w-9 cursor-pointer place-items-center rounded-full bg-[#2563eb] text-white shadow-lg ring-2 ring-[#0b1b3a] active:scale-95">
+                {busy === "photo" ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <span className="text-xl font-bold leading-none">+</span>
+                )}
+                <input
+                  type="file"
+                  accept="image/*"
+                  capture="user"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (!f || !session.profileId) return;
+                    setBusy("photo");
+                    void updateMyProfilePhoto(session.profileId, f)
+                      .then(() => {
+                        toast.success("Profile photo updated");
+                        void qc.invalidateQueries({ queryKey: ["public-profile", userId] });
+                        void qc.invalidateQueries({ queryKey: ["session-user"] });
+                      })
+                      .catch((err) => toast.error(err instanceof Error ? err.message : "Upload failed"))
+                      .finally(() => setBusy(null));
+                  }}
+                />
+              </label>
+            ) : null}
+          </div>
+          {p.isMe ? (
+            <p className="mt-2 text-xs font-medium text-white/45">
+              {p.avatarUrl ? "Tap + to change photo" : "Tap + to add a profile photo"}
+            </p>
           ) : null}
 
           <h1 className="mt-3 text-center text-2xl font-bold tracking-tight">{p.fullName}</h1>
@@ -369,10 +379,7 @@ export function UserProfileView({
           {deptLevel ? (
             <p className="mt-0.5 text-center text-xs font-medium text-white/45">{deptLevel}</p>
           ) : null}
-          <span className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-300">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-            Online
-          </span>
+          {/* Online badge only when presence confirms — omitted by default */}
           {groupContext?.name ? (
             <p className="mt-2 text-[11px] text-white/40">From group · {groupContext.name}</p>
           ) : null}
@@ -388,10 +395,10 @@ export function UserProfileView({
         ) : null}
 
         <section className="mt-6 overflow-hidden rounded-2xl border border-white/10 bg-white/[0.06]">
-          <InfoRow icon={<Building2 className="h-4 w-4" />} label="Department" value={p.departmentName || "—"} />
-          <InfoRow icon={<GraduationCap className="h-4 w-4" />} label="Level" value={p.levelName || "—"} />
-          <InfoRow icon={<Building2 className="h-4 w-4" />} label="School" value={session?.schoolName || "—"} />
-          <InfoRow icon={<Hash className="h-4 w-4" />} label="Matric Number" value={p.matricNumber || "—"} last />
+          <InfoRow icon={<Building2 className="h-4 w-4" />} label="Department" value={p.departmentName || "Not set"} />
+          <InfoRow icon={<GraduationCap className="h-4 w-4" />} label="Level" value={p.levelName || "Not set"} />
+          <InfoRow icon={<Building2 className="h-4 w-4" />} label="School" value={session?.schoolName || "Not set"} />
+          <InfoRow icon={<Hash className="h-4 w-4" />} label="Matric Number" value={p.matricNumber || "Not set"} last />
         </section>
 
         <section className="mt-3 rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3">
@@ -400,9 +407,13 @@ export function UserProfileView({
             About
           </div>
           <p className="mt-1.5 text-sm leading-relaxed text-white/75">
-            {p.departmentName
-              ? `${p.fullName.split(" ")[0]} is a student in ${p.departmentName}${p.levelName ? ` · ${p.levelName}` : ""}.`
-              : "D4EXAM campus member."}
+            {p.departmentName && p.levelName
+              ? `${p.fullName.split(" ")[0]} studies ${p.departmentName} · ${p.levelName}.`
+              : p.departmentName
+                ? `${p.fullName.split(" ")[0]} is in ${p.departmentName}.`
+                : p.matricNumber
+                  ? `Matric number ${p.matricNumber}.`
+                  : "No bio added yet."}
           </p>
         </section>
 
@@ -484,6 +495,7 @@ export function UserProfileView({
         src={p.avatarUrl}
         name={p.fullName}
         subtitle={[p.matricNumber, deptLevel].filter(Boolean).join(" · ")}
+        fallbackInitials={initials(p.fullName)}
         onClose={() => setPhotoOpen(false)}
       />
     </div>
