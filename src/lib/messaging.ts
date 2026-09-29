@@ -101,15 +101,27 @@ export type ConversationListItem = {
 function previewFromMessage(m: {
   body?: string | null;
   attachment_type?: string | null;
+  duration_sec?: number | null;
+  reply_to_id?: string | null;
 }): string {
-  const t = (m.body || "").trim();
-  if (t && t !== "(attachment)") return t.slice(0, 120);
   const at = (m.attachment_type || "").toLowerCase();
-  if (at.includes("audio") || at === "voice") return "🎤 Voice note";
-  if (at.includes("image") || at === "photo") return "📷 Photo";
-  if (at.includes("video")) return "🎥 Video";
-  if (at) return "📄 Document";
-  return "";
+  const t = (m.body || "").trim();
+  let core = "";
+  if (at.includes("audio") || at === "voice") {
+    const sec = m.duration_sec != null ? Math.max(0, Math.round(Number(m.duration_sec))) : null;
+    const mm = sec != null ? `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}` : null;
+    core = mm ? `🎤 Voice note · ${mm}` : "🎤 Voice note";
+  } else if (at.includes("image") || at === "photo") {
+    core = "📷 Photo";
+  } else if (at.includes("video")) {
+    core = "🎥 Video";
+  } else if (t && t !== "(attachment)") {
+    core = t.slice(0, 120);
+  } else if (at) {
+    core = "📄 Document";
+  }
+  if (m.reply_to_id && core) return `↩ ${core}`;
+  return core;
 }
 
 /** List conversations the current user belongs to. */
@@ -988,5 +1000,24 @@ export async function clearCampusConversation(conversationId: string) {
     .update({ deleted_at: now })
     .eq("conversation_id", conversationId)
     .is("deleted_at", null);
+  if (error) throw new Error(error.message);
+}
+
+
+/** Edit own text message body. */
+export async function editCampusMessage(messageId: string, body: string) {
+  const { error } = await supabase
+    .from("campus_messages")
+    .update({ body, edited_at: new Date().toISOString() })
+    .eq("id", messageId);
+  if (error) throw new Error(error.message);
+}
+
+/** Soft-delete a single message for everyone (sender). */
+export async function deleteCampusMessage(messageId: string) {
+  const { error } = await supabase
+    .from("campus_messages")
+    .update({ deleted_at: new Date().toISOString() })
+    .eq("id", messageId);
   if (error) throw new Error(error.message);
 }

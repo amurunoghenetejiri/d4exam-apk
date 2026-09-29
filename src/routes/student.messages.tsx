@@ -24,6 +24,7 @@ import {
   UsersRound,
   ArrowLeft,
   PenLine,
+  Mic,
 } from "lucide-react";
 import { useSessionUser } from "@/lib/session";
 import { useStudentContext } from "@/lib/student";
@@ -697,16 +698,37 @@ function ConversationList({
                 </span>
               </div>
               <div className="mt-0.5 flex items-center gap-1.5">
-                {c.preview.startsWith("🎤") ? (
-                  <span className="flex min-w-0 items-center gap-1 truncate text-[13px] text-slate-500">
-                    <Play className="h-3 w-3 shrink-0 text-[#2563eb]" />
-                    {c.preview}
-                  </span>
-                ) : (
-                  <p className="truncate text-[13px] text-slate-500">
-                    {c.preview || (c.isGroup ? "No messages yet — say hello" : "No messages yet")}
-                  </p>
-                )}
+                {(() => {
+                  const p = c.preview || "";
+                  const isVoice = p.includes("Voice note") || p.startsWith("🎤");
+                  const isReply = p.startsWith("↩") || p.toLowerCase().includes("replied");
+                  const label = p
+                    .replace(/^🎤\s*/, "")
+                    .replace(/^↩\s*/, "")
+                    .trim();
+                  if (isVoice) {
+                    return (
+                      <span className="flex min-w-0 items-center gap-1 truncate text-[13px] text-slate-500">
+                        {isReply ? <span className="shrink-0 text-[#2563eb]">↩</span> : null}
+                        <Mic className="h-3.5 w-3.5 shrink-0 text-[#2563eb]" />
+                        <span className="truncate">{label || "Voice note"}</span>
+                      </span>
+                    );
+                  }
+                  if (isReply) {
+                    return (
+                      <p className="truncate text-[13px] text-slate-500">
+                        <span className="font-semibold text-[#2563eb]">You got a reply · </span>
+                        {label}
+                      </p>
+                    );
+                  }
+                  return (
+                    <p className="truncate text-[13px] text-slate-500">
+                      {p || (c.isGroup ? "No messages yet — say hello" : "No messages yet")}
+                    </p>
+                  );
+                })()}
                 {c.unread > 0 ? (
                   <span className="ml-auto grid h-5 min-w-5 shrink-0 place-items-center rounded-full bg-[#2563eb] px-1.5 text-[11px] font-bold text-white">
                     {c.unread > 99 ? "99+" : c.unread}

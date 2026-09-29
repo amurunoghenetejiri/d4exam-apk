@@ -14,6 +14,8 @@ import {
   Send,
   UsersRound,
   User,
+  Reply,
+  Copy,
   X,
   Pause,
   Play,
@@ -42,6 +44,7 @@ import {
   FileBubble,
   VideoLightbox,
   VoiceRecorderBar,
+  LongPressMenu,
   lastSeenLabel,
   stopAllVoices,
   parseMediaUrls,
@@ -72,6 +75,9 @@ import {
   getConversationMeta,
   setConversationMemberRole,
   clearCampusConversation,
+  editCampusMessage,
+  deleteCampusMessage,
+  resolveMySchoolId,
 } from "@/lib/messaging";
 import { toast } from "sonner";
 
@@ -142,6 +148,11 @@ export function ConversationChat({
     dx: number;
   } | null>(null);
   const [forwardMsg, setForwardMsg] = useState<CampusMessage | null>(null);
+  const [longPressMsg, setLongPressMsg] = useState<CampusMessage | null>(null);
+  const [editMsg, setEditMsg] = useState<CampusMessage | null>(null);
+  const [editText, setEditText] = useState("");
+  const [senderNames, setSenderNames] = useState<Record<string, { name: string; avatar: string | null }>>({});
+  const lpTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [groupMenuOpen, setGroupMenuOpen] = useState(false);
   const [chatMenuOpen, setChatMenuOpen] = useState(false);
   const [clearOpen, setClearOpen] = useState(false);
@@ -330,7 +341,36 @@ export function ConversationChat({
   }, [userId, conversationId, msgQuery.dataUpdatedAt]);
 
   const serverMsgs = msgQuery.data || [];
-  const merged = useMemo(() => {
+  // Resolve sender display names (groups + reply labels)
+  useEffect(() => {
+    const rows = msgQuery.data || [];
+    const ids = [...new Set(rows.map((m) => m.sender_id).filter(Boolean))];
+    if (!ids.length) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const { data } = await supabase.rpc("resolve_messaging_peer_names", {
+          p_user_ids: ids,
+        });
+        if (cancelled || !Array.isArray(data)) return;
+        const map: Record<string, { name: string; avatar: string | null }> = {};
+        for (const r of data as Record<string, unknown>[]) {
+          const uid = r.auth_user_id as string;
+          if (!uid) continue;
+          map[uid] = {
+            name: ((r.full_name as string) || "").trim() || "Member",
+            avatar: (r.avatar_url as string) || null,
+          };
+        }
+        setSenderNames((prev) => ({ ...prev, ...map }));
+      } catch { /* ignore */ }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [msgQuery.data]);
+
+    const merged = useMemo(() => {
     const byClient = new Set(
       serverMsgs.map((m) => m.client_id).filter(Boolean) as string[],
     );
@@ -640,7 +680,28 @@ export function ConversationChat({
     }
   };
 
-  const mm = String(Math.floor(recSecs / 60)).padStart(2, "0");
+  const nameOf = (uid: string | null | undefined) => {
+    if (!uid) return "Member";
+    if (uid === userId) return "You";
+    return senderNames[uid]?.name || displayTitle || "Member";
+  };
+  const replySnippet = (m: CampusMessage) => {
+    const at = (m.attachment_type || "").toLowerCase();
+    if (at.includes("audio") || at === "voice") {
+      const sec = m.duration_sec != null ? Math.max(0, Math.round(Number(m.duration_sec))) : null;
+      const t = sec != null ? `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}` : null;
+      return t ? `🎤 Voice note · ${t}` : "🎤 Voice note";
+    }
+    if (at.includes("image") || at === "photo") return "📷 Photo";
+    if (at.includes("video")) return "🎥 Video";
+    const b = (m.body || "").trim();
+    if (b) return b.slice(0, 80);
+    return "Message";
+  };
+  const findMsg = (id: string | null | undefined) =>
+    id ? (merged.find((x) => x.id === id) || null) : null;
+
+    const mm = String(Math.floor(recSecs / 60)).padStart(2, "0");
   const ss = String(recSecs % 60).padStart(2, "0");
 
   return (
@@ -836,6 +897,15 @@ export function ConversationChat({
                     axis: "none",
                     dx: 0,
                   };
+                  if (lpTimer.current) clearTimeout(lpTimer.current);
+                  lpTimer.current = setTimeout(() => {
+                    setLongPressMsg(m);
+                    setSwipeDx((prev) => {
+                      const n = { ...prev };
+                      delete n[m.id];
+                      return n;
+                    });
+                  }, 480);
                 }}
                 onTouchMove={(e) => {
                   const s = swipeRef.current;
@@ -847,8 +917,18 @@ export function ConversationChat({
                   if (s.axis === "none") {
                     if (Math.abs(rawX) < 12 && Math.abs(rawY) < 12) return;
                     s.axis = Math.abs(rawX) > Math.abs(rawY) * 1.15 ? "h" : "v";
+                    if (s.axis === "h" && lpTimer.current) {
+                      clearTimeout(lpTimer.current);
+                      lpTimer.current = null;
+                    }
                   }
-                  if (s.axis === "v") return;
+                  if (s.axis === "v") {
+                    if (lpTimer.current) {
+                      clearTimeout(lpTimer.current);
+                      lpTimer.current = null;
+                    }
+                    return;
+                  }
                   const next = Math.max(-72, Math.min(72, rawX));
                   s.dx = next;
                   setSwipeDx((prev) =>
@@ -856,6 +936,10 @@ export function ConversationChat({
                   );
                 }}
                 onTouchEnd={() => {
+                  if (lpTimer.current) {
+                    clearTimeout(lpTimer.current);
+                    lpTimer.current = null;
+                  }
                   const s = swipeRef.current;
                   const dx = s?.key === m.id ? s.dx : 0;
                   swipeRef.current = null;
@@ -868,18 +952,73 @@ export function ConversationChat({
                 }}
                 onContextMenu={(e) => {
                   e.preventDefault();
-                  setForwardMsg(m);
+                  setLongPressMsg(m);
                 }}
               >
+                {/* Blue reply affordance while swiping */}
+                {Math.abs(swipeDx[m.id] || 0) > 24 ? (
+                  <div
+                    className={cn(
+                      "pointer-events-none absolute top-1/2 z-0 flex -translate-y-1/2 items-center gap-1",
+                      mine ? "left-2" : "right-2",
+                    )}
+                  >
+                    <span className="grid h-8 w-8 place-items-center rounded-full bg-[#2563eb] text-white shadow-md">
+                      <Reply className="h-4 w-4" />
+                    </span>
+                  </div>
+                ) : null}
+                <div className={cn("flex max-w-[92%] items-end gap-2", mine ? "flex-row-reverse" : "flex-row")}>
+                  {meta?.isGroup && !mine ? (
+                    <div className="mb-1 grid h-8 w-8 shrink-0 place-items-center overflow-hidden rounded-full bg-[#0b1b3a] text-[10px] font-bold text-white ring-2 ring-white shadow">
+                      {senderNames[m.sender_id]?.avatar ? (
+                        <img src={senderNames[m.sender_id]!.avatar!} alt="" className="h-full w-full object-cover" />
+                      ) : (
+                        (nameOf(m.sender_id).slice(0, 2) || "?").toUpperCase()
+                      )}
+                    </div>
+                  ) : null}
+                  <div className={cn("flex min-w-0 flex-col", mine ? "items-end" : "items-start")}>
+                    {meta?.isGroup ? (
+                      <p className={cn("mb-0.5 px-1 text-[11px] font-bold", mine ? "text-slate-500" : "text-[#1d4ed8]")}>
+                        {nameOf(m.sender_id)}
+                      </p>
+                    ) : null}
+                    {m.forwarded_from_id ? (
+                      <p className="mb-0.5 flex items-center gap-1 px-1 text-[10px] font-semibold italic text-slate-500">
+                        <span>↗</span> Forwarded
+                      </p>
+                    ) : null}
                 {isVoice && m.attachment_url ? (
-                  <VoiceBubble
-                    id={m.id}
-                    src={m.attachment_url}
-                    mine={mine}
-                    timeLabel={timeLabel}
-                    tick={tick === "pending" ? "pending" : mine ? "delivered" : "none"}
-                    durationSec={m.duration_sec}
-                  />
+                  <div className="flex flex-col gap-1">
+                    {m.reply_to_id ? (
+                      <div
+                        className={cn(
+                          "rounded-lg border-l-2 px-2 py-1 text-left text-[11px]",
+                          mine
+                            ? "border-blue-400 bg-white/90 text-slate-600"
+                            : "border-[#2563eb] bg-white text-slate-600",
+                        )}
+                      >
+                        <p className="font-bold">
+                          {nameOf(findMsg(m.reply_to_id)?.sender_id)}
+                        </p>
+                        <p className="line-clamp-2 opacity-80">
+                          {findMsg(m.reply_to_id)
+                            ? replySnippet(findMsg(m.reply_to_id)!)
+                            : "Message"}
+                        </p>
+                      </div>
+                    ) : null}
+                    <VoiceBubble
+                      id={m.id}
+                      src={m.attachment_url}
+                      mine={mine}
+                      timeLabel={timeLabel}
+                      tick={tick === "pending" ? "pending" : mine ? "delivered" : "none"}
+                      durationSec={m.duration_sec}
+                    />
+                  </div>
                 ) : isImage && (urls[0] || m.attachment_url) ? (
                   <ImageBubble
                     id={m.id}
@@ -923,9 +1062,13 @@ export function ConversationChat({
                         )}
                       >
                         <p className="font-bold opacity-90">
-                          {mine ? "You" : displayTitle}
+                          {nameOf(findMsg(m.reply_to_id)?.sender_id || m.sender_id)}
                         </p>
-                        <p className="line-clamp-2 opacity-80">Reply</p>
+                        <p className="line-clamp-2 opacity-80">
+                          {findMsg(m.reply_to_id)
+                            ? replySnippet(findMsg(m.reply_to_id)!)
+                            : "Original message"}
+                        </p>
                       </div>
                     ) : null}
                     {m.body ? (
@@ -950,6 +1093,8 @@ export function ConversationChat({
                     </div>
                   </div>
                 )}
+                  </div>
+                </div>
               </div>
             );
           })}
@@ -992,15 +1137,10 @@ export function ConversationChat({
             <div className="mx-auto mb-2 flex max-w-2xl items-start gap-2 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2">
               <div className="min-w-0 flex-1">
                 <p className="text-[11px] font-bold text-blue-800">
-                  Replying to {replyTo.sender_id === userId ? "yourself" : displayTitle}
+                  Replying to {nameOf(replyTo.sender_id)}
                 </p>
                 <p className="line-clamp-2 text-xs text-slate-700">
-                  {replyTo.body ||
-                    ((replyTo.attachment_type || "").includes("audio")
-                      ? "🎤 Voice note"
-                      : (replyTo.attachment_type || "").includes("image")
-                        ? "📷 Photo"
-                        : "Attachment")}
+                  {replySnippet(replyTo)}
                 </p>
               </div>
               <button type="button" onClick={() => setReplyTo(null)} className="text-slate-400" aria-label="Cancel reply">
@@ -1142,6 +1282,118 @@ export function ConversationChat({
                   }
                   setRenameOpen(false);
                   toast.success("Name updated");
+                }}
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {longPressMsg ? (
+        <LongPressMenu
+          open={Boolean(longPressMsg)}
+          onClose={() => setLongPressMsg(null)}
+          items={[
+            {
+              label: "Copy",
+              icon: "copy",
+              onClick: () => {
+                const t =
+                  longPressMsg.body ||
+                  replySnippet(longPressMsg);
+                void navigator.clipboard?.writeText(t);
+                toast.success("Copied");
+                setLongPressMsg(null);
+              },
+            },
+            ...(longPressMsg.sender_id === userId &&
+            longPressMsg.body &&
+            !(longPressMsg.attachment_type || "").includes("audio") &&
+            !(longPressMsg.attachment_type || "").includes("image")
+              ? [
+                  {
+                    label: "Edit",
+                    icon: "edit" as const,
+                    onClick: () => {
+                      setEditMsg(longPressMsg);
+                      setEditText(longPressMsg.body || "");
+                      setLongPressMsg(null);
+                    },
+                  },
+                ]
+              : []),
+            {
+              label: "Forward",
+              onClick: () => {
+                setForwardMsg(longPressMsg);
+                setLongPressMsg(null);
+              },
+            },
+            ...(longPressMsg.sender_id === userId
+              ? [
+                  {
+                    label: "Delete",
+                    icon: "delete" as const,
+                    danger: true,
+                    onClick: () => {
+                      void (async () => {
+                        try {
+                          await deleteCampusMessage(longPressMsg.id);
+                          void qc.invalidateQueries({
+                            queryKey: ["campus-messages", conversationId],
+                          });
+                          toast.success("Deleted");
+                        } catch (e) {
+                          toast.error(
+                            e instanceof Error ? e.message : "Delete failed",
+                          );
+                        }
+                        setLongPressMsg(null);
+                      })();
+                    },
+                  },
+                ]
+              : []),
+          ]}
+        />
+      ) : null}
+
+      {editMsg ? (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl">
+            <h3 className="text-base font-extrabold">Edit message</h3>
+            <textarea
+              value={editText}
+              onChange={(e) => setEditText(e.target.value)}
+              rows={3}
+              className="mt-3 w-full resize-none rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#2563eb]/25"
+            />
+            <div className="mt-4 flex gap-2">
+              <button
+                type="button"
+                className="flex-1 rounded-xl border py-2.5 text-sm font-semibold"
+                onClick={() => setEditMsg(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="flex-1 rounded-xl bg-[#2563eb] py-2.5 text-sm font-bold text-white"
+                onClick={() => {
+                  void (async () => {
+                    try {
+                      await editCampusMessage(editMsg.id, editText.trim());
+                      void qc.invalidateQueries({
+                        queryKey: ["campus-messages", conversationId],
+                      });
+                      setEditMsg(null);
+                      toast.success("Updated");
+                    } catch (e) {
+                      toast.error(e instanceof Error ? e.message : "Edit failed");
+                    }
+                  })();
                 }}
               >
                 Save

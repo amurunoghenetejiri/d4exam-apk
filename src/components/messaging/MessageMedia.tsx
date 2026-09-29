@@ -662,6 +662,7 @@ export function FileBubble({
 }
 
 export function ImageLightbox({
+  src,
   urls,
   index = 0,
   onClose,
@@ -671,33 +672,100 @@ export function ImageLightbox({
   index?: number;
   onClose: () => void;
 }) {
-  const list = urls && urls.length ? urls : src ? [src] : [];
-  const [i, setI] = useState(index);
+  const list = (urls && urls.length ? urls : src ? [src] : []).filter(Boolean);
+  const [i, setI] = useState(() => Math.min(Math.max(0, index), Math.max(0, list.length - 1)));
   const [scale, setScale] = useState(1);
-  const touchRef = useRef<{ x: number; y: number; dist?: number } | null>(null);
+  const [dragX, setDragX] = useState(0);
+  const [dragging, setDragging] = useState(false);
+  const touchRef = useRef<{ x: number; y: number; axis: "none" | "h" | "v" } | null>(null);
   const pinchRef = useRef<{ dist: number; scale: number } | null>(null);
 
-  useEffect(() => setI(index), [index]);
-  useEffect(() => setScale(1), [i]);
+  useEffect(() => {
+    setI(Math.min(Math.max(0, index), Math.max(0, list.length - 1)));
+  }, [index, list.length]);
+  useEffect(() => {
+    setScale(1);
+    setDragX(0);
+  }, [i]);
 
   if (!list.length) return null;
   const cur = list[Math.min(i, list.length - 1)];
+  const atStart = i <= 0;
+  const atEnd = i >= list.length - 1;
 
   const go = (dir: -1 | 1) => {
     setI((prev) => {
       const next = prev + dir;
-      if (next < 0) return list.length - 1;
-      if (next >= list.length) return 0;
+      if (next < 0) return 0;
+      if (next >= list.length) return list.length - 1;
       return next;
     });
     setScale(1);
+    setDragX(0);
   };
 
   return (
-    <div className="fixed inset-0 z-[90] flex flex-col bg-black"
-      onTouchStart={(e) => { if (e.touches.length === 2) { const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY); pinchRef.current = { dist: d, scale }; } }}
-      onTouchMove={(e) => { if (e.touches.length === 2 && pinchRef.current) { e.preventDefault(); const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY); setScale(Math.max(1, Math.min(4, pinchRef.current.scale * (d / Math.max(1, pinchRef.current.dist))))); } }}
-      onTouchEnd={() => { pinchRef.current = null; if (scale < 1.05) setScale(1); }}
+    <div
+      className="fixed inset-0 z-[100] flex flex-col bg-black"
+      onTouchStart={(e) => {
+        if (e.touches.length === 2) {
+          const d = Math.hypot(
+            e.touches[0].clientX - e.touches[1].clientX,
+            e.touches[0].clientY - e.touches[1].clientY,
+          );
+          pinchRef.current = { dist: d, scale };
+          return;
+        }
+        if (scale > 1.05) return;
+        touchRef.current = {
+          x: e.touches[0]?.clientX ?? 0,
+          y: e.touches[0]?.clientY ?? 0,
+          axis: "none",
+        };
+        setDragging(true);
+      }}
+      onTouchMove={(e) => {
+        if (e.touches.length === 2 && pinchRef.current) {
+          e.preventDefault();
+          const d = Math.hypot(
+            e.touches[0].clientX - e.touches[1].clientX,
+            e.touches[0].clientY - e.touches[1].clientY,
+          );
+          setScale(
+            Math.max(1, Math.min(4, pinchRef.current.scale * (d / Math.max(1, pinchRef.current.dist)))),
+          );
+          return;
+        }
+        const t = touchRef.current;
+        if (!t || scale > 1.05) return;
+        const x = e.touches[0]?.clientX ?? 0;
+        const y = e.touches[0]?.clientY ?? 0;
+        const dx = x - t.x;
+        const dy = y - t.y;
+        if (t.axis === "none") {
+          if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
+          t.axis = Math.abs(dx) > Math.abs(dy) * 1.2 ? "h" : "v";
+        }
+        if (t.axis !== "h") return;
+        // Rubber-band at ends: resist further drag
+        let next = dx;
+        if ((atStart && dx > 0) || (atEnd && dx < 0)) next = dx * 0.25;
+        setDragX(next);
+      }}
+      onTouchEnd={() => {
+        pinchRef.current = null;
+        const t = touchRef.current;
+        touchRef.current = null;
+        setDragging(false);
+        if (scale > 1.05) {
+          if (scale < 1.05) setScale(1);
+          return;
+        }
+        const dx = dragX;
+        setDragX(0);
+        if (dx < -60 && !atEnd) go(1);
+        else if (dx > 60 && !atStart) go(-1);
+      }}
       onDoubleClick={() => setScale((s) => (s > 1 ? 1 : 2))}
     >
       <div className="absolute inset-x-0 top-0 z-10 flex items-center justify-between px-3 py-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
@@ -709,63 +777,68 @@ export function ImageLightbox({
         >
           <X className="h-5 w-5" />
         </button>
-        <p className="rounded-full bg-black/40 px-3 py-1 text-sm font-semibold text-white backdrop-blur-sm">
-          {list.length > 1 ? `${i + 1} / ${list.length}` : "Photo"}
-        </p>
+        {list.length > 1 ? (
+          <span className="rounded-full bg-black/40 px-3 py-1 text-xs font-semibold text-white backdrop-blur-sm">
+            {i + 1} / {list.length}
+          </span>
+        ) : (
+          <span />
+        )}
         <span className="w-10" />
       </div>
-
-      <div
-        className="flex min-h-0 flex-1 items-center justify-center overflow-hidden touch-none"
-        onTouchStart={(e) => {
-          if (e.touches.length === 2) {
-            const dx = e.touches[0].clientX - e.touches[1].clientX;
-            const dy = e.touches[0].clientY - e.touches[1].clientY;
-            touchRef.current = { x: 0, y: 0, dist: Math.hypot(dx, dy) };
-            return;
-          }
-          touchRef.current = { x: e.touches[0]?.clientX ?? 0, y: e.touches[0]?.clientY ?? 0 };
-        }}
-        onTouchMove={(e) => {
-          if (e.touches.length === 2 && touchRef.current?.dist) {
-            const dx = e.touches[0].clientX - e.touches[1].clientX;
-            const dy = e.touches[0].clientY - e.touches[1].clientY;
-            const dist = Math.hypot(dx, dy);
-            const ratio = dist / touchRef.current.dist;
-            setScale((s) => Math.max(1, Math.min(4, s * ratio)));
-            touchRef.current.dist = dist;
-          }
-        }}
-        onTouchEnd={(e) => {
-          const s = touchRef.current;
-          touchRef.current = null;
-          if (!s || list.length < 2 || scale > 1.05) return;
-          if (s.dist) return;
-          const x = e.changedTouches[0]?.clientX ?? 0;
-          const dx = x - s.x;
-          if (dx < -56) go(1);
-          else if (dx > 56) go(-1);
-        }}
-        onDoubleClick={() => setScale((s) => (s > 1 ? 1 : 2))}
-      >
+      <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden">
         <img
           src={cur}
           alt=""
-          className="select-none transition-transform duration-150"
-          style={{
-            width: "100%",
-            height: "100%",
-            maxWidth: "100vw",
-            maxHeight: "100dvh",
-            objectFit: "contain",
-            transform: `scale(${scale})`,
-          }}
           draggable={false}
+          className="max-h-full max-w-full select-none object-contain"
+          style={{
+            transform: `translateX(${dragX}px) scale(${scale})`,
+            transition: dragging ? "none" : "transform 0.22s ease-out",
+          }}
         />
+        {/* Peek next/prev while dragging */}
+        {list.length > 1 && dragX < -20 && !atEnd ? (
+          <img
+            src={list[i + 1]}
+            alt=""
+            className="pointer-events-none absolute max-h-full max-w-full object-contain opacity-40"
+            style={{ transform: `translateX(${typeof window !== "undefined" ? window.innerWidth + dragX : 400}px)` }}
+          />
+        ) : null}
+        {list.length > 1 && dragX > 20 && !atStart ? (
+          <img
+            src={list[i - 1]}
+            alt=""
+            className="pointer-events-none absolute max-h-full max-w-full object-contain opacity-40"
+            style={{ transform: `translateX(${typeof window !== "undefined" ? -window.innerWidth + dragX : -400}px)` }}
+          />
+        ) : null}
       </div>
+      {list.length > 1 ? (
+        <div className="absolute inset-x-0 bottom-0 z-10 flex items-center justify-center gap-6 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3">
+          <button
+            type="button"
+            disabled={atStart}
+            onClick={() => go(-1)}
+            className="rounded-full bg-white/15 px-4 py-2 text-sm font-semibold text-white disabled:opacity-30"
+          >
+            Prev
+          </button>
+          <button
+            type="button"
+            disabled={atEnd}
+            onClick={() => go(1)}
+            className="rounded-full bg-white/15 px-4 py-2 text-sm font-semibold text-white disabled:opacity-30"
+          >
+            Next
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }
+
 
 export function VideoLightbox({ src, onClose }: { src: string; onClose: () => void }) {
   const videoRef = useRef<HTMLVideoElement>(null);
