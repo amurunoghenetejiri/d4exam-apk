@@ -185,31 +185,6 @@ export async function broadcastSignal(
 
 
 /** Best-effort high-priority push so callee device wakes when app is backgrounded. */
-) {
-  try {
-    const mod = await import("@/lib/push-send.functions");
-    const fn =
-      (mod as { sendUserPush?: (i: unknown) => Promise<unknown> }).sendUserPush ||
-      (mod as { pushToUser?: (i: unknown) => Promise<unknown> }).pushToUser ||
-      (mod as { sendPushNotification?: (i: unknown) => Promise<unknown> }).sendPushNotification;
-    if (typeof fn === "function") {
-      await fn({
-        recipientUserId: opts.calleeId,
-        title: opts.callerName || "D4EXAM",
-        message:
-          opts.callType === "video"
-            ? `Incoming video call${opts.callerMatric ? " · " + opts.callerMatric : ""}`
-            : `Incoming voice call${opts.callerMatric ? " · " + opts.callerMatric : ""}`,
-        link: `/student/messages?incomingCall=${encodeURIComponent(opts.callId)}&type=${opts.callType}`,
-      });
-    }
-  } catch {
-    /* best-effort */
-  }
-}
-
-
-/** Best-effort high-priority push so callee device wakes when app is backgrounded. */
 export async function notifyCalleeOfIncomingCall(opts: {
   calleeId: string;
   callId: string;
