@@ -544,7 +544,7 @@ export function ImageBubble({
       id={id}
       type="button"
       onClick={() => onOpen(0)}
-      className="relative block max-w-[min(58vw,200px)] md:max-w-[min(38vw,260px)] lg:max-w-[min(30vw,300px)] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
+      className="relative block max-w-[min(48vw,160px)] sm:max-w-[min(52vw,180px)] md:max-w-[min(36vw,240px)] lg:max-w-[min(28vw,280px)] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
       onContextMenu={(e) => e.preventDefault()}
     >
       <img src={src} alt="" className="max-h-[min(70vh,28rem)] w-full object-contain bg-black/5" draggable={false} />
@@ -594,7 +594,7 @@ export function VideoBubble({
       id={id}
       type="button"
       onClick={onOpen}
-      className="relative block max-w-[min(58vw,200px)] overflow-hidden rounded-2xl border border-slate-200 bg-slate-900 shadow-sm"
+      className="relative block max-w-[min(48vw,160px)] sm:max-w-[min(52vw,180px)] overflow-hidden rounded-2xl border border-slate-200 bg-slate-900 shadow-sm"
       onContextMenu={(e) => e.preventDefault()}
     >
       {forwarded ? (
@@ -664,58 +664,76 @@ export function FileBubble({
   const isPdf = /\.pdf($|\?)/i.test(src) || /pdf/i.test(label);
   const isDoc = /\.(docx?|rtf)($|\?)/i.test(src) || /word/i.test(label);
   const isSheet = /\.(xlsx?|csv)($|\?)/i.test(src);
-  const isPpt = /\.(pptx?)($|\?)/i.test(src);
-  const kind = isPdf ? "PDF" : isDoc ? "DOC" : isSheet ? "XLS" : isPpt ? "PPT" : "FILE";
-  const color =
-    isPdf
-      ? "from-rose-500 to-rose-600"
-      : isDoc
-        ? "from-blue-500 to-blue-600"
-        : isSheet
-          ? "from-emerald-500 to-emerald-600"
-          : isPpt
-            ? "from-orange-500 to-orange-600"
-            : "from-slate-500 to-slate-600";
+  const kind = isPdf ? "PDF" : isDoc ? "DOC" : isSheet ? "XLS" : "FILE";
+  const accent = isPdf ? "bg-rose-500" : isDoc ? "bg-blue-600" : isSheet ? "bg-emerald-600" : "bg-slate-600";
+
+  const openNative = (e: { preventDefault: () => void; stopPropagation?: () => void }) => {
+    e.preventDefault();
+    // Open in new tab so the OS/browser offers "Open with…" for PDFs
+    const a = document.createElement("a");
+    a.href = src;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    // Intentionally no download attr so mobile can use installed PDF apps
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
+
+  const downloadFile = (e: { preventDefault: () => void; stopPropagation?: () => void }) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const a = document.createElement("a");
+    a.href = src;
+    a.download = label;
+    a.rel = "noopener noreferrer";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
 
   return (
-    <a
+    <div
       id={id}
-      href={src}
-      target="_blank"
-      rel="noopener noreferrer"
-      download={label}
-      className="block w-[min(62vw,220px)] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
-      onContextMenu={(e) => e.preventDefault()}
+      className="w-[min(70vw,240px)] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
     >
-      <div className={`flex h-28 items-center justify-center bg-gradient-to-br ${color}`}>
-        <div className="flex flex-col items-center gap-1 text-white">
-          <svg viewBox="0 0 24 24" className="h-10 w-10 fill-current opacity-95" aria-hidden>
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" fill="currentColor" opacity=".35" />
-            <path d="M14 2v6h6" fill="none" stroke="currentColor" strokeWidth="1.5" />
-            <text x="12" y="17" textAnchor="middle" fontSize="6" fontWeight="700" fill="white">
-              {kind}
-            </text>
-          </svg>
-          <span className="text-[11px] font-bold tracking-wide">{kind} document</span>
+      <button
+        type="button"
+        onClick={openNative}
+        className="flex w-full items-center gap-3 px-3 py-3 text-left active:bg-slate-50"
+      >
+        <span
+          className={`grid h-12 w-12 shrink-0 place-items-center rounded-xl ${accent} text-[11px] font-black tracking-wide text-white shadow-sm`}
+        >
+          {kind}
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[13px] font-bold text-slate-900">{label}</p>
+          <p className="mt-0.5 text-[11px] font-medium text-slate-500">
+            {kind} document · Tap to open
+          </p>
         </div>
+      </button>
+      <div className="flex items-center justify-between gap-2 border-t border-slate-100 px-3 py-2">
+        <button
+          type="button"
+          onClick={downloadFile}
+          className="rounded-lg bg-slate-100 px-2.5 py-1 text-[11px] font-bold text-slate-700 active:bg-slate-200"
+        >
+          Download
+        </button>
+        <span className="flex shrink-0 items-center gap-1 text-[10px] tabular-nums text-slate-400">
+          {timeLabel}
+          {tick && tick !== "none" ? (
+            tick === "pending" ? (
+              <Clock className="h-3 w-3" />
+            ) : (
+              <CheckCheck className="h-3 w-3" />
+            )
+          ) : null}
+        </span>
       </div>
-      <div className="px-3 py-2">
-        <p className="truncate text-[13px] font-semibold text-slate-800">{label}</p>
-        <div className="mt-1 flex items-center justify-between gap-2">
-          <span className="text-[11px] font-medium text-[#2563eb]">Open with…</span>
-          <span className="flex shrink-0 items-center gap-1 text-[10px] tabular-nums text-slate-400">
-            {timeLabel}
-            {tick && tick !== "none" ? (
-              tick === "pending" ? (
-                <Clock className="h-3 w-3" />
-              ) : (
-                <CheckCheck className="h-3 w-3" />
-              )
-            ) : null}
-          </span>
-        </div>
-      </div>
-    </a>
+    </div>
   );
 }
 

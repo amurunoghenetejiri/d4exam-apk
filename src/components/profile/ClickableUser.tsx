@@ -4,7 +4,8 @@ import { cn } from "@/lib/utils";
 /** Makes any user identity open the profile page. */
 export function openUserProfile(userId: string | null | undefined) {
   if (!userId) return;
-  appNavigate({ to: "/student/user/$userId", params: { userId } });
+  // appNavigate accepts a path STRING only (not { to, params })
+  appNavigate(`/student/user/${encodeURIComponent(userId)}`);
 }
 
 export function ClickableUser({

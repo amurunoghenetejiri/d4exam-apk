@@ -360,7 +360,7 @@ function MessagesHub() {
           <div className="flex shrink-0 items-center gap-1.5">
             <button
               type="button"
-              onClick={() => appNavigate({ to: "/student/notifications" })}
+              onClick={() => appNavigate("/student/notifications")}
               className="grid h-10 w-10 place-items-center rounded-full bg-white/10 text-white transition active:scale-95"
               aria-label="Notifications"
             >
@@ -370,7 +370,7 @@ function MessagesHub() {
               type="button"
               onClick={() => {
                 if (userId) openUserProfile(userId);
-                else appNavigate({ to: "/student/profile" });
+                else appNavigate("/student/profile");
               }}
               className="grid h-10 w-10 place-items-center rounded-full bg-white/10 text-white transition active:scale-95"
               aria-label="My profile"

@@ -1,4 +1,8 @@
 import { openUserProfile } from "@/components/profile/ClickableUser";
+import { startDirectCall } from "@/lib/calls";
+import { CallOverlay, type ActiveCall } from "@/components/calls/CallOverlay";
+import { isOnlineNow } from "@/lib/offline-guard";
+import { toast } from "sonner";
 /**
  * Campus conversation chat (direct + group).
  * Reuses MessageMedia; stores in campus_messages.
@@ -16,6 +20,8 @@ import {
   UsersRound,
   User,
   Reply,
+  Phone,
+  Video,
   Copy,
   CornerUpRight,
   X,
@@ -81,7 +87,6 @@ import {
   deleteCampusMessage,
   resolveMySchoolId,
 } from "@/lib/messaging";
-import { toast } from "sonner";
 
 function ConversationChatRoute() {
   const { conversationId } = useParams({ from: "/student/messages/$conversationId" });
@@ -242,6 +247,7 @@ export function ConversationChat({
   const lpTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [groupMenuOpen, setGroupMenuOpen] = useState(false);
   const [chatMenuOpen, setChatMenuOpen] = useState(false);
+  const [activeCall, setActiveCall] = useState<ActiveCall | null>(null);
   const [clearOpen, setClearOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
   const [renameVal, setRenameVal] = useState("");
@@ -801,6 +807,38 @@ export function ConversationChat({
     return parts.length ? parts : text;
   };
 
+  const resolvePeerId = () => {
+    if (meta?.isGroup) return null;
+    const fromMeta = (meta as { peerUserId?: string } | null)?.peerUserId;
+    if (fromMeta) return fromMeta;
+    return Object.keys(senderNames).find((id) => id !== userId) || null;
+  };
+
+  const startPeerCall = async (callType: "voice" | "video") => {
+    const peer = resolvePeerId();
+    if (!peer || !userId) {
+      toast.error("No peer to call");
+      return;
+    }
+    if (!isOnlineNow()) {
+      toast.error("Internet connection is required for calls");
+      return;
+    }
+    try {
+      const callId = await startDirectCall({ calleeId: peer, callType, conversationId });
+      setActiveCall({
+        callId,
+        callType,
+        peerId: peer,
+        peerName: displayTitle,
+        peerAvatar: senderNames[peer]?.avatar || null,
+        isCaller: true,
+      });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not start call");
+    }
+  };
+
   const nameOf = (uid: string | null | undefined) => {
     if (!uid) return "Member";
     if (uid === userId) return "You";
@@ -931,7 +969,28 @@ export function ConversationChat({
                       : "Last seen just now"}
           </p>
         </div>
-        <div className="relative">
+        <div className="flex shrink-0 items-center gap-0.5">
+          {!meta?.isGroup ? (
+            <>
+              <button
+                type="button"
+                onClick={() => void startPeerCall("voice")}
+                className="grid h-9 w-9 place-items-center rounded-full text-white hover:bg-white/10"
+                aria-label="Voice call"
+              >
+                <Phone className="h-4.5 w-4.5 h-[1.15rem] w-[1.15rem]" />
+              </button>
+              <button
+                type="button"
+                onClick={() => void startPeerCall("video")}
+                className="grid h-9 w-9 place-items-center rounded-full text-white hover:bg-white/10"
+                aria-label="Video call"
+              >
+                <Video className="h-4.5 w-4.5 h-[1.15rem] w-[1.15rem]" />
+              </button>
+            </>
+          ) : null}
+          <div className="relative">
           <button
             type="button"
             onClick={() => setChatMenuOpen((v) => !v)}
@@ -977,6 +1036,7 @@ export function ConversationChat({
               </button>
             </div>
           ) : null}
+        </div>
         </div>
       </header>
 
@@ -1310,54 +1370,17 @@ export function ConversationChat({
         ) : (
           <>
           {typingLink ? (
-            <div className="mx-auto mb-2 max-w-2xl overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-              {linkMeta?.loading ? (
-                <div className="flex items-center gap-3 px-3 py-3">
-                  <div className="h-10 w-10 shrink-0 animate-pulse rounded-lg bg-slate-200" />
-                  <div className="min-w-0 flex-1 space-y-2">
-                    <div className="h-3 w-2/3 animate-pulse rounded bg-slate-200" />
-                    <div className="h-2.5 w-full animate-pulse rounded bg-slate-100" />
-                    <p className="text-[10px] font-medium text-[#2563eb]">Generating link preview…</p>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex gap-0">
-                  {linkMeta?.image ? (
-                    <img
-                      src={linkMeta.image}
-                      alt=""
-                      className="h-[4.5rem] w-[4.5rem] shrink-0 object-cover"
-                    />
-                  ) : (
-                    <div className="grid h-[4.5rem] w-[4.5rem] shrink-0 place-items-center bg-[#eff6ff] text-lg font-bold text-[#2563eb]">
-                      {linkMeta?.logo ? (
-                        <img src={linkMeta.logo} alt="" className="h-8 w-8 object-contain" />
-                      ) : (
-                        "🔗"
-                      )}
-                    </div>
-                  )}
-                  <div className="min-w-0 flex-1 px-3 py-2">
-                    <p className="line-clamp-1 text-[13px] font-bold text-slate-900">
-                      {linkMeta?.title || "Link"}
-                    </p>
-                    {linkMeta?.description ? (
-                      <p className="mt-0.5 line-clamp-2 text-[11px] text-slate-500">
-                        {linkMeta.description}
-                      </p>
-                    ) : null}
-                    <p className="mt-1 truncate text-[10px] font-medium text-slate-400">
-                      {(() => {
-                        try {
-                          return new URL(typingLink).hostname;
-                        } catch {
-                          return typingLink;
-                        }
-                      })()}
-                    </p>
-                  </div>
-                </div>
-              )}
+            <div className="mx-auto mb-2 flex max-w-2xl items-center gap-3 rounded-2xl border border-slate-200/80 bg-white/95 px-3 py-2.5 shadow-sm">
+              <div className="relative grid h-9 w-9 shrink-0 place-items-center">
+                <span className="absolute inset-0 animate-ping rounded-full bg-[#2563eb]/25" />
+                <span className="relative grid h-9 w-9 place-items-center rounded-full bg-slate-100">
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-[#2563eb]" />
+                </span>
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-[12px] font-bold text-slate-800">Generating link…</p>
+                <p className="truncate text-[11px] text-slate-500">{typingLink}</p>
+              </div>
             </div>
           ) : null}
           {replyTo ? (
@@ -1641,6 +1664,13 @@ export function ConversationChat({
         </div>
       ) : null}
 
+      {activeCall && userId ? (
+        <CallOverlay
+          call={activeCall}
+          myUserId={userId}
+          onClose={() => setActiveCall(null)}
+        />
+      ) : null}
       {lightboxUrls && lightboxUrls.length ? (
         <ImageLightbox
           urls={lightboxUrls}
@@ -1768,29 +1798,36 @@ function LinkMessageBody({
         href={href}
         target="_blank"
         rel="noopener noreferrer"
-        className={cn(
-          "block overflow-hidden rounded-xl border text-left",
-          mine ? "border-slate-200 bg-slate-50" : "border-white/25 bg-white/10",
-        )}
+        className="block max-w-[min(72vw,260px)] overflow-hidden rounded-xl border border-black/10 bg-white text-left shadow-sm"
         onClick={(e) => e.stopPropagation()}
       >
         {meta.image ? (
           <img src={meta.image} alt="" className="h-28 w-full object-cover" />
-        ) : null}
+        ) : (
+          <div className="flex h-16 items-center justify-center bg-slate-50 text-2xl">🔗</div>
+        )}
         <div className="px-2.5 py-2">
-          <p className={cn("line-clamp-2 text-[13px] font-bold", mine ? "text-slate-900" : "text-white")}>
+          <p className="line-clamp-2 text-[13px] font-bold text-slate-900">
             {meta.title || meta.host}
           </p>
           {meta.description ? (
-            <p className={cn("mt-0.5 line-clamp-2 text-[11px]", mine ? "text-slate-500" : "text-blue-50/90")}>
+            <p className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-slate-500">
               {meta.description}
             </p>
           ) : null}
-          <p className={cn("mt-1 truncate text-[10px] font-medium", mine ? "text-blue-600" : "text-blue-100")}>
+          <p className="mt-1.5 truncate text-[10px] font-semibold uppercase tracking-wide text-slate-400">
             {meta.host || href}
           </p>
         </div>
       </a>
+    );
+  }
+
+  if (urlMatch && !meta) {
+    return (
+      <p className="break-all text-[14px] text-slate-800 underline decoration-slate-300">
+        {body.trim()}
+      </p>
     );
   }
 
@@ -1800,6 +1837,7 @@ function LinkMessageBody({
     </p>
   );
 }
+
 
 function ForwardSheet({
   userId,

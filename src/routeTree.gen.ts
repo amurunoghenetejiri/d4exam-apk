@@ -72,6 +72,7 @@ import { Route as StudentSettingsRouteImport } from './routes/student.settings'
 import { Route as StudentContactOfficerRouteImport } from './routes/student.contact-officer'
 import { Route as StudentMessagesRouteImport } from './routes/student.messages'
 import { Route as StudentMessagesConversationIdRouteImport } from './routes/student.messages.$conversationId'
+import { Route as StudentUserUserIdRouteImport } from './routes/student.user.$userId'
 import { Route as SuperAdminIndexRouteImport } from './routes/super-admin.index'
 import { Route as SuperAdminApplicationsRouteImport } from './routes/super-admin.applications'
 import { Route as SuperAdminAuditLogsRouteImport } from './routes/super-admin.audit-logs'
@@ -417,6 +418,11 @@ const StudentMessagesConversationIdRoute = StudentMessagesConversationIdRouteImp
   path: '/messages/$conversationId',
   getParentRoute: () => StudentRoute,
 } as any)
+const StudentUserUserIdRoute = StudentUserUserIdRouteImport.update({
+  id: '/user/$userId',
+  path: '/user/$userId',
+  getParentRoute: () => StudentRoute,
+} as any)
 const StudentSettingsRoute = StudentSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
@@ -652,6 +658,8 @@ export interface FileRoutesByFullPath {
   '/student/contact-officer': typeof StudentContactOfficerRoute
   '/student/messages': typeof StudentMessagesRoute
   '/student/messages/$conversationId': typeof StudentMessagesConversationIdRoute
+  '/student/user/$userId': typeof StudentUserUserIdRoute
+  '/student/user/$userId': typeof StudentUserUserIdRoute
   '/super-admin/applications': typeof SuperAdminApplicationsRoute
   '/super-admin/audit-logs': typeof SuperAdminAuditLogsRoute
   '/super-admin/examinations': typeof SuperAdminExaminationsRoute
@@ -743,6 +751,7 @@ export interface FileRoutesByTo {
   '/student/contact-officer': typeof StudentContactOfficerRoute
   '/student/messages': typeof StudentMessagesRoute
   '/student/messages/$conversationId': typeof StudentMessagesConversationIdRoute
+  '/student/user/$userId': typeof StudentUserUserIdRoute
   '/super-admin/applications': typeof SuperAdminApplicationsRoute
   '/super-admin/audit-logs': typeof SuperAdminAuditLogsRoute
   '/super-admin/examinations': typeof SuperAdminExaminationsRoute
@@ -839,6 +848,7 @@ export interface FileRoutesById {
   '/student/contact-officer': typeof StudentContactOfficerRoute
   '/student/messages': typeof StudentMessagesRoute
   '/student/messages/$conversationId': typeof StudentMessagesConversationIdRoute
+  '/student/user/$userId': typeof StudentUserUserIdRoute
   '/super-admin/applications': typeof SuperAdminApplicationsRoute
   '/super-admin/audit-logs': typeof SuperAdminAuditLogsRoute
   '/super-admin/examinations': typeof SuperAdminExaminationsRoute
@@ -1936,6 +1946,7 @@ interface StudentRouteChildren {
   StudentContactOfficerRoute: typeof StudentContactOfficerRoute
   StudentMessagesRoute: typeof StudentMessagesRoute
   StudentMessagesConversationIdRoute: typeof StudentMessagesConversationIdRoute
+  StudentUserUserIdRoute: typeof StudentUserUserIdRoute
   StudentIndexRoute: typeof StudentIndexRoute
   StudentExamIdRoute: typeof StudentExamIdRoute
 }
@@ -1954,6 +1965,7 @@ const StudentRouteChildren: StudentRouteChildren = {
   StudentContactOfficerRoute: StudentContactOfficerRoute,
   StudentMessagesRoute: StudentMessagesRoute,
   StudentMessagesConversationIdRoute: StudentMessagesConversationIdRoute,
+  StudentUserUserIdRoute: StudentUserUserIdRoute,
 }
 
 const StudentRouteWithChildren =

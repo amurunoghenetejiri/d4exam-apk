@@ -80,7 +80,7 @@ export function UserProfileView({
     try {
       const schoolId = p.schoolId || session?.schoolId || "";
       const id = await getOrCreateDirectConversation(myId, p.authUserId, schoolId);
-      appNavigate({ to: "/student/messages", search: { chat: id } as never });
+      appNavigate(`/student/messages?chat=${encodeURIComponent(id)}`);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not open chat");
     } finally {
@@ -395,7 +395,7 @@ export function UserProfileView({
             ) : (
               <SheetBtn
                 onClick={() => {
-                  appNavigate({ to: "/student/settings" });
+                  appNavigate("/student/settings");
                   setMoreOpen(false);
                 }}
               >
