@@ -135,7 +135,11 @@ export async function listMyConversations(
     .eq("user_id", userId)
     .is("left_at", null);
 
-  if (mErr || !memberships?.length) return [];
+  if (mErr) {
+    console.warn("[listMyConversations] memberships", mErr.message);
+    throw new Error(mErr.message || "Could not load conversations");
+  }
+  if (!memberships?.length) return [];
 
   const ids = memberships.map((m) => m.conversation_id);
   const readMap = new Map(

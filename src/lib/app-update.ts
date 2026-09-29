@@ -205,7 +205,7 @@ export function isAndroidWebBrowser(): boolean {
     const ua = navigator.userAgent || "";
     if (/iPhone|iPad|iPod/i.test(ua)) return false;
     if (!/Android/i.test(ua)) return false;
-    if (/; wv\)/i.test(ua) && isRealCapacitorNative()) return false;
+    if (ua.includes("; wv)") && isRealCapacitorNative()) return false;
     return true;
   } catch {
     return false;

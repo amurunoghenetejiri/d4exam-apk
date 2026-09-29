@@ -84,7 +84,7 @@ export function getRuntimePlatform(): RuntimePlatform {
   try {
     const ua = navigator.userAgent || "";
     // Android System WebView used by Capacitor (not Chrome)
-    if (/; wv\)/i.test(ua) && /Android/i.test(ua)) {
+    if (ua.includes("; wv)") && /Android/i.test(ua)) {
       persistNativeFlag("android");
       return "android";
     }
@@ -118,7 +118,7 @@ export function isNativeShell(): boolean {
   // Soft: Android WebView UA even without Capacitor yet
   try {
     const ua = navigator.userAgent || "";
-    if (/; wv\)/i.test(ua) && /Android/i.test(ua)) {
+    if (ua.includes("; wv)") && /Android/i.test(ua)) {
       persistNativeFlag("android");
       return true;
     }
@@ -159,7 +159,7 @@ export async function waitForNativeShell(timeoutMs = 8_000): Promise<boolean> {
     // UA-based Android WebView (bridge may still be loading)
     try {
       const ua = navigator.userAgent || "";
-      if (/; wv\)/i.test(ua) && /Android/i.test(ua) && Cap) {
+      if (ua.includes("; wv)") && /Android/i.test(ua) && Cap) {
         persistNativeFlag("android");
         return true;
       }

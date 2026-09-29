@@ -101,7 +101,7 @@ export function isNativeAndroid(): boolean {
   try {
     // Capacitor WebView UA (server.url remote load) even if isNativePlatform lags
     const ua = typeof navigator !== "undefined" ? navigator.userAgent || "" : "";
-    if (/; wv\)/i.test(ua) && /Android/i.test(ua)) return true;
+    if (ua.includes("; wv)") && /Android/i.test(ua)) return true;
     if (/Android/i.test(ua) && /Capacitor/i.test(ua)) return true;
     if (Capacitor.getPlatform() === "android") return true;
   } catch {

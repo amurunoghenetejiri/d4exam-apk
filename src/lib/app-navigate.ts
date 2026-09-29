@@ -10,7 +10,7 @@ function isLocalNativeShell(): boolean {
     const ua = navigator.userAgent || "";
     const native =
       Boolean(cap?.isNativePlatform?.()) ||
-      (/; wv\)/i.test(ua) && /Android/i.test(ua)) ||
+      (ua.includes("; wv)") && /Android/i.test(ua)) ||
       /Capacitor/i.test(ua);
     const host = window.location.hostname || "";
     const local =
@@ -31,7 +31,7 @@ function shouldUseHash(): boolean {
   try {
     const cap = (window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor;
     const ua = navigator.userAgent || "";
-    if (Boolean(cap?.isNativePlatform?.()) || /Capacitor/i.test(ua) || (/; wv\)/i.test(ua) && /Android/i.test(ua))) {
+    if (Boolean(cap?.isNativePlatform?.()) || /Capacitor/i.test(ua) || (ua.includes("; wv)") && /Android/i.test(ua))) {
       return true;
     }
   } catch {

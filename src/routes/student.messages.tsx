@@ -508,6 +508,11 @@ function MessagesHub() {
             <ConversationList
               items={filteredChats}
               loading={convQuery.isLoading}
+              error={
+                convQuery.isError
+                  ? (convQuery.error as Error)?.message || "Could not load conversations"
+                  : null
+              }
               emptyLabel={
                 tab === "groups"
                   ? "No groups yet — create one to study together"
@@ -521,6 +526,7 @@ function MessagesHub() {
               emptyActionLabel={
                 tab === "groups" ? "Create a group" : "Message a student"
               }
+              onRetry={() => void convQuery.refetch()}
             />
           )}
 
@@ -528,10 +534,16 @@ function MessagesHub() {
             <StudentDirectory
               students={studentsQuery.data || []}
               loading={studentsQuery.isLoading}
+              error={
+                studentsQuery.isError
+                  ? (studentsQuery.error as Error)?.message || "Could not load people"
+                  : null
+              }
               departmentOnly={deptOpen}
               departmentName={student?.departmentName || "My Department"}
               onMessage={startDirect}
               onCloseDept={() => setDeptOpen(false)}
+              onRetry={() => void studentsQuery.refetch()}
             />
           )}
 
@@ -705,17 +717,21 @@ function QuickCard({
 function ConversationList({
   items,
   loading,
+  error,
   emptyLabel,
   onOpen,
   onEmptyAction,
   emptyActionLabel,
+  onRetry,
 }: {
   items: ConversationListItem[];
   loading: boolean;
+  error?: string | null;
   emptyLabel: string;
   onOpen: (id: string) => void;
   onEmptyAction?: () => void;
   emptyActionLabel?: string;
+  onRetry?: () => void;
 }) {
   const { data: session } = useSessionUser();
   const myId = session?.userId || "";
@@ -731,6 +747,24 @@ function ConversationList({
             </div>
           </div>
         ))}
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="mx-3 my-6 rounded-2xl border border-red-100 bg-white px-4 py-10 text-center shadow-sm">
+        <p className="text-sm font-bold text-slate-800">Could not load conversations</p>
+        <p className="mt-1.5 text-xs text-slate-500">{error}</p>
+        {onRetry ? (
+          <button
+            type="button"
+            onClick={onRetry}
+            className="mt-4 rounded-full bg-[#2563eb] px-4 py-2 text-xs font-semibold text-white"
+          >
+            Try again
+          </button>
+        ) : null}
       </div>
     );
   }
@@ -883,17 +917,21 @@ function ConversationList({
 function StudentDirectory({
   students,
   loading,
+  error,
   departmentOnly,
   departmentName,
   onMessage,
   onCloseDept,
+  onRetry,
 }: {
   students: StudentDiscover[];
   loading: boolean;
+  error?: string | null;
   departmentOnly: boolean;
   departmentName: string;
   onMessage: (s: StudentDiscover) => void;
   onCloseDept: () => void;
+  onRetry?: () => void;
 }) {
   const byLevel = useMemo(() => {
     const map = new Map<string, StudentDiscover[]>();
@@ -923,6 +961,20 @@ function StudentDirectory({
       {loading ? (
         <div className="px-4 py-8 text-center text-sm text-slate-400">
           Loading students…
+        </div>
+      ) : error ? (
+        <div className="px-4 py-10 text-center text-sm text-slate-500">
+          <p className="font-semibold text-slate-700">Could not load people</p>
+          <p className="mt-1 text-xs text-red-600">{error}</p>
+          {onRetry ? (
+            <button
+              type="button"
+              onClick={onRetry}
+              className="mt-3 rounded-full bg-[#2563eb] px-4 py-2 text-xs font-semibold text-white"
+            >
+              Try again
+            </button>
+          ) : null}
         </div>
       ) : students.length === 0 ? (
         <div className="px-4 py-10 text-center text-sm text-slate-500">

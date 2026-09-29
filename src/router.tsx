@@ -11,7 +11,7 @@ function isApkShell(): boolean {
     const ua = navigator.userAgent || "";
     return (
       Boolean(cap?.isNativePlatform?.()) ||
-      (/; wv\)/i.test(ua) && /Android/i.test(ua)) ||
+      (ua.includes("; wv)") && /Android/i.test(ua)) ||
       /Capacitor/i.test(ua)
     );
   } catch {
@@ -66,7 +66,7 @@ function recoverAppShell() {
     const ua = navigator.userAgent || "";
     const native =
       Boolean(cap?.isNativePlatform?.()) ||
-      (/; wv\)/i.test(ua) && /Android/i.test(ua)) ||
+      (ua.includes("; wv)") && /Android/i.test(ua)) ||
       /Capacitor/i.test(ua);
     if (native) {
       window.location.hash = path.startsWith("#") ? path : `#${path}`;
@@ -213,7 +213,7 @@ export const getRouter = () => {
       const host = (window.location.hostname || "").toLowerCase();
       const native =
         Boolean(cap?.isNativePlatform?.()) ||
-        (/; wv\)/i.test(ua) && /Android/i.test(ua)) ||
+        (ua.includes("; wv)") && /Android/i.test(ua)) ||
         /Capacitor/i.test(ua);
       const localHost =
         host === "localhost" ||

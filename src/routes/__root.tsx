@@ -272,7 +272,7 @@ const BOOT_SPLASH_SCRIPT = `
     } catch(e){}
     try {
       var ua = navigator.userAgent || '';
-      if (/Android/i.test(ua) && (/; wv\)/i.test(ua) || /Capacitor/i.test(ua))) shell = true;
+      if (/Android/i.test(ua) && (ua.includes("; wv)") || /Capacitor/i.test(ua))) shell = true;
     } catch(e){}
     try {
       if (window.matchMedia && (window.matchMedia('(display-mode: standalone)').matches || window.matchMedia('(display-mode: fullscreen)').matches)) shell = true;
