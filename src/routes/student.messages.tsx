@@ -46,7 +46,7 @@ import {
 import { toast } from "sonner";
 import { openUserProfile, D4_OPEN_PROFILE_EVENT } from "@/components/profile/ClickableUser";
 import { MessagingProfileSheet } from "@/components/profile/MessagingProfileSheet";
-import { CallOverlay, type ActiveCall } from "@/components/calls/CallOverlay";
+import { CallOverlay, MinimizedCallBubble, type ActiveCall } from "@/components/calls/CallOverlay";
 
 export const Route = createFileRoute("/student/messages")({
   head: () => ({ meta: [{ title: "Messages — D4EXAM" }] }),
@@ -651,6 +651,7 @@ function MessagesHub() {
           onClose={() => setActiveCall(null)}
         />
       ) : null}
+      <MinimizedCallBubble />
     </div>
   );
 }

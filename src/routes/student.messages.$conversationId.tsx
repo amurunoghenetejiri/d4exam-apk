@@ -1,6 +1,6 @@
 import { openUserProfile, D4_OPEN_PROFILE_EVENT } from "@/components/profile/ClickableUser";
 import { MessagingProfileSheet } from "@/components/profile/MessagingProfileSheet";
-import { startDirectCall } from "@/lib/calls";
+import { startDirectCall, notifyCalleeOfIncomingCall } from "@/lib/calls";
 import { CallOverlay, type ActiveCall } from "@/components/calls/CallOverlay";
 import { isOnlineNow } from "@/lib/offline-guard";
 import { toast } from "sonner";
@@ -835,6 +835,12 @@ export function ConversationChat({
     }
     try {
       const callId = await startDirectCall({ calleeId: peer, callType, conversationId });
+      void notifyCalleeOfIncomingCall({
+        calleeId: peer,
+        callId,
+        callType,
+        callerName: displayTitle || "D4EXAM",
+      });
       setActiveCall({
         callId,
         callType,
