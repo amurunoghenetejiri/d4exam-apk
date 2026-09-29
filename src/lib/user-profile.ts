@@ -19,75 +19,177 @@ export type PublicUserProfile = {
   isBlockedMe: boolean;
 };
 
-export async function fetchPublicProfile(
+function mapRow(
+  row: Record<string, unknown>,
   targetUserId: string,
   myUserId?: string | null,
-): Promise<PublicUserProfile | null> {
-  if (!targetUserId) return null;
-  const { data, error } = await supabase.rpc("get_user_public_profile", {
-    p_user_id: targetUserId,
-  });
-  if (error) throw new Error(error.message);
-  if (!data || typeof data !== "object") return null;
-  const row = data as Record<string, unknown>;
+  extras?: { departmentName?: string | null; levelName?: string | null },
+): PublicUserProfile {
   const authUserId = String(row.auth_user_id || targetUserId);
+  return {
+    authUserId,
+    profileId: (row.profile_id as string) || (row.id as string) || null,
+    fullName:
+      String(row.full_name || "").trim() ||
+      [row.first_name, row.last_name].filter(Boolean).join(" ").trim() ||
+      "Student",
+    avatarUrl:
+      (row.avatar_url as string) ||
+      (row.profile_photo_url as string) ||
+      null,
+    phone: (row.phone as string) || null,
+    schoolId: (row.school_id as string) || null,
+    matricNumber: (row.matric_number as string) || null,
+    departmentId: (row.department_id as string) || null,
+    departmentName: extras?.departmentName ?? null,
+    levelId: (row.level_id as string) || null,
+    levelName: extras?.levelName ?? null,
+    studentId: (row.student_id as string) || null,
+    status: (row.status as string) || null,
+    isMe: Boolean(myUserId && myUserId === authUserId),
+    isBlockedByMe: false,
+    isBlockedMe: false,
+  };
+}
 
-  let departmentName: string | null = null;
-  let levelName: string | null = null;
-  const deptId = (row.department_id as string) || null;
-  const levelId = (row.level_id as string) || null;
-  if (deptId) {
+async function enrichDeptLevel(p: PublicUserProfile): Promise<PublicUserProfile> {
+  let departmentName = p.departmentName;
+  let levelName = p.levelName;
+  if (p.departmentId && !departmentName) {
     const { data: d } = await supabase
       .from("departments")
       .select("name")
-      .eq("id", deptId)
+      .eq("id", p.departmentId)
       .maybeSingle();
     departmentName = (d as { name?: string } | null)?.name || null;
   }
-  if (levelId) {
+  if (p.levelId && !levelName) {
     const { data: l } = await supabase
       .from("levels")
       .select("name")
-      .eq("id", levelId)
+      .eq("id", p.levelId)
       .maybeSingle();
     levelName = (l as { name?: string } | null)?.name || null;
   }
+  return { ...p, departmentName, levelName };
+}
 
-  let isBlockedByMe = false;
-  let isBlockedMe = false;
-  if (myUserId && myUserId !== authUserId) {
+async function attachBlocks(
+  p: PublicUserProfile,
+  myUserId?: string | null,
+): Promise<PublicUserProfile> {
+  if (!myUserId || myUserId === p.authUserId) return p;
+  try {
     const { data: blocks } = await supabase
       .from("user_blocks")
       .select("blocker_id, blocked_id")
       .or(
-        `and(blocker_id.eq.${myUserId},blocked_id.eq.${authUserId}),and(blocker_id.eq.${authUserId},blocked_id.eq.${myUserId})`,
+        `and(blocker_id.eq.${myUserId},blocked_id.eq.${p.authUserId}),and(blocker_id.eq.${p.authUserId},blocked_id.eq.${myUserId})`,
       );
+    let isBlockedByMe = false;
+    let isBlockedMe = false;
     for (const b of blocks || []) {
       if (b.blocker_id === myUserId) isBlockedByMe = true;
-      if (b.blocker_id === authUserId) isBlockedMe = true;
+      if (b.blocker_id === p.authUserId) isBlockedMe = true;
+    }
+    return { ...p, isBlockedByMe, isBlockedMe };
+  } catch {
+    return p;
+  }
+}
+
+/** Direct table fallback when RPC returns null */
+async function fetchProfileFallback(
+  targetUserId: string,
+): Promise<Record<string, unknown> | null> {
+  // By auth_user_id
+  const byAuth = await supabase
+    .from("profiles")
+    .select(
+      "id, auth_user_id, full_name, first_name, last_name, profile_photo_url, phone, school_id, status",
+    )
+    .eq("auth_user_id", targetUserId)
+    .maybeSingle();
+  let profile = byAuth.data as Record<string, unknown> | null;
+
+  // By profile id
+  if (!profile) {
+    const byId = await supabase
+      .from("profiles")
+      .select(
+        "id, auth_user_id, full_name, first_name, last_name, profile_photo_url, phone, school_id, status",
+      )
+      .eq("id", targetUserId)
+      .maybeSingle();
+    profile = byId.data as Record<string, unknown> | null;
+  }
+
+  if (!profile) return null;
+
+  const profileId = profile.id as string;
+  const { data: student } = await supabase
+    .from("students")
+    .select("id, matric_number, department_id, level_id, status")
+    .eq("profile_id", profileId)
+    .limit(1)
+    .maybeSingle();
+
+  return {
+    auth_user_id: profile.auth_user_id,
+    profile_id: profile.id,
+    full_name: profile.full_name,
+    first_name: profile.first_name,
+    last_name: profile.last_name,
+    avatar_url: profile.profile_photo_url,
+    profile_photo_url: profile.profile_photo_url,
+    phone: profile.phone,
+    school_id: profile.school_id,
+    status: profile.status,
+    matric_number: (student as { matric_number?: string } | null)?.matric_number,
+    department_id: (student as { department_id?: string } | null)?.department_id,
+    level_id: (student as { level_id?: string } | null)?.level_id,
+    student_id: (student as { id?: string } | null)?.id,
+  };
+}
+
+export async function fetchPublicProfile(
+  targetUserId: string,
+  myUserId?: string | null,
+): Promise<PublicUserProfile | null> {
+  const id = (targetUserId || "").trim();
+  if (!id || id === "undefined" || id === "null") return null;
+
+  let row: Record<string, unknown> | null = null;
+
+  try {
+    const { data, error } = await supabase.rpc("get_user_public_profile", {
+      p_user_id: id,
+    });
+    if (!error && data && typeof data === "object") {
+      row = data as Record<string, unknown>;
+      // empty jsonb object without auth_user_id
+      if (!row.auth_user_id && !row.full_name && !row.profile_id) {
+        row = null;
+      }
+    }
+  } catch {
+    row = null;
+  }
+
+  if (!row) {
+    try {
+      row = await fetchProfileFallback(id);
+    } catch {
+      row = null;
     }
   }
 
-  return {
-    authUserId,
-    profileId: (row.profile_id as string) || null,
-    fullName:
-      String(row.full_name || "").trim() ||
-      "Student",
-    avatarUrl: (row.avatar_url as string) || null,
-    phone: (row.phone as string) || null,
-    schoolId: (row.school_id as string) || null,
-    matricNumber: (row.matric_number as string) || null,
-    departmentId: deptId,
-    departmentName,
-    levelId,
-    levelName,
-    studentId: (row.student_id as string) || null,
-    status: (row.status as string) || null,
-    isMe: Boolean(myUserId && myUserId === authUserId),
-    isBlockedByMe,
-    isBlockedMe,
-  };
+  if (!row) return null;
+
+  let profile = mapRow(row, id, myUserId);
+  profile = await enrichDeptLevel(profile);
+  profile = await attachBlocks(profile, myUserId);
+  return profile;
 }
 
 export async function blockUser(blockerId: string, blockedId: string) {
@@ -114,11 +216,10 @@ export async function listBlockedUsers(myUserId: string) {
     .eq("blocker_id", myUserId)
     .order("created_at", { ascending: false });
   if (error) throw new Error(error.message);
-  const ids = (data || []).map((r) => r.blocked_id as string);
   const profiles: PublicUserProfile[] = [];
-  for (const id of ids) {
+  for (const r of data || []) {
     try {
-      const p = await fetchPublicProfile(id, myUserId);
+      const p = await fetchPublicProfile(r.blocked_id as string, myUserId);
       if (p) profiles.push(p);
     } catch {
       /* skip */

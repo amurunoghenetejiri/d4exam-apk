@@ -12,21 +12,36 @@ export const Route = createFileRoute("/student/user/$userId")({
   component: UserProfilePage,
 });
 
+function extractUserId(param?: string): string {
+  if (param && param.length > 8 && param !== "undefined") {
+    try {
+      return decodeURIComponent(param);
+    } catch {
+      return param;
+    }
+  }
+  if (typeof window === "undefined") return "";
+  const hash = (window.location.hash || "").replace(/^#/, "");
+  const path = window.location.pathname || "";
+  const raw = hash.startsWith("/") ? hash : hash ? `/${hash}` : path;
+  const parts = raw.split("/").filter(Boolean);
+  const idx = parts.findIndex((p) => p === "user");
+  if (idx >= 0 && parts[idx + 1]) {
+    try {
+      return decodeURIComponent(parts[idx + 1]);
+    } catch {
+      return parts[idx + 1];
+    }
+  }
+  return "";
+}
+
 function UserProfilePage() {
   const params = useParams({ strict: false }) as { userId?: string };
   const { data: session } = useSessionUser();
   const [activeCall, setActiveCall] = useState<ActiveCall | null>(null);
 
-  const userId = useMemo(() => {
-    if (params.userId) return params.userId;
-    if (typeof window === "undefined") return "";
-    const path = window.location.pathname || "";
-    const hash = (window.location.hash || "").replace(/^#/, "");
-    const parts = (hash.startsWith("/") ? hash : path).split("/").filter(Boolean);
-    const idx = parts.indexOf("user");
-    if (idx >= 0 && parts[idx + 1]) return decodeURIComponent(parts[idx + 1]);
-    return parts[parts.length - 1] || "";
-  }, [params.userId]);
+  const userId = useMemo(() => extractUserId(params.userId), [params.userId]);
 
   return (
     <>

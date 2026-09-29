@@ -544,7 +544,7 @@ export function ImageBubble({
       id={id}
       type="button"
       onClick={() => onOpen(0)}
-      className="relative block max-w-[min(48vw,160px)] sm:max-w-[min(52vw,180px)] md:max-w-[min(36vw,240px)] lg:max-w-[min(28vw,280px)] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
+      className="relative block max-w-[min(42vw,140px)] sm:max-w-[min(46vw,160px)] md:max-w-[min(32vw,220px)] lg:max-w-[min(26vw,260px)] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
       onContextMenu={(e) => e.preventDefault()}
     >
       <img src={src} alt="" className="max-h-[min(70vh,28rem)] w-full object-contain bg-black/5" draggable={false} />
@@ -594,7 +594,7 @@ export function VideoBubble({
       id={id}
       type="button"
       onClick={onOpen}
-      className="relative block max-w-[min(48vw,160px)] sm:max-w-[min(52vw,180px)] overflow-hidden rounded-2xl border border-slate-200 bg-slate-900 shadow-sm"
+      className="relative block max-w-[min(42vw,140px)] sm:max-w-[min(46vw,160px)] overflow-hidden rounded-2xl border border-slate-200 bg-slate-900 shadow-sm"
       onContextMenu={(e) => e.preventDefault()}
     >
       {forwarded ? (
@@ -695,7 +695,7 @@ export function FileBubble({
   return (
     <div
       id={id}
-      className="w-[min(70vw,240px)] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
+      className="w-[min(62vw,200px)] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
     >
       <button
         type="button"

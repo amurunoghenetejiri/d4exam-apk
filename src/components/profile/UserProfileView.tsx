@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -11,6 +11,9 @@ import {
   X,
   Camera,
   Loader2,
+  GraduationCap,
+  Hash,
+  Building2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -20,7 +23,6 @@ import {
   fetchPublicProfile,
   unblockUser,
   updateMyProfilePhoto,
-  type PublicUserProfile,
 } from "@/lib/user-profile";
 import { getOrCreateDirectConversation } from "@/lib/messaging";
 import { appNavigate } from "@/lib/app-navigate";
@@ -28,12 +30,14 @@ import { startDirectCall } from "@/lib/calls";
 import { isOnlineNow } from "@/lib/offline-guard";
 
 function initials(name: string) {
-  return name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((p) => p[0]?.toUpperCase() || "")
-    .join("") || "?";
+  return (
+    name
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((p) => p[0]?.toUpperCase() || "")
+      .join("") || "?"
+  );
 }
 
 export function UserProfileView({
@@ -51,6 +55,7 @@ export function UserProfileView({
     peerId: string;
     peerName: string;
     peerAvatar: string | null;
+    peerMatric?: string | null;
     isCaller: boolean;
   }) => void;
 }) {
@@ -63,12 +68,14 @@ export function UserProfileView({
 
   const profileQ = useQuery({
     queryKey: ["public-profile", userId, myId],
-    enabled: Boolean(userId),
+    enabled: Boolean(userId && userId.length > 8),
     queryFn: () => fetchPublicProfile(userId, myId),
-    staleTime: 30_000,
+    staleTime: 20_000,
+    retry: 1,
   });
 
   const p = profileQ.data;
+  const loading = profileQ.isLoading || profileQ.isFetching;
 
   const goMessage = async () => {
     if (!myId || !p || p.isMe) return;
@@ -110,6 +117,7 @@ export function UserProfileView({
         peerId: p.authUserId,
         peerName: p.fullName,
         peerAvatar: p.avatarUrl,
+        peerMatric: p.matricNumber,
         isCaller: true,
       });
     } catch (e) {
@@ -154,22 +162,31 @@ export function UserProfileView({
     }
   };
 
-  if (profileQ.isLoading) {
+  if (loading && !p) {
     return (
-      <div className="flex min-h-[50vh] items-center justify-center bg-gradient-to-b from-[#0b1b3a] to-[#132a52]">
-        <Loader2 className="h-8 w-8 animate-spin text-white" />
+      <div className="flex min-h-[60vh] flex-col items-center justify-center gap-3 bg-gradient-to-b from-[#0b1b3a] to-[#1a3a6e]">
+        <Loader2 className="h-9 w-9 animate-spin text-white" />
+        <p className="text-sm font-medium text-white/70">Loading profile…</p>
       </div>
     );
   }
 
   if (!p) {
     return (
-      <div className="flex min-h-[40vh] flex-col items-center justify-center gap-3 bg-[#0b1b3a] px-6 text-center text-white">
-        <p className="text-lg font-bold">Profile not found</p>
+      <div className="flex min-h-[50vh] flex-col items-center justify-center gap-4 bg-gradient-to-b from-[#0b1b3a] to-[#122a52] px-6 text-center text-white">
+        <div className="grid h-16 w-16 place-items-center rounded-full bg-white/10 text-2xl font-bold">
+          ?
+        </div>
+        <div>
+          <p className="text-lg font-bold">Profile not found</p>
+          <p className="mt-1 text-sm text-white/60">
+            This user may be offline or not in your school.
+          </p>
+        </div>
         <button
           type="button"
           onClick={onBack}
-          className="rounded-full bg-white/15 px-4 py-2 text-sm font-semibold"
+          className="rounded-full bg-white/15 px-5 py-2.5 text-sm font-semibold backdrop-blur"
         >
           Go back
         </button>
@@ -178,81 +195,69 @@ export function UserProfileView({
   }
 
   return (
-    <div className="relative min-h-full bg-gradient-to-b from-[#0b1b3a] via-[#122a52] to-[#e8f1fc] text-white">
-      <div className="flex items-center justify-between px-3 pb-2 pt-[max(0.75rem,env(safe-area-inset-top))]">
+    <div className="relative min-h-full overflow-hidden bg-[#0b1b3a] text-white">
+      {/* soft watermark */}
+      <div
+        className="pointer-events-none absolute inset-0 opacity-[0.07]"
+        style={{
+          backgroundImage:
+            "radial-gradient(circle at 50% 30%, rgba(96,165,250,0.35), transparent 55%)",
+        }}
+      />
+
+      <div className="relative z-10 flex items-center justify-between px-3 pb-1 pt-[max(0.75rem,env(safe-area-inset-top))]">
         <button
           type="button"
           onClick={onBack}
-          className="grid h-10 w-10 place-items-center rounded-full bg-white/10"
+          className="grid h-10 w-10 place-items-center rounded-full bg-white/10 active:scale-95"
           aria-label="Back"
         >
           <ArrowLeft className="h-5 w-5" />
         </button>
-        <p className="text-sm font-semibold tracking-wide opacity-90">
+        <p className="text-sm font-semibold tracking-wide text-white/90">
           {p.isMe ? "My Profile" : "Profile"}
         </p>
         <button
           type="button"
           onClick={() => setMoreOpen(true)}
-          className="grid h-10 w-10 place-items-center rounded-full bg-white/10"
+          className="grid h-10 w-10 place-items-center rounded-full bg-white/10 active:scale-95"
           aria-label="More"
         >
           <MoreVertical className="h-5 w-5" />
         </button>
       </div>
 
-      {/* Radial action layout around avatar */}
-      <div className="relative mx-auto mt-4 flex h-[220px] w-[220px] items-center justify-center sm:h-[260px] sm:w-[260px]">
+      {/* Avatar + radial actions */}
+      <div className="relative mx-auto mt-6 flex h-[210px] w-[210px] items-center justify-center sm:h-[240px] sm:w-[240px]">
         {!p.isMe ? (
           <>
-            <ActionOrb
-              className="absolute left-1/2 top-0 -translate-x-1/2"
-              label="Video"
-              onClick={() => void startCall("video")}
-              busy={busy === "video"}
-            >
+            <Orb className="absolute left-1/2 top-0 -translate-x-1/2" label="Video" onClick={() => void startCall("video")} busy={busy === "video"}>
               <Video className="h-5 w-5" />
-            </ActionOrb>
-            <ActionOrb
-              className="absolute left-0 top-1/2 -translate-y-1/2"
-              label="Message"
-              onClick={() => void goMessage()}
-              busy={busy === "msg"}
-            >
+            </Orb>
+            <Orb className="absolute left-0 top-1/2 -translate-y-1/2" label="Chat" onClick={() => void goMessage()} busy={busy === "msg"}>
               <MessageCircle className="h-5 w-5" />
-            </ActionOrb>
-            <ActionOrb
-              className="absolute right-0 top-1/2 -translate-y-1/2"
-              label="Call"
-              onClick={() => void startCall("voice")}
-              busy={busy === "voice"}
-            >
+            </Orb>
+            <Orb className="absolute right-0 top-1/2 -translate-y-1/2" label="Call" onClick={() => void startCall("voice")} busy={busy === "voice"}>
               <Phone className="h-5 w-5" />
-            </ActionOrb>
-            <ActionOrb
-              className="absolute bottom-0 left-1/2 -translate-x-1/2"
-              label="More"
-              onClick={() => setMoreOpen(true)}
-            >
+            </Orb>
+            <Orb className="absolute bottom-0 left-1/2 -translate-x-1/2" label="More" onClick={() => setMoreOpen(true)}>
               <MoreVertical className="h-5 w-5" />
-            </ActionOrb>
+            </Orb>
           </>
         ) : null}
 
         <button
           type="button"
           onClick={() => setPhotoOpen(true)}
-          className="relative z-10 grid h-28 w-28 place-items-center overflow-hidden rounded-full bg-[#1e3a6e] ring-4 ring-white/30 shadow-2xl shadow-blue-900/40 sm:h-32 sm:w-32"
+          className="relative z-10 grid h-28 w-28 place-items-center overflow-hidden rounded-full bg-[#1e3a6e] shadow-[0_0_0_4px_rgba(255,255,255,0.2),0_12px_40px_rgba(0,0,0,0.35)] ring-2 ring-[#60a5fa]/50 sm:h-32 sm:w-32"
         >
           {p.avatarUrl ? (
             <img src={p.avatarUrl} alt="" className="h-full w-full object-cover" />
           ) : (
-            <span className="text-3xl font-extrabold tracking-wide">
-              {initials(p.fullName)}
-            </span>
+            <span className="text-3xl font-extrabold tracking-wide">{initials(p.fullName)}</span>
           )}
           {p.isMe ? (
-            <label className="absolute inset-x-0 bottom-0 cursor-pointer bg-black/50 py-1 text-center text-[10px] font-bold">
+            <label className="absolute inset-x-0 bottom-0 cursor-pointer bg-black/55 py-1.5 text-center text-[10px] font-bold">
               <Camera className="mx-auto h-3.5 w-3.5" />
               <input
                 type="file"
@@ -269,55 +274,39 @@ export function UserProfileView({
         </button>
       </div>
 
-      <div className="mt-2 px-5 text-center">
-        <h1 className="text-xl font-extrabold tracking-tight sm:text-2xl">
-          {p.fullName}
-        </h1>
+      <div className="relative z-10 mt-3 px-5 text-center">
+        <h1 className="text-xl font-extrabold tracking-tight sm:text-2xl">{p.fullName}</h1>
         {p.matricNumber ? (
-          <p className="mt-1 text-sm font-medium text-blue-100/90">
+          <p className="mt-1 inline-flex items-center gap-1 rounded-full bg-white/10 px-3 py-0.5 text-xs font-semibold text-blue-100">
+            <Hash className="h-3 w-3" />
             {p.matricNumber}
           </p>
         ) : null}
-        <p className="mt-1 text-sm text-blue-100/80">
-          {[p.departmentName, p.levelName].filter(Boolean).join(" · ") ||
-            "D4EXAM member"}
+        <p className="mt-2 text-sm text-blue-100/85">
+          {[p.departmentName, p.levelName].filter(Boolean).join(" · ") || "D4EXAM member"}
         </p>
         {groupContext ? (
-          <p className="mt-2 text-xs text-blue-200/70">
-            Member of {groupContext.name}
-          </p>
+          <p className="mt-1 text-xs text-blue-200/60">Member of {groupContext.name}</p>
         ) : null}
       </div>
 
-      {/* White sheet content */}
-      <div className="mt-6 rounded-t-3xl bg-white px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-5 text-slate-900 shadow-2xl">
-        <Section title="About">
-          <Row label="Department" value={p.departmentName || "—"} />
-          <Row label="Level" value={p.levelName || "—"} />
-          <Row label="Matric" value={p.matricNumber || "—"} />
-        </Section>
+      {/* Sheet */}
+      <div className="relative z-10 mt-6 rounded-t-[1.75rem] bg-white px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-5 text-slate-900 shadow-2xl">
+        <div className="space-y-2">
+          <InfoRow icon={<Building2 className="h-4 w-4 text-[#2563eb]" />} label="Department" value={p.departmentName || "—"} />
+          <InfoRow icon={<GraduationCap className="h-4 w-4 text-[#2563eb]" />} label="Level" value={p.levelName || "—"} />
+          <InfoRow icon={<Hash className="h-4 w-4 text-[#2563eb]" />} label="Matric number" value={p.matricNumber || "—"} />
+        </div>
 
         {!p.isMe ? (
-          <div className="mt-4 grid grid-cols-3 gap-2">
-            <PrimaryBtn
-              icon={<MessageCircle className="h-4 w-4" />}
-              label="Message"
-              onClick={() => void goMessage()}
-            />
-            <PrimaryBtn
-              icon={<Phone className="h-4 w-4" />}
-              label="Voice"
-              onClick={() => void startCall("voice")}
-            />
-            <PrimaryBtn
-              icon={<Video className="h-4 w-4" />}
-              label="Video"
-              onClick={() => void startCall("video")}
-            />
+          <div className="mt-5 grid grid-cols-3 gap-2">
+            <ActionBtn icon={<MessageCircle className="h-4 w-4" />} label="Message" onClick={() => void goMessage()} />
+            <ActionBtn icon={<Phone className="h-4 w-4" />} label="Voice" onClick={() => void startCall("voice")} />
+            <ActionBtn icon={<Video className="h-4 w-4" />} label="Video" onClick={() => void startCall("video")} />
           </div>
         ) : (
-          <p className="mt-3 text-center text-xs text-slate-500">
-            This is how others see your profile in D4Chat.
+          <p className="mt-4 text-center text-xs text-slate-500">
+            This is how others see you in D4Chat.
           </p>
         )}
       </div>
@@ -325,11 +314,7 @@ export function UserProfileView({
       {photoOpen ? (
         <div className="fixed inset-0 z-[100] flex flex-col bg-black">
           <div className="flex items-center justify-between px-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
-            <button
-              type="button"
-              onClick={() => setPhotoOpen(false)}
-              className="grid h-10 w-10 place-items-center rounded-full bg-white/15 text-white"
-            >
+            <button type="button" onClick={() => setPhotoOpen(false)} className="grid h-10 w-10 place-items-center rounded-full bg-white/15 text-white">
               <X className="h-5 w-5" />
             </button>
             <p className="text-sm font-semibold text-white">{p.fullName}</p>
@@ -337,11 +322,7 @@ export function UserProfileView({
           </div>
           <div className="flex flex-1 items-center justify-center p-4">
             {p.avatarUrl ? (
-              <img
-                src={p.avatarUrl}
-                alt=""
-                className="max-h-full max-w-full object-contain"
-              />
+              <img src={p.avatarUrl} alt="" className="max-h-full max-w-full object-contain" />
             ) : (
               <div className="grid h-48 w-48 place-items-center rounded-full bg-[#1e3a6e] text-5xl font-extrabold text-white">
                 {initials(p.fullName)}
@@ -352,53 +333,23 @@ export function UserProfileView({
       ) : null}
 
       {moreOpen ? (
-        <div
-          className="fixed inset-0 z-[90] flex items-end justify-center bg-black/40 sm:items-center"
-          onClick={() => setMoreOpen(false)}
-        >
-          <div
-            className="mb-[max(0.5rem,env(safe-area-inset-bottom))] w-full max-w-sm overflow-hidden rounded-2xl bg-white shadow-xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <p className="border-b px-4 py-3 text-sm font-bold text-slate-800">
-              Actions
-            </p>
+        <div className="fixed inset-0 z-[90] flex items-end justify-center bg-black/45 sm:items-center" onClick={() => setMoreOpen(false)}>
+          <div className="mb-[max(0.5rem,env(safe-area-inset-bottom))] w-full max-w-sm overflow-hidden rounded-2xl bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <p className="border-b px-4 py-3 text-sm font-bold text-slate-800">Actions</p>
             {!p.isMe ? (
               <>
                 <SheetBtn onClick={() => void goMessage()}>Message</SheetBtn>
-                <SheetBtn onClick={() => void startCall("voice")}>
-                  Voice call
-                </SheetBtn>
-                <SheetBtn onClick={() => void startCall("video")}>
-                  Video call
-                </SheetBtn>
-                <SheetBtn
-                  danger
-                  onClick={() => void toggleBlock()}
-                  icon={
-                    p.isBlockedByMe ? undefined : <Ban className="h-4 w-4" />
-                  }
-                >
+                <SheetBtn onClick={() => void startCall("voice")}>Voice call</SheetBtn>
+                <SheetBtn onClick={() => void startCall("video")}>Video call</SheetBtn>
+                <SheetBtn danger onClick={() => void toggleBlock()} icon={p.isBlockedByMe ? undefined : <Ban className="h-4 w-4" />}>
                   {p.isBlockedByMe ? "Unblock" : "Block user"}
                 </SheetBtn>
-                <SheetBtn
-                  danger
-                  icon={<Flag className="h-4 w-4" />}
-                  onClick={() => {
-                    toast.message("Report submitted to school admins");
-                    setMoreOpen(false);
-                  }}
-                >
+                <SheetBtn danger icon={<Flag className="h-4 w-4" />} onClick={() => { toast.message("Report submitted"); setMoreOpen(false); }}>
                   Report user
                 </SheetBtn>
               </>
             ) : (
-              <SheetBtn
-                onClick={() => {
-                  appNavigate("/student/settings");
-                  setMoreOpen(false);
-                }}
-              >
+              <SheetBtn onClick={() => { appNavigate("/student/settings"); setMoreOpen(false); }}>
                 Account settings
               </SheetBtn>
             )}
@@ -410,30 +361,10 @@ export function UserProfileView({
   );
 }
 
-function ActionOrb({
-  className,
-  children,
-  label,
-  onClick,
-  busy,
-}: {
-  className?: string;
-  children: ReactNode;
-  label: string;
-  onClick: () => void;
-  busy?: boolean;
-}) {
+function Orb({ className, children, label, onClick, busy }: { className?: string; children: ReactNode; label: string; onClick: () => void; busy?: boolean }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={busy}
-      className={cn(
-        "flex flex-col items-center gap-1 transition active:scale-95",
-        className,
-      )}
-    >
-      <span className="grid h-11 w-11 place-items-center rounded-full bg-white text-[#1d4ed8] shadow-lg shadow-black/20 ring-2 ring-white/40">
+    <button type="button" onClick={onClick} disabled={busy} className={cn("flex flex-col items-center gap-1 transition active:scale-90", className)}>
+      <span className="grid h-11 w-11 place-items-center rounded-full bg-white text-[#1d4ed8] shadow-lg shadow-black/25 ring-2 ring-white/50">
         {busy ? <Loader2 className="h-5 w-5 animate-spin" /> : children}
       </span>
       <span className="text-[10px] font-semibold text-white/90">{label}</span>
@@ -441,75 +372,30 @@ function ActionOrb({
   );
 }
 
-function PrimaryBtn({
-  icon,
-  label,
-  onClick,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  onClick: () => void;
-}) {
+function ActionBtn({ icon, label, onClick }: { icon: ReactNode; label: string; onClick: () => void }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex flex-col items-center gap-1 rounded-2xl border border-blue-100 bg-[#eff6ff] py-3 text-[#1d4ed8] transition active:scale-[0.98]"
-    >
+    <button type="button" onClick={onClick} className="flex flex-col items-center gap-1 rounded-2xl border border-blue-100 bg-[#eff6ff] py-3 text-[#1d4ed8] transition active:scale-[0.97]">
       {icon}
       <span className="text-[11px] font-bold">{label}</span>
     </button>
   );
 }
 
-function Section({
-  title,
-  children,
-}: {
-  title: string;
-  children: ReactNode;
-}) {
+function InfoRow({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-slate-100 bg-slate-50/80 p-3">
-      <p className="mb-2 text-[11px] font-bold uppercase tracking-wide text-slate-400">
-        {title}
-      </p>
-      {children}
+    <div className="flex items-center gap-3 rounded-2xl border border-slate-100 bg-slate-50/90 px-3 py-2.5">
+      <span className="grid h-9 w-9 place-items-center rounded-xl bg-white shadow-sm">{icon}</span>
+      <div className="min-w-0 flex-1">
+        <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{label}</p>
+        <p className="truncate text-sm font-bold text-slate-900">{value}</p>
+      </div>
     </div>
   );
 }
 
-function Row({ label, value }: { label: string; value: string }) {
+function SheetBtn({ children, onClick, danger, icon }: { children: ReactNode; onClick: () => void; danger?: boolean; icon?: ReactNode }) {
   return (
-    <div className="flex items-start justify-between gap-3 border-b border-slate-100 py-2 last:border-0">
-      <span className="text-xs text-slate-500">{label}</span>
-      <span className="text-right text-sm font-semibold text-slate-900">
-        {value}
-      </span>
-    </div>
-  );
-}
-
-function SheetBtn({
-  children,
-  onClick,
-  danger,
-  icon,
-}: {
-  children: ReactNode;
-  onClick: () => void;
-  danger?: boolean;
-  icon?: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "flex w-full items-center gap-2 border-b border-slate-100 px-4 py-3.5 text-left text-sm font-semibold last:border-0",
-        danger ? "text-rose-600" : "text-slate-800",
-      )}
-    >
+    <button type="button" onClick={onClick} className={cn("flex w-full items-center gap-2 border-b border-slate-100 px-4 py-3.5 text-left text-sm font-semibold last:border-0", danger ? "text-rose-600" : "text-slate-800")}>
       {icon}
       {children}
     </button>

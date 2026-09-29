@@ -831,6 +831,7 @@ export function ConversationChat({
         peerId: peer,
         peerName: displayTitle,
         peerAvatar: senderNames[peer]?.avatar || null,
+        peerMatric: null,
         isCaller: true,
       });
     } catch (e) {
@@ -1797,24 +1798,22 @@ function LinkMessageBody({
         href={href}
         target="_blank"
         rel="noopener noreferrer"
-        className="block max-w-[min(72vw,260px)] overflow-hidden rounded-xl border border-black/10 bg-white text-left shadow-sm"
+        className="block max-w-[min(58vw,200px)] overflow-hidden rounded-xl bg-black/25 text-left backdrop-blur-[2px]"
         onClick={(e) => e.stopPropagation()}
       >
         {meta.image ? (
-          <img src={meta.image} alt="" className="h-28 w-full object-cover" />
-        ) : (
-          <div className="flex h-16 items-center justify-center bg-slate-50 text-2xl">🔗</div>
-        )}
+          <img src={meta.image} alt="" className="h-24 w-full object-cover" />
+        ) : null}
         <div className="px-2.5 py-2">
-          <p className="line-clamp-2 text-[13px] font-bold text-slate-900">
+          <p className={cn("line-clamp-2 text-[12px] font-bold", mine ? "text-slate-900" : "text-white")}>
             {meta.title || meta.host}
           </p>
           {meta.description ? (
-            <p className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-slate-500">
+            <p className={cn("mt-0.5 line-clamp-2 text-[10px] leading-snug", mine ? "text-slate-600" : "text-white/80")}>
               {meta.description}
             </p>
           ) : null}
-          <p className="mt-1.5 truncate text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+          <p className={cn("mt-1 truncate text-[9px] font-semibold uppercase tracking-wide", mine ? "text-slate-400" : "text-white/55")}>
             {meta.host || href}
           </p>
         </div>
@@ -1824,7 +1823,7 @@ function LinkMessageBody({
 
   if (urlMatch && !meta) {
     return (
-      <p className="break-all text-[14px] text-slate-800 underline decoration-slate-300">
+      <p className={cn("break-all text-[13px] underline decoration-white/30", mine ? "text-slate-800" : "text-white")}>
         {body.trim()}
       </p>
     );
