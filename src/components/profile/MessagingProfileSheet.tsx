@@ -1,20 +1,12 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  ArrowLeft,
   Ban,
-  Bell,
-  Flag,
-  Heart,
+  Info,
   Loader2,
   MessageCircle,
-  Camera,
   MoreVertical,
   Phone,
-  Search,
-  Trash2,
-  Users,
-  UsersRound,
   Video,
   X,
 } from "lucide-react";
@@ -25,12 +17,16 @@ import {
   blockUser,
   fetchPublicProfile,
   unblockUser,
-  updateMyProfilePhoto,
 } from "@/lib/user-profile";
 import { getOrCreateDirectConversation } from "@/lib/messaging";
 import { appNavigate } from "@/lib/app-navigate";
 import { startDirectCall } from "@/lib/calls";
 import { isOnlineNow } from "@/lib/offline-guard";
+import { ProfilePhotoViewer } from "@/components/profile/ProfilePhotoViewer";
+import {
+  isFavorite,
+  toggleFavorite,
+} from "@/lib/profile-favorites";
 
 function initials(name: string) {
   return (
@@ -43,6 +39,11 @@ function initials(name: string) {
   );
 }
 
+/**
+ * Centered PROFILE QUICK VIEW modal (not full-screen).
+ * Avatar / chat list / directory → this sheet.
+ * Info → full profile page.
+ */
 export function MessagingProfileSheet({
   userId,
   open,
@@ -69,6 +70,8 @@ export function MessagingProfileSheet({
   const qc = useQueryClient();
   const [busy, setBusy] = useState<string | null>(null);
   const [photoOpen, setPhotoOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [fav, setFav] = useState(false);
 
   const profileQ = useQuery({
     queryKey: ["public-profile", userId, myId],
@@ -80,10 +83,19 @@ export function MessagingProfileSheet({
   const p = profileQ.data;
 
   useEffect(() => {
-    if (!open) setPhotoOpen(false);
+    if (!open) {
+      setPhotoOpen(false);
+      setMenuOpen(false);
+    }
   }, [open]);
 
+  useEffect(() => {
+    if (open && myId && userId) setFav(isFavorite(myId, userId));
+  }, [open, myId, userId]);
+
   if (!open || !userId) return null;
+
+  const deptLevel = [p?.departmentName, p?.levelName].filter(Boolean).join(" · ");
 
   const goMessage = async () => {
     if (!myId || !p || p.isMe) {
@@ -137,6 +149,12 @@ export function MessagingProfileSheet({
     }
   };
 
+  const goInfo = () => {
+    if (!userId) return;
+    onClose();
+    appNavigate(`/student/user/${encodeURIComponent(userId)}`);
+  };
+
   const toggleBlock = async () => {
     if (!myId || !p || p.isMe) return;
     setBusy("block");
@@ -149,6 +167,7 @@ export function MessagingProfileSheet({
         toast.success("User blocked");
       }
       void qc.invalidateQueries({ queryKey: ["public-profile", userId] });
+      setMenuOpen(false);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Action failed");
     } finally {
@@ -156,222 +175,241 @@ export function MessagingProfileSheet({
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-[120] flex flex-col bg-[#0b141a] text-white">
-      {/* header */}
-      <div className="flex items-center justify-between px-2 pb-2 pt-[max(0.5rem,env(safe-area-inset-top))]">
-        <button type="button" onClick={onClose} className="grid h-11 w-11 place-items-center rounded-full active:bg-white/10" aria-label="Back">
-          <ArrowLeft className="h-5 w-5" />
-        </button>
-        <button type="button" className="grid h-11 w-11 place-items-center rounded-full active:bg-white/10" aria-label="More">
-          <MoreVertical className="h-5 w-5" />
-        </button>
-      </div>
+  const onToggleFav = () => {
+    if (!myId || !userId || !p || p.isMe) return;
+    const next = toggleFavorite(myId, userId);
+    setFav(next);
+    toast.success(next ? "Added to favorites" : "Removed from favorites");
+    setMenuOpen(false);
+  };
 
-      <div className="min-h-0 flex-1 overflow-y-auto pb-[max(1.5rem,env(safe-area-inset-bottom))]">
-        {profileQ.isLoading && !p ? (
-          <div className="flex flex-col items-center gap-3 py-20">
-            <Loader2 className="h-8 w-8 animate-spin text-white/70" />
-            <p className="text-sm text-white/60">Loading profile…</p>
-          </div>
-        ) : !p ? (
-          <div className="flex flex-col items-center gap-3 px-6 py-20 text-center">
-            <div className="grid h-24 w-24 place-items-center rounded-full bg-[#1f2c34] text-3xl font-bold text-[#53bdeb]">?</div>
-            <p className="text-lg font-bold">Could not load profile</p>
-            <p className="text-sm text-white/50">Check your connection and try again.</p>
+  return (
+    <>
+      <div
+        className="fixed inset-0 z-[120] flex items-center justify-center bg-[#0b1b3a]/55 px-4 backdrop-blur-[3px] animate-in fade-in duration-200"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Profile preview"
+        onClick={onClose}
+      >
+        <div
+          className={cn(
+            "relative w-full max-w-[22rem] overflow-hidden rounded-[1.75rem]",
+            "bg-gradient-to-b from-[#0d213f] via-[#0b1b3a] to-[#071225]",
+            "shadow-2xl shadow-blue-950/50 ring-1 ring-white/10",
+            "animate-in zoom-in-95 fade-in duration-200",
+          )}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* soft glow */}
+          <div
+            aria-hidden
+            className="pointer-events-none absolute -top-16 left-1/2 h-40 w-40 -translate-x-1/2 rounded-full bg-[#2563eb]/25 blur-3xl"
+          />
+
+          <div className="relative flex items-center justify-between px-3 pt-3">
             <button
               type="button"
-              onClick={() => void qc.invalidateQueries({ queryKey: ["public-profile", userId] })}
-              className="mt-2 rounded-full bg-[#2563eb] px-5 py-2 text-sm font-semibold"
+              onClick={onClose}
+              className="grid h-9 w-9 place-items-center rounded-full bg-white/10 text-white active:bg-white/20"
+              aria-label="Cancel"
             >
-              Retry
+              <X className="h-4 w-4" />
             </button>
-            <button type="button" onClick={onClose} className="rounded-full bg-white/10 px-5 py-2 text-sm font-semibold">
-              Close
+            <button
+              type="button"
+              onClick={() => setMenuOpen((v) => !v)}
+              className="grid h-9 w-9 place-items-center rounded-full bg-white/10 text-white active:bg-white/20"
+              aria-label="More"
+            >
+              <MoreVertical className="h-4 w-4" />
             </button>
           </div>
-        ) : (
-          <>
-            {/* Avatar + identity */}
-            <div className="flex flex-col items-center px-4 pt-2">
-              <div className="relative">
+
+          {menuOpen && p && !p.isMe ? (
+            <div className="absolute right-3 top-12 z-10 min-w-[11rem] overflow-hidden rounded-xl border border-white/10 bg-[#122a52] py-1 shadow-xl">
+              <MenuItem label={fav ? "Remove favorite" : "Add to favorites"} onClick={onToggleFav} />
+              <MenuItem label="Message" onClick={() => void goMessage()} />
+              <MenuItem
+                label={p.isBlockedByMe ? "Unblock" : "Block"}
+                danger
+                onClick={() => void toggleBlock()}
+              />
+              <MenuItem label="View full profile" onClick={goInfo} />
+            </div>
+          ) : null}
+
+          <div className="relative flex flex-col items-center px-5 pb-6 pt-1">
+            {profileQ.isLoading && !p ? (
+              <div className="flex flex-col items-center gap-3 py-12">
+                <Loader2 className="h-8 w-8 animate-spin text-[#60a5fa]" />
+                <p className="text-sm text-white/60">Loading profile…</p>
+              </div>
+            ) : !p ? (
+              <div className="flex flex-col items-center gap-2 py-10 text-center">
+                <div className="grid h-24 w-24 place-items-center rounded-full bg-white/10 text-3xl font-bold text-[#60a5fa]">
+                  ?
+                </div>
+                <p className="text-base font-bold text-white">Could not load profile</p>
+                <p className="text-xs text-white/50">Check connection and try again.</p>
                 <button
                   type="button"
-                  onClick={() => setPhotoOpen(true)}
-                  className="grid h-[7.5rem] w-[7.5rem] place-items-center overflow-hidden rounded-full bg-[#1f2c34] shadow-lg ring-2 ring-white/10"
+                  onClick={() => void profileQ.refetch()}
+                  className="mt-2 rounded-full bg-[#2563eb] px-4 py-2 text-xs font-semibold text-white"
                 >
-                  {p.avatarUrl ? (
-                    <img src={p.avatarUrl} alt="" className="h-full w-full object-cover" />
-                  ) : (
-                    <span className="text-4xl font-extrabold text-[#53bdeb]">{initials(p.fullName)}</span>
-                  )}
+                  Retry
                 </button>
-                {p.isMe ? (
-                  <label className="absolute bottom-0 right-0 grid h-9 w-9 cursor-pointer place-items-center rounded-full bg-[#2563eb] text-white shadow-lg">
-                    <Camera className="h-4 w-4" />
-                    <input
-                      type="file"
-                      accept="image/*"
-                      capture="user"
-                      className="hidden"
-                      onChange={(e) => {
-                        const f = e.target.files?.[0];
-                        if (!f || !session?.profileId) return;
-                        setBusy("photo");
-                        void updateMyProfilePhoto(session.profileId, f)
-                          .then(() => {
-                            toast.success("Photo updated");
-                            void qc.invalidateQueries({ queryKey: ["public-profile", userId] });
-                          })
-                          .catch((err) => toast.error(err instanceof Error ? err.message : "Upload failed"))
-                          .finally(() => setBusy(null));
-                      }}
-                    />
-                  </label>
-                ) : null}
-              </div>
-              <h1 className="mt-4 text-center text-2xl font-bold tracking-tight">{p.fullName}</h1>
-              {p.matricNumber ? (
-                <p className="mt-1 text-sm font-medium text-white/55">{p.matricNumber}</p>
-              ) : (
-                <p className="mt-1 text-sm text-white/45">D4EXAM member</p>
-              )}
-            </div>
-
-            {/* Voice / Video / Message */}
-            {!p.isMe ? (
-              <div className="mx-auto mt-6 flex max-w-sm items-start justify-center gap-6 px-6">
-                <ActionRound icon={<Phone className="h-5 w-5" />} label="Voice" onClick={() => void startCall("voice")} busy={busy === "voice"} />
-                <ActionRound icon={<Video className="h-5 w-5" />} label="Video" onClick={() => void startCall("video")} busy={busy === "video"} />
-                <ActionRound icon={<MessageCircle className="h-5 w-5" />} label="Message" onClick={() => void goMessage()} busy={busy === "msg"} />
               </div>
             ) : (
-              <p className="mt-4 text-center text-xs text-white/40">This is how others see you in D4Chat</p>
+              <>
+                <button
+                  type="button"
+                  onClick={() => p.avatarUrl && setPhotoOpen(true)}
+                  className="relative mt-1"
+                  aria-label="View photo"
+                >
+                  <span className="absolute inset-0 rounded-full bg-[#2563eb]/40 blur-md" />
+                  <span className="relative grid h-[6.75rem] w-[6.75rem] place-items-center overflow-hidden rounded-full bg-[#1e3a5f] ring-[3px] ring-[#3b82f6]/80 ring-offset-2 ring-offset-[#0b1b3a]">
+                    {p.avatarUrl ? (
+                      <img src={p.avatarUrl} alt="" className="h-full w-full object-cover" />
+                    ) : (
+                      <span className="text-3xl font-extrabold text-[#93c5fd]">
+                        {initials(p.fullName)}
+                      </span>
+                    )}
+                  </span>
+                  <span className="absolute bottom-1 right-1 h-3.5 w-3.5 rounded-full border-2 border-[#0b1b3a] bg-emerald-400" />
+                </button>
+
+                <h2 className="mt-4 text-center text-xl font-bold tracking-tight text-white">
+                  {p.fullName}
+                </h2>
+                {p.matricNumber ? (
+                  <p className="mt-1 text-sm font-medium text-white/55">{p.matricNumber}</p>
+                ) : null}
+                {deptLevel ? (
+                  <p className="mt-0.5 text-center text-xs font-medium text-white/45">
+                    {deptLevel}
+                  </p>
+                ) : (
+                  <p className="mt-0.5 text-xs text-white/40">D4EXAM member</p>
+                )}
+
+                <span className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-300">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                  Online
+                </span>
+
+                {!p.isMe ? (
+                  <div className="mt-5 grid w-full grid-cols-4 gap-2">
+                    <QuickAction
+                      icon={<MessageCircle className="h-5 w-5" />}
+                      label="Message"
+                      tone="blue"
+                      busy={busy === "msg"}
+                      onClick={() => void goMessage()}
+                    />
+                    <QuickAction
+                      icon={<Phone className="h-5 w-5" />}
+                      label="Voice Call"
+                      tone="green"
+                      busy={busy === "voice"}
+                      onClick={() => void startCall("voice")}
+                    />
+                    <QuickAction
+                      icon={<Video className="h-5 w-5" />}
+                      label="Video Call"
+                      tone="blue"
+                      busy={busy === "video"}
+                      onClick={() => void startCall("video")}
+                    />
+                    <QuickAction
+                      icon={<Info className="h-5 w-5" />}
+                      label="Info"
+                      tone="navy"
+                      onClick={goInfo}
+                    />
+                  </div>
+                ) : (
+                  <p className="mt-4 text-center text-xs text-white/40">
+                    This is how others see you in Messages
+                  </p>
+                )}
+              </>
             )}
-
-            {/* About */}
-            <section className="mx-3 mt-7 overflow-hidden rounded-2xl bg-[#1f2c34]">
-              <Row label="Department" value={p.departmentName || "—"} />
-              <Row label="Level" value={p.levelName || "—"} />
-              <Row label="Matric number" value={p.matricNumber || "—"} last />
-            </section>
-
-            {/* Media */}
-            <section className="mx-3 mt-3 overflow-hidden rounded-2xl bg-[#1f2c34]">
-              <button type="button" className="flex w-full items-center justify-between px-4 py-3.5 active:bg-white/5">
-                <span className="text-sm font-medium text-white/90">Media, links, and docs</span>
-                <span className="text-sm text-white/40">›</span>
-              </button>
-            </section>
-
-            {/* Groups / favorites */}
-            <section className="mx-3 mt-3 overflow-hidden rounded-2xl bg-[#1f2c34]">
-              {!p.isMe ? (
-                <>
-                  <ListBtn icon={<UsersRound className="h-5 w-5 text-[#25d366]" />} title={`Create group with ${p.fullName.split(" ")[0]}`} onClick={() => toast.message("Open Groups tab to create a group")} />
-                  <ListBtn icon={<Users className="h-5 w-5 text-[#25d366]" />} title="Add to groups" subtitle="Add this contact to groups you're in." onClick={() => toast.message("Coming soon")} />
-                </>
-              ) : null}
-              <ListBtn icon={<Heart className="h-5 w-5 text-white/70" />} title="Add to Favorites" onClick={() => toast.success("Added to favorites")} />
-              <ListBtn icon={<Bell className="h-5 w-5 text-white/70" />} title="Notifications" subtitle="Default" onClick={() => toast.message("Notification settings")} last={p.isMe} />
-              {!p.isMe ? (
-                <>
-                  <ListBtn icon={<Trash2 className="h-5 w-5 text-rose-400" />} title="Clear chat" danger onClick={() => toast.message("Use Clear chat in the conversation menu")} />
-                  <ListBtn
-                    icon={<Ban className="h-5 w-5 text-rose-400" />}
-                    title={p.isBlockedByMe ? `Unblock ${p.fullName.split(" ")[0]}` : `Block ${p.fullName.split(" ")[0]}`}
-                    danger
-                    onClick={() => void toggleBlock()}
-                  />
-                  <ListBtn
-                    icon={<Flag className="h-5 w-5 text-rose-400" />}
-                    title={`Report ${p.fullName.split(" ")[0]}`}
-                    danger
-                    last
-                    onClick={() => toast.message("Report submitted")}
-                  />
-                </>
-              ) : null}
-            </section>
-          </>
-        )}
-      </div>
-
-      {photoOpen && p?.avatarUrl ? (
-        <div className="fixed inset-0 z-[130] flex flex-col bg-black" onClick={() => setPhotoOpen(false)}>
-          <div className="flex justify-end p-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
-            <button type="button" className="grid h-10 w-10 place-items-center rounded-full bg-white/15">
-              <X className="h-5 w-5" />
-            </button>
-          </div>
-          <div className="flex flex-1 items-center justify-center p-4">
-            <img src={p.avatarUrl} alt="" className="max-h-full max-w-full object-contain" />
           </div>
         </div>
-      ) : null}
-    </div>
+      </div>
+
+      <ProfilePhotoViewer
+        open={photoOpen}
+        src={p?.avatarUrl}
+        name={p?.fullName}
+        subtitle={[p?.matricNumber, deptLevel].filter(Boolean).join(" · ")}
+        onClose={() => setPhotoOpen(false)}
+      />
+    </>
   );
 }
 
-function ActionRound({
+function QuickAction({
   icon,
   label,
   onClick,
   busy,
+  tone,
 }: {
   icon: ReactNode;
   label: string;
   onClick: () => void;
   busy?: boolean;
+  tone: "blue" | "green" | "navy";
 }) {
+  const bg =
+    tone === "green"
+      ? "bg-emerald-500 text-white shadow-emerald-500/30"
+      : tone === "navy"
+        ? "bg-[#1e3a5f] text-white shadow-blue-900/30"
+        : "bg-[#2563eb] text-white shadow-blue-500/30";
   return (
-    <button type="button" onClick={onClick} disabled={busy} className="flex flex-col items-center gap-2 active:opacity-80">
-      <span className="grid h-14 w-14 place-items-center rounded-full bg-[#1f2c34] text-white shadow-inner">
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={busy}
+      className="flex flex-col items-center gap-1.5 active:scale-95 disabled:opacity-60"
+    >
+      <span
+        className={cn(
+          "grid h-12 w-12 place-items-center rounded-2xl shadow-lg",
+          bg,
+        )}
+      >
         {busy ? <Loader2 className="h-5 w-5 animate-spin" /> : icon}
       </span>
-      <span className="text-xs font-medium text-white/70">{label}</span>
+      <span className="text-[10px] font-semibold leading-tight text-white/75">{label}</span>
     </button>
   );
 }
 
-function Row({ label, value, last }: { label: string; value: string; last?: boolean }) {
-  return (
-    <div className={cn("px-4 py-3", !last && "border-b border-white/5")}>
-      <p className="text-[11px] font-medium text-white/40">{label}</p>
-      <p className="mt-0.5 text-sm font-semibold text-white/90">{value}</p>
-    </div>
-  );
-}
-
-function ListBtn({
-  icon,
-  title,
-  subtitle,
+function MenuItem({
+  label,
   onClick,
   danger,
-  last,
 }: {
-  icon: ReactNode;
-  title: string;
-  subtitle?: string;
+  label: string;
   onClick: () => void;
   danger?: boolean;
-  last?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
       className={cn(
-        "flex w-full items-center gap-3 px-4 py-3.5 text-left active:bg-white/5",
-        !last && "border-b border-white/5",
+        "block w-full px-3 py-2.5 text-left text-sm font-medium active:bg-white/10",
+        danger ? "text-rose-400" : "text-white/90",
       )}
     >
-      <span className="grid h-9 w-9 shrink-0 place-items-center">{icon}</span>
-      <span className="min-w-0 flex-1">
-        <span className={cn("block text-sm font-medium", danger ? "text-rose-400" : "text-white/90")}>{title}</span>
-        {subtitle ? <span className="mt-0.5 block text-xs text-white/40">{subtitle}</span> : null}
-      </span>
+      {label}
     </button>
   );
 }

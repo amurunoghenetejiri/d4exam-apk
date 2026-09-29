@@ -6,6 +6,7 @@ import { useSessionUser } from "@/lib/session";
 import { appNavigate } from "@/lib/app-navigate";
 
 export const Route = createFileRoute("/student/user/$userId")({
+  ssr: false,
   head: () => ({
     meta: [{ title: "Profile — D4EXAM" }],
   }),

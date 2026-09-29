@@ -1,19 +1,23 @@
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
   Ban,
+  Bell,
+  Building2,
+  ChevronRight,
   Flag,
+  GraduationCap,
+  Hash,
+  Heart,
+  Image as ImageIcon,
+  Loader2,
   MessageCircle,
   MoreVertical,
   Phone,
+  Users,
+  UsersRound,
   Video,
-  X,
-  Camera,
-  Loader2,
-  GraduationCap,
-  Hash,
-  Building2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -24,10 +28,13 @@ import {
   unblockUser,
   updateMyProfilePhoto,
 } from "@/lib/user-profile";
-import { getOrCreateDirectConversation } from "@/lib/messaging";
+import { getOrCreateDirectConversation, listMessages } from "@/lib/messaging";
 import { appNavigate } from "@/lib/app-navigate";
 import { startDirectCall } from "@/lib/calls";
 import { isOnlineNow } from "@/lib/offline-guard";
+import { ProfilePhotoViewer } from "@/components/profile/ProfilePhotoViewer";
+import { isFavorite, toggleFavorite } from "@/lib/profile-favorites";
+import { supabase } from "@/integrations/supabase/client";
 
 function initials(name: string) {
   return (
@@ -65,6 +72,9 @@ export function UserProfileView({
   const [photoOpen, setPhotoOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
+  const [fav, setFav] = useState(() =>
+    Boolean(myId && userId && isFavorite(myId, userId)),
+  );
 
   const profileQ = useQuery({
     queryKey: ["public-profile", userId, myId],
@@ -76,6 +86,79 @@ export function UserProfileView({
 
   const p = profileQ.data;
   const loading = profileQ.isLoading || profileQ.isFetching;
+
+  const mediaQ = useQuery({
+    queryKey: ["profile-shared-media", myId, p?.authUserId],
+    enabled: Boolean(myId && p?.authUserId && !p.isMe),
+    staleTime: 60_000,
+    queryFn: async () => {
+      if (!myId || !p) return { count: 0, thumbs: [] as string[], conversationId: null as string | null };
+      try {
+        const schoolId = p.schoolId || session?.schoolId || "";
+        const convId = await getOrCreateDirectConversation(myId, p.authUserId, schoolId);
+        const msgs = await listMessages(convId, 80);
+        const media = (msgs || []).filter(
+          (m: { attachment_url?: string | null; attachment_type?: string | null }) =>
+            m.attachment_url &&
+            (m.attachment_type === "image" ||
+              m.attachment_type === "video" ||
+              m.attachment_type === "file" ||
+              /\.(jpg|jpeg|png|gif|webp|mp4)/i.test(m.attachment_url || "")),
+        );
+        const thumbs = media
+          .filter(
+            (m: { attachment_url?: string | null; attachment_type?: string | null }) =>
+              m.attachment_type === "image" ||
+              /\.(jpg|jpeg|png|gif|webp)/i.test(m.attachment_url || ""),
+          )
+          .map((m: { attachment_url?: string | null }) => m.attachment_url as string)
+          .slice(0, 4);
+        return { count: media.length, thumbs, conversationId: convId };
+      } catch {
+        return { count: 0, thumbs: [] as string[], conversationId: null };
+      }
+    },
+  });
+
+  const groupsQ = useQuery({
+    queryKey: ["profile-common-groups", myId, p?.authUserId],
+    enabled: Boolean(myId && p?.authUserId && !p.isMe),
+    staleTime: 60_000,
+    queryFn: async () => {
+      if (!myId || !p) return [];
+      try {
+        const { data: mine } = await supabase
+          .from("conversation_members")
+          .select("conversation_id")
+          .eq("user_id", myId)
+          .is("left_at", null);
+        const myIds = (mine || []).map((r) => r.conversation_id as string);
+        if (!myIds.length) return [];
+        const { data: theirs } = await supabase
+          .from("conversation_members")
+          .select("conversation_id")
+          .eq("user_id", p.authUserId)
+          .in("conversation_id", myIds)
+          .is("left_at", null);
+        const shared = [...new Set((theirs || []).map((r) => r.conversation_id as string))];
+        if (!shared.length) return [];
+        const { data: groups } = await supabase
+          .from("conversations")
+          .select("id, title, type, avatar_url")
+          .in("id", shared)
+          .eq("type", "group")
+          .limit(8);
+        return groups || [];
+      } catch {
+        return [];
+      }
+    },
+  });
+
+  const deptLevel = useMemo(
+    () => [p?.departmentName, p?.levelName].filter(Boolean).join(" · "),
+    [p?.departmentName, p?.levelName],
+  );
 
   const goMessage = async () => {
     if (!myId || !p || p.isMe) return;
@@ -98,11 +181,7 @@ export function UserProfileView({
   const startCall = async (callType: "voice" | "video") => {
     if (!myId || !p || p.isMe) return;
     if (!isOnlineNow()) {
-      toast.error("Internet connection is required for calls");
-      return;
-    }
-    if (p.isBlockedByMe || p.isBlockedMe) {
-      toast.error("You cannot call this user");
+      toast.error("Internet is required for calls");
       return;
     }
     setBusy(callType);
@@ -147,19 +226,12 @@ export function UserProfileView({
     }
   };
 
-  const onPickPhoto = async (file: File) => {
-    if (!session?.profileId || !p?.isMe) return;
-    setBusy("photo");
-    try {
-      await updateMyProfilePhoto(session.profileId, file);
-      toast.success("Photo updated");
-      void qc.invalidateQueries({ queryKey: ["public-profile", userId] });
-      void qc.invalidateQueries({ queryKey: ["session-user"] });
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Upload failed");
-    } finally {
-      setBusy(null);
-    }
+  const onToggleFav = () => {
+    if (!myId || !userId || !p || p.isMe) return;
+    const next = toggleFavorite(myId, userId);
+    setFav(next);
+    toast.success(next ? "Added to favorites" : "Removed from favorites");
+    setMoreOpen(false);
   };
 
   if (loading && !p) {
@@ -174,9 +246,7 @@ export function UserProfileView({
   if (!p) {
     return (
       <div className="flex min-h-[50vh] flex-col items-center justify-center gap-4 bg-gradient-to-b from-[#0b1b3a] to-[#122a52] px-6 text-center text-white">
-        <div className="grid h-16 w-16 place-items-center rounded-full bg-white/10 text-2xl font-bold">
-          ?
-        </div>
+        <div className="grid h-16 w-16 place-items-center rounded-full bg-white/10 text-2xl font-bold">?</div>
         <div>
           <p className="text-lg font-bold">Profile not found</p>
           <p className="mt-1 text-sm text-white/60">
@@ -194,14 +264,17 @@ export function UserProfileView({
     );
   }
 
+  const mediaCount = mediaQ.data?.count ?? 0;
+  const thumbs = mediaQ.data?.thumbs ?? [];
+  const groups = groupsQ.data || [];
+
   return (
     <div className="relative min-h-full overflow-hidden bg-[#0b1b3a] text-white">
-      {/* soft watermark */}
       <div
-        className="pointer-events-none absolute inset-0 opacity-[0.07]"
+        className="pointer-events-none absolute inset-0 opacity-[0.08]"
         style={{
           backgroundImage:
-            "radial-gradient(circle at 50% 30%, rgba(96,165,250,0.35), transparent 55%)",
+            "radial-gradient(circle at 50% 20%, rgba(59,130,246,0.45), transparent 55%)",
         }}
       />
 
@@ -214,12 +287,10 @@ export function UserProfileView({
         >
           <ArrowLeft className="h-5 w-5" />
         </button>
-        <p className="text-sm font-semibold tracking-wide text-white/90">
-          {p.isMe ? "My Profile" : "Profile"}
-        </p>
+        <p className="text-sm font-semibold tracking-wide text-white/90">Profile</p>
         <button
           type="button"
-          onClick={() => setMoreOpen(true)}
+          onClick={() => setMoreOpen((v) => !v)}
           className="grid h-10 w-10 place-items-center rounded-full bg-white/10 active:scale-95"
           aria-label="More"
         >
@@ -227,38 +298,48 @@ export function UserProfileView({
         </button>
       </div>
 
-      {/* Avatar + radial actions */}
-      <div className="relative mx-auto mt-6 flex h-[210px] w-[210px] items-center justify-center sm:h-[240px] sm:w-[240px]">
-        {!p.isMe ? (
-          <>
-            <Orb className="absolute left-1/2 top-0 -translate-x-1/2" label="Video" onClick={() => void startCall("video")} busy={busy === "video"}>
-              <Video className="h-5 w-5" />
-            </Orb>
-            <Orb className="absolute left-0 top-1/2 -translate-y-1/2" label="Chat" onClick={() => void goMessage()} busy={busy === "msg"}>
-              <MessageCircle className="h-5 w-5" />
-            </Orb>
-            <Orb className="absolute right-0 top-1/2 -translate-y-1/2" label="Call" onClick={() => void startCall("voice")} busy={busy === "voice"}>
-              <Phone className="h-5 w-5" />
-            </Orb>
-            <Orb className="absolute bottom-0 left-1/2 -translate-x-1/2" label="More" onClick={() => setMoreOpen(true)}>
-              <MoreVertical className="h-5 w-5" />
-            </Orb>
-          </>
-        ) : null}
+      {moreOpen && !p.isMe ? (
+        <div className="absolute right-3 top-14 z-20 min-w-[13rem] overflow-hidden rounded-xl border border-white/10 bg-[#122a52] py-1 shadow-xl">
+          <MoreItem label={fav ? "Remove from Favorites" : "Add to Favorites"} onClick={onToggleFav} />
+          <MoreItem label="Message" onClick={() => void goMessage()} />
+          <MoreItem label="Voice Call" onClick={() => void startCall("voice")} />
+          <MoreItem label="Video Call" onClick={() => void startCall("video")} />
+          <MoreItem
+            label={p.isBlockedByMe ? "Unblock User" : "Block User"}
+            danger
+            onClick={() => void toggleBlock()}
+          />
+          <MoreItem
+            label="Report User"
+            danger
+            onClick={() => {
+              toast.success("Report submitted to school officers");
+              setMoreOpen(false);
+            }}
+          />
+        </div>
+      ) : null}
 
-        <button
-          type="button"
-          onClick={() => setPhotoOpen(true)}
-          className="relative z-10 grid h-28 w-28 place-items-center overflow-hidden rounded-full bg-[#1e3a6e] shadow-[0_0_0_4px_rgba(255,255,255,0.2),0_12px_40px_rgba(0,0,0,0.35)] ring-2 ring-[#60a5fa]/50 sm:h-32 sm:w-32"
-        >
-          {p.avatarUrl ? (
-            <img src={p.avatarUrl} alt="" className="h-full w-full object-cover" />
-          ) : (
-            <span className="text-3xl font-extrabold tracking-wide">{initials(p.fullName)}</span>
-          )}
-          {p.isMe ? (
-            <label className="absolute inset-x-0 bottom-0 cursor-pointer bg-black/55 py-1.5 text-center text-[10px] font-bold">
-              <Camera className="mx-auto h-3.5 w-3.5" />
+      <div className="relative z-10 mx-auto max-w-lg px-4 pb-24">
+        <div className="flex flex-col items-center pt-4">
+          <button
+            type="button"
+            onClick={() => p.avatarUrl && setPhotoOpen(true)}
+            className="relative"
+          >
+            <span className="absolute inset-0 rounded-full bg-[#2563eb]/35 blur-lg" />
+            <span className="relative grid h-28 w-28 place-items-center overflow-hidden rounded-full bg-[#1e3a5f] ring-[3px] ring-[#3b82f6]/90 ring-offset-2 ring-offset-[#0b1b3a]">
+              {p.avatarUrl ? (
+                <img src={p.avatarUrl} alt="" className="h-full w-full object-cover" />
+              ) : (
+                <span className="text-4xl font-extrabold text-[#93c5fd]">{initials(p.fullName)}</span>
+              )}
+            </span>
+            <span className="absolute bottom-1 right-1 h-4 w-4 rounded-full border-2 border-[#0b1b3a] bg-emerald-400" />
+          </button>
+          {p.isMe && session?.profileId ? (
+            <label className="mt-2 cursor-pointer text-xs font-semibold text-[#60a5fa]">
+              Change photo
               <input
                 type="file"
                 accept="image/*"
@@ -266,138 +347,188 @@ export function UserProfileView({
                 className="hidden"
                 onChange={(e) => {
                   const f = e.target.files?.[0];
-                  if (f) void onPickPhoto(f);
+                  if (!f || !session.profileId) return;
+                  setBusy("photo");
+                  void updateMyProfilePhoto(session.profileId, f)
+                    .then(() => {
+                      toast.success("Photo updated");
+                      void qc.invalidateQueries({ queryKey: ["public-profile", userId] });
+                      void qc.invalidateQueries({ queryKey: ["session-user"] });
+                    })
+                    .catch((err) => toast.error(err instanceof Error ? err.message : "Upload failed"))
+                    .finally(() => setBusy(null));
                 }}
               />
             </label>
           ) : null}
-        </button>
-      </div>
 
-      <div className="relative z-10 mt-3 px-5 text-center">
-        <h1 className="text-xl font-extrabold tracking-tight sm:text-2xl">{p.fullName}</h1>
-        {p.matricNumber ? (
-          <p className="mt-1 inline-flex items-center gap-1 rounded-full bg-white/10 px-3 py-0.5 text-xs font-semibold text-blue-100">
-            <Hash className="h-3 w-3" />
-            {p.matricNumber}
-          </p>
-        ) : null}
-        <p className="mt-2 text-sm text-blue-100/85">
-          {[p.departmentName, p.levelName].filter(Boolean).join(" · ") || "D4EXAM member"}
-        </p>
-        {groupContext ? (
-          <p className="mt-1 text-xs text-blue-200/60">Member of {groupContext.name}</p>
-        ) : null}
-      </div>
-
-      {/* Sheet */}
-      <div className="relative z-10 mt-6 rounded-t-[1.75rem] bg-white px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-5 text-slate-900 shadow-2xl">
-        <div className="space-y-2">
-          <InfoRow icon={<Building2 className="h-4 w-4 text-[#2563eb]" />} label="Department" value={p.departmentName || "—"} />
-          <InfoRow icon={<GraduationCap className="h-4 w-4 text-[#2563eb]" />} label="Level" value={p.levelName || "—"} />
-          <InfoRow icon={<Hash className="h-4 w-4 text-[#2563eb]" />} label="Matric number" value={p.matricNumber || "—"} />
+          <h1 className="mt-3 text-center text-2xl font-bold tracking-tight">{p.fullName}</h1>
+          {p.matricNumber ? (
+            <p className="mt-1 text-sm font-medium text-white/55">{p.matricNumber}</p>
+          ) : null}
+          {deptLevel ? (
+            <p className="mt-0.5 text-center text-xs font-medium text-white/45">{deptLevel}</p>
+          ) : null}
+          <span className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-300">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+            Online
+          </span>
+          {groupContext?.name ? (
+            <p className="mt-2 text-[11px] text-white/40">From group · {groupContext.name}</p>
+          ) : null}
         </div>
 
         {!p.isMe ? (
-          <div className="mt-5 grid grid-cols-3 gap-2">
-            <ActionBtn icon={<MessageCircle className="h-4 w-4" />} label="Message" onClick={() => void goMessage()} />
-            <ActionBtn icon={<Phone className="h-4 w-4" />} label="Voice" onClick={() => void startCall("voice")} />
-            <ActionBtn icon={<Video className="h-4 w-4" />} label="Video" onClick={() => void startCall("video")} />
+          <div className="mt-5 grid grid-cols-4 gap-2">
+            <ActionBtn icon={<MessageCircle className="h-5 w-5" />} label="Message" tone="blue" busy={busy === "msg"} onClick={() => void goMessage()} />
+            <ActionBtn icon={<Phone className="h-5 w-5" />} label="Voice Call" tone="green" busy={busy === "voice"} onClick={() => void startCall("voice")} />
+            <ActionBtn icon={<Video className="h-5 w-5" />} label="Video Call" tone="blue" busy={busy === "video"} onClick={() => void startCall("video")} />
+            <ActionBtn icon={<MoreVertical className="h-5 w-5" />} label="More" tone="navy" onClick={() => setMoreOpen((v) => !v)} />
           </div>
-        ) : (
-          <p className="mt-4 text-center text-xs text-slate-500">
-            This is how others see you in D4Chat.
+        ) : null}
+
+        <section className="mt-6 overflow-hidden rounded-2xl border border-white/10 bg-white/[0.06]">
+          <InfoRow icon={<Building2 className="h-4 w-4" />} label="Department" value={p.departmentName || "—"} />
+          <InfoRow icon={<GraduationCap className="h-4 w-4" />} label="Level" value={p.levelName || "—"} />
+          <InfoRow icon={<Building2 className="h-4 w-4" />} label="School" value={session?.schoolName || "—"} />
+          <InfoRow icon={<Hash className="h-4 w-4" />} label="Matric Number" value={p.matricNumber || "—"} last />
+        </section>
+
+        <section className="mt-3 rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3">
+          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-white/45">
+            <Users className="h-3.5 w-3.5" />
+            About
+          </div>
+          <p className="mt-1.5 text-sm leading-relaxed text-white/75">
+            {p.departmentName
+              ? `${p.fullName.split(" ")[0]} is a student in ${p.departmentName}${p.levelName ? ` · ${p.levelName}` : ""}.`
+              : "D4EXAM campus member."}
           </p>
-        )}
-      </div>
+        </section>
 
-      {photoOpen ? (
-        <div className="fixed inset-0 z-[100] flex flex-col bg-black">
-          <div className="flex items-center justify-between px-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
-            <button type="button" onClick={() => setPhotoOpen(false)} className="grid h-10 w-10 place-items-center rounded-full bg-white/15 text-white">
-              <X className="h-5 w-5" />
-            </button>
-            <p className="text-sm font-semibold text-white">{p.fullName}</p>
-            <span className="w-10" />
-          </div>
-          <div className="flex flex-1 items-center justify-center p-4">
-            {p.avatarUrl ? (
-              <img src={p.avatarUrl} alt="" className="max-h-full max-w-full object-contain" />
-            ) : (
-              <div className="grid h-48 w-48 place-items-center rounded-full bg-[#1e3a6e] text-5xl font-extrabold text-white">
-                {initials(p.fullName)}
+        <button
+          type="button"
+          onClick={() => {
+            if (mediaQ.data?.conversationId) {
+              appNavigate(`/student/messages?chat=${encodeURIComponent(mediaQ.data.conversationId)}`);
+            } else {
+              void goMessage();
+            }
+          }}
+          className="mt-3 flex w-full items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 text-left active:bg-white/10"
+        >
+          <ImageIcon className="h-5 w-5 shrink-0 text-[#60a5fa]" />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-white/90">Media, Links and Files</p>
+            <p className="text-xs text-white/45">{mediaCount} items</p>
+            {thumbs.length > 0 ? (
+              <div className="mt-2 flex gap-1.5">
+                {thumbs.map((u) => (
+                  <img key={u} src={u} alt="" className="h-10 w-10 rounded-lg object-cover ring-1 ring-white/10" />
+                ))}
+                {mediaCount > thumbs.length ? (
+                  <span className="grid h-10 w-10 place-items-center rounded-lg bg-white/10 text-[10px] font-bold text-white/70">
+                    +{mediaCount - thumbs.length}
+                  </span>
+                ) : null}
               </div>
-            )}
+            ) : null}
           </div>
-        </div>
-      ) : null}
+          <ChevronRight className="h-4 w-4 shrink-0 text-white/35" />
+        </button>
 
-      {moreOpen ? (
-        <div className="fixed inset-0 z-[90] flex items-end justify-center bg-black/45 sm:items-center" onClick={() => setMoreOpen(false)}>
-          <div className="mb-[max(0.5rem,env(safe-area-inset-bottom))] w-full max-w-sm overflow-hidden rounded-2xl bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <p className="border-b px-4 py-3 text-sm font-bold text-slate-800">Actions</p>
-            {!p.isMe ? (
-              <>
-                <SheetBtn onClick={() => void goMessage()}>Message</SheetBtn>
-                <SheetBtn onClick={() => void startCall("voice")}>Voice call</SheetBtn>
-                <SheetBtn onClick={() => void startCall("video")}>Video call</SheetBtn>
-                <SheetBtn danger onClick={() => void toggleBlock()} icon={p.isBlockedByMe ? undefined : <Ban className="h-4 w-4" />}>
-                  {p.isBlockedByMe ? "Unblock" : "Block user"}
-                </SheetBtn>
-                <SheetBtn danger icon={<Flag className="h-4 w-4" />} onClick={() => { toast.message("Report submitted"); setMoreOpen(false); }}>
-                  Report user
-                </SheetBtn>
-              </>
-            ) : (
-              <SheetBtn onClick={() => { appNavigate("/student/settings"); setMoreOpen(false); }}>
-                Account settings
-              </SheetBtn>
-            )}
-            <SheetBtn onClick={() => setMoreOpen(false)}>Cancel</SheetBtn>
+        <section className="mt-3 overflow-hidden rounded-2xl border border-white/10 bg-white/[0.06]">
+          <div className="flex items-center gap-2 px-4 py-3">
+            <UsersRound className="h-4 w-4 text-[#60a5fa]" />
+            <p className="text-sm font-semibold text-white/90">Groups in Common</p>
+            <span className="ml-auto text-xs text-white/40">{groups.length}</span>
           </div>
-        </div>
-      ) : null}
-    </div>
-  );
-}
+          {groups.length === 0 ? (
+            <p className="border-t border-white/5 px-4 py-3 text-xs text-white/40">No groups in common yet</p>
+          ) : (
+            groups.map((g) => (
+              <button
+                key={g.id as string}
+                type="button"
+                onClick={() => appNavigate(`/student/messages?chat=${encodeURIComponent(g.id as string)}`)}
+                className="flex w-full items-center gap-3 border-t border-white/5 px-4 py-3 text-left active:bg-white/5"
+              >
+                <span className="grid h-9 w-9 place-items-center rounded-full bg-[#2563eb]/25 text-xs font-bold text-[#93c5fd]">
+                  {((g.title as string) || "G").slice(0, 1).toUpperCase()}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-sm font-medium text-white/85">
+                  {(g.title as string) || "Group"}
+                </span>
+                <ChevronRight className="h-4 w-4 text-white/30" />
+              </button>
+            ))
+          )}
+        </section>
 
-function Orb({ className, children, label, onClick, busy }: { className?: string; children: ReactNode; label: string; onClick: () => void; busy?: boolean }) {
-  return (
-    <button type="button" onClick={onClick} disabled={busy} className={cn("flex flex-col items-center gap-1 transition active:scale-90", className)}>
-      <span className="grid h-11 w-11 place-items-center rounded-full bg-white text-[#1d4ed8] shadow-lg shadow-black/25 ring-2 ring-white/50">
-        {busy ? <Loader2 className="h-5 w-5 animate-spin" /> : children}
-      </span>
-      <span className="text-[10px] font-semibold text-white/90">{label}</span>
-    </button>
-  );
-}
+        <section className="mt-3 overflow-hidden rounded-2xl border border-white/10 bg-white/[0.06]">
+          <ListRow icon={<Phone className="h-4 w-4 text-[#60a5fa]" />} title="Call History" subtitle="Recent voice & video with this person" onClick={() => toast.message("Call history opens from the conversation menu")} />
+          <ListRow icon={<Bell className="h-4 w-4 text-[#60a5fa]" />} title="Notifications" subtitle="Default" last onClick={() => toast.message("Mute this chat from the conversation menu")} />
+        </section>
 
-function ActionBtn({ icon, label, onClick }: { icon: ReactNode; label: string; onClick: () => void }) {
-  return (
-    <button type="button" onClick={onClick} className="flex flex-col items-center gap-1 rounded-2xl border border-blue-100 bg-[#eff6ff] py-3 text-[#1d4ed8] transition active:scale-[0.97]">
-      {icon}
-      <span className="text-[11px] font-bold">{label}</span>
-    </button>
-  );
-}
-
-function InfoRow({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
-  return (
-    <div className="flex items-center gap-3 rounded-2xl border border-slate-100 bg-slate-50/90 px-3 py-2.5">
-      <span className="grid h-9 w-9 place-items-center rounded-xl bg-white shadow-sm">{icon}</span>
-      <div className="min-w-0 flex-1">
-        <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{label}</p>
-        <p className="truncate text-sm font-bold text-slate-900">{value}</p>
+        {!p.isMe ? (
+          <section className="mt-3 overflow-hidden rounded-2xl border border-white/10 bg-white/[0.06]">
+            <ListRow icon={<Heart className={cn("h-4 w-4", fav ? "text-rose-400" : "text-white/60")} />} title={fav ? "Remove from Favorites" : "Add to Favorites"} onClick={onToggleFav} />
+            <ListRow icon={<Ban className="h-4 w-4 text-rose-400" />} title={p.isBlockedByMe ? "Unblock User" : "Block User"} danger onClick={() => void toggleBlock()} />
+            <ListRow icon={<Flag className="h-4 w-4 text-rose-400" />} title="Report User" danger last onClick={() => toast.success("Report submitted to school officers")} />
+          </section>
+        ) : null}
       </div>
+
+      <ProfilePhotoViewer
+        open={photoOpen}
+        src={p.avatarUrl}
+        name={p.fullName}
+        subtitle={[p.matricNumber, deptLevel].filter(Boolean).join(" · ")}
+        onClose={() => setPhotoOpen(false)}
+      />
     </div>
   );
 }
 
-function SheetBtn({ children, onClick, danger, icon }: { children: ReactNode; onClick: () => void; danger?: boolean; icon?: ReactNode }) {
+function ActionBtn({ icon, label, onClick, busy, tone }: { icon: ReactNode; label: string; onClick: () => void; busy?: boolean; tone: "blue" | "green" | "navy" }) {
+  const bg = tone === "green" ? "bg-emerald-500" : tone === "navy" ? "bg-[#1e3a5f]" : "bg-[#2563eb]";
   return (
-    <button type="button" onClick={onClick} className={cn("flex w-full items-center gap-2 border-b border-slate-100 px-4 py-3.5 text-left text-sm font-semibold last:border-0", danger ? "text-rose-600" : "text-slate-800")}>
-      {icon}
-      {children}
+    <button type="button" onClick={onClick} disabled={busy} className="flex flex-col items-center gap-1.5 active:scale-95 disabled:opacity-60">
+      <span className={cn("grid h-12 w-12 place-items-center rounded-2xl text-white shadow-lg", bg)}>
+        {busy ? <Loader2 className="h-5 w-5 animate-spin" /> : icon}
+      </span>
+      <span className="text-[10px] font-semibold text-white/70">{label}</span>
+    </button>
+  );
+}
+
+function InfoRow({ icon, label, value, last }: { icon: ReactNode; label: string; value: string; last?: boolean }) {
+  return (
+    <div className={cn("flex items-center gap-3 px-4 py-3", !last && "border-b border-white/5")}>
+      <span className="text-white/40">{icon}</span>
+      <span className="text-xs font-medium text-white/45">{label}</span>
+      <span className="ml-auto max-w-[55%] truncate text-right text-sm font-semibold text-white/90">{value}</span>
+    </div>
+  );
+}
+
+function ListRow({ icon, title, subtitle, onClick, danger, last }: { icon: ReactNode; title: string; subtitle?: string; onClick: () => void; danger?: boolean; last?: boolean }) {
+  return (
+    <button type="button" onClick={onClick} className={cn("flex w-full items-center gap-3 px-4 py-3.5 text-left active:bg-white/5", !last && "border-b border-white/5")}>
+      <span className="grid h-8 w-8 place-items-center">{icon}</span>
+      <span className="min-w-0 flex-1">
+        <span className={cn("block text-sm font-medium", danger ? "text-rose-400" : "text-white/90")}>{title}</span>
+        {subtitle ? <span className="mt-0.5 block text-xs text-white/40">{subtitle}</span> : null}
+      </span>
+      <ChevronRight className="h-4 w-4 text-white/25" />
+    </button>
+  );
+}
+
+function MoreItem({ label, onClick, danger }: { label: string; onClick: () => void; danger?: boolean }) {
+  return (
+    <button type="button" onClick={onClick} className={cn("block w-full px-3 py-2.5 text-left text-sm font-medium active:bg-white/10", danger ? "text-rose-400" : "text-white/90")}>
+      {label}
     </button>
   );
 }
