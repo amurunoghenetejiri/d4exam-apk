@@ -9,8 +9,8 @@ import {
 import { fetchPublicProfile } from "@/lib/user-profile";
 
 /**
- * Listens for incoming call_participants rows (Realtime) + personal broadcast
- * so the callee sees ring UI even when push is delayed.
+ * Listens for incoming call invites (personal broadcast + call_participants Realtime).
+ * Safe to mount once (GlobalCallHost). Never throws into the React tree.
  */
 export function IncomingCallWatcher({
   onIncoming,
@@ -28,9 +28,12 @@ export function IncomingCallWatcher({
   const { data: session } = useSessionUser();
   const myId = session?.userId || null;
   const handled = useRef<Set<string>>(new Set());
+  const onIncomingRef = useRef(onIncoming);
+  onIncomingRef.current = onIncoming;
 
   useEffect(() => {
     if (!myId) return;
+    let cancelled = false;
 
     const handleInvite = async (payload: {
       callId: string;
@@ -39,10 +42,14 @@ export function IncomingCallWatcher({
       conversationId?: string | null;
       callerName?: string;
     }) => {
+      if (cancelled) return;
       const callId = String(payload.callId || "");
       if (!callId || handled.current.has(callId)) return;
       const cur = getCallSession();
-      if (cur && !["ended", "no_answer", "missed", "failed", "declined", "idle"].includes(cur.phase)) {
+      if (
+        cur &&
+        !["ended", "no_answer", "missed", "failed", "declined", "idle"].includes(cur.phase)
+      ) {
         return;
       }
       handled.current.add(callId);
@@ -55,25 +62,29 @@ export function IncomingCallWatcher({
           const p = await fetchPublicProfile(peerId, myId);
           if (p) {
             peerName = p.fullName || peerName;
-            peerAvatar = p.avatarUrl;
-            peerMatric = p.matricNumber;
+            peerAvatar = p.avatarUrl || null;
+            peerMatric = p.matricNumber || null;
           }
         } catch {
           /* ignore */
         }
       }
-      const callType = payload.callType === "video" ? "video" : "voice";
-      await notifyIncomingCall({
-        callId,
-        callType,
-        peerId: peerId || "unknown",
-        peerName,
-        peerAvatar,
-        peerMatric,
-        conversationId: payload.conversationId || null,
-        myUserId: myId,
-      });
-      onIncoming?.({
+      const callType = (payload.callType === "video" ? "video" : "voice") as "voice" | "video";
+      try {
+        await notifyIncomingCall({
+          callId,
+          callType,
+          peerId: peerId || "unknown",
+          peerName,
+          peerAvatar,
+          peerMatric,
+          conversationId: payload.conversationId || null,
+          myUserId: myId,
+        });
+      } catch (e) {
+        console.warn("[IncomingCallWatcher] notifyIncomingCall", e);
+      }
+      onIncomingRef.current?.({
         callId,
         callType,
         peerId: peerId || "unknown",
@@ -84,26 +95,47 @@ export function IncomingCallWatcher({
       });
     };
 
-    // Personal broadcast channel — caller invites here
-    const personal = supabase.channel(`user-calls:${myId}`, {
-      config: { broadcast: { self: false } },
-    });
-    personal
-      .on("broadcast", { event: "incoming_call" }, ({ payload }) => {
-        void handleInvite(payload as {
-          callId: string;
-          callType?: string;
-          fromUserId?: string;
-          conversationId?: string | null;
-          callerName?: string;
-        });
-      })
-      .subscribe();
+    const personalName = `user-calls:${myId}`;
+    const dbName = `incoming-calls-db:${myId}`;
 
-    // Postgres Realtime on call_participants
-    const db = supabase
-      .channel(`incoming-calls-db:${myId}`)
-      .on(
+    // Tear down any prior instance of these topic names (Strict Mode / remounts)
+    try {
+      void supabase.removeChannel(supabase.channel(personalName));
+    } catch {
+      /* ignore */
+    }
+    try {
+      void supabase.removeChannel(supabase.channel(dbName));
+    } catch {
+      /* ignore */
+    }
+
+    let personal: ReturnType<typeof supabase.channel> | null = null;
+    let db: ReturnType<typeof supabase.channel> | null = null;
+
+    try {
+      personal = supabase.channel(personalName, {
+        config: { broadcast: { self: false } },
+      });
+      personal.on("broadcast", { event: "incoming_call" }, ({ payload }) => {
+        void handleInvite(
+          payload as {
+            callId: string;
+            callType?: string;
+            fromUserId?: string;
+            conversationId?: string | null;
+            callerName?: string;
+          },
+        );
+      });
+      personal.subscribe();
+    } catch (e) {
+      console.warn("[IncomingCallWatcher] personal channel", e);
+    }
+
+    try {
+      db = supabase.channel(dbName);
+      db.on(
         "postgres_changes",
         {
           event: "INSERT",
@@ -119,33 +151,60 @@ export function IncomingCallWatcher({
           };
           if (!row?.call_id) return;
           if (row.role === "caller") return;
-          if (row.status && row.status !== "ringing") return;
+          if (row.status && row.status !== "ringing" && row.status !== "invited") return;
           void (async () => {
-            const { data: cs } = await supabase
-              .from("call_sessions")
-              .select("id, call_type, initiator_id, conversation_id, status")
-              .eq("id", row.call_id)
-              .maybeSingle();
-            if (!cs || (cs as { status?: string }).status === "ended") return;
-            await handleInvite({
-              callId: String((cs as { id: string }).id),
-              callType: String((cs as { call_type?: string }).call_type || "voice"),
-              fromUserId: String((cs as { initiator_id?: string }).initiator_id || ""),
-              conversationId: (cs as { conversation_id?: string | null }).conversation_id || null,
-            });
+            try {
+              const { data: cs } = await supabase
+                .from("call_sessions")
+                .select("id, call_type, initiator_id, conversation_id, status")
+                .eq("id", row.call_id)
+                .maybeSingle();
+              if (!cs || (cs as { status?: string }).status === "ended") return;
+              await handleInvite({
+                callId: String((cs as { id: string }).id),
+                callType: String((cs as { call_type?: string }).call_type || "voice"),
+                fromUserId: String((cs as { initiator_id?: string }).initiator_id || ""),
+                conversationId:
+                  (cs as { conversation_id?: string | null }).conversation_id || null,
+              });
+            } catch (err) {
+              console.warn("[IncomingCallWatcher] db invite", err);
+            }
           })();
         },
-      )
-      .subscribe();
+      );
+      db.subscribe();
+    } catch (e) {
+      console.warn("[IncomingCallWatcher] db channel", e);
+    }
 
     return () => {
-      void personal.unsubscribe();
-      void db.unsubscribe();
+      cancelled = true;
+      if (personal) {
+        try {
+          void supabase.removeChannel(personal);
+        } catch {
+          /* ignore */
+        }
+      }
+      if (db) {
+        try {
+          void supabase.removeChannel(db);
+        } catch {
+          /* ignore */
+        }
+      }
     };
-  }, [myId, onIncoming]);
+  }, [myId]);
 
-  // Keep session subscription warm
-  useEffect(() => subscribeCallSession(() => {}), []);
+  // Keep session subscription warm (no-op listener)
+  useEffect(() => {
+    try {
+      return subscribeCallSession(() => {});
+    } catch {
+      return undefined;
+    }
+  }, []);
 
   return null;
 }

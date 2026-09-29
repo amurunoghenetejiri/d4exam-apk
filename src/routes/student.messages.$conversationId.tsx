@@ -2,7 +2,6 @@ import { openUserProfile, D4_OPEN_PROFILE_EVENT } from "@/components/profile/Cli
 import { MessagingProfileSheet } from "@/components/profile/MessagingProfileSheet";
 import { startDirectCall, notifyCalleeOfIncomingCall, inviteCalleeOnPersonalChannel } from "@/lib/calls";
 import { CallOverlay, type ActiveCall } from "@/components/calls/CallOverlay";
-import { IncomingCallWatcher } from "@/components/calls/IncomingCallWatcher";
 import { isOnlineNow } from "@/lib/offline-guard";
 import { toast } from "sonner";
 /**
@@ -386,9 +385,16 @@ export function ConversationChat({
 
   useEffect(() => {
     if (!conversationId) return;
-    const ch = supabase
-      .channel(`campus-msg-${conversationId}`)
-      .on(
+    const topic = `campus-msg-${conversationId}`;
+    try {
+      void supabase.removeChannel(supabase.channel(topic));
+    } catch {
+      /* ignore stale channel */
+    }
+    let ch: ReturnType<typeof supabase.channel> | null = null;
+    try {
+      ch = supabase.channel(topic);
+      ch.on(
         "postgres_changes",
         {
           event: "*",
@@ -400,10 +406,19 @@ export function ConversationChat({
           void qc.invalidateQueries({ queryKey: ["campus-messages", conversationId] });
           void qc.invalidateQueries({ queryKey: ["campus-conversations"] });
         },
-      )
-      .subscribe();
+      );
+      ch.subscribe();
+    } catch (e) {
+      console.warn("[messages] realtime campus_messages", e);
+    }
     return () => {
-      void supabase.removeChannel(ch);
+      if (ch) {
+        try {
+          void supabase.removeChannel(ch);
+        } catch {
+          /* ignore */
+        }
+      }
     };
   }, [conversationId, qc]);
 
@@ -1745,20 +1760,7 @@ export function ConversationChat({
           onStartCall={(opts) => setActiveCall({ ...opts, conversationId })}
         />
       ) : null}
-      <IncomingCallWatcher
-        onIncoming={(call) => {
-          setActiveCall({
-            callId: call.callId,
-            callType: call.callType,
-            peerId: call.peerId,
-            peerName: call.peerName,
-            peerAvatar: call.peerAvatar,
-            peerMatric: call.peerMatric,
-            isCaller: false,
-            conversationId: call.conversationId,
-          });
-        }}
-      />
+
       {activeCall && userId ? (
         <CallOverlay
           call={activeCall}
