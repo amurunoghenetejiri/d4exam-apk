@@ -58,7 +58,6 @@ import {
   parseMediaUrls,
 } from "@/components/messaging/MessageMedia";
 import { joinMessagingPresence } from "@/lib/messaging-presence";
-import { isOnlineNow } from "@/lib/offline-sync";
 import {
   enqueueOutbox,
   listOutbox,

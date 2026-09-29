@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -418,7 +418,7 @@ function ActionOrb({
   busy,
 }: {
   className?: string;
-  children: React.ReactNode;
+  children: ReactNode;
   label: string;
   onClick: () => void;
   busy?: boolean;
@@ -467,7 +467,7 @@ function Section({
   children,
 }: {
   title: string;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
     <div className="rounded-2xl border border-slate-100 bg-slate-50/80 p-3">
@@ -496,7 +496,7 @@ function SheetBtn({
   danger,
   icon,
 }: {
-  children: React.ReactNode;
+  children: ReactNode;
   onClick: () => void;
   danger?: boolean;
   icon?: React.ReactNode;

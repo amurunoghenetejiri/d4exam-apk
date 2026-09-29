@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   Mic,
   MicOff,
@@ -317,7 +317,7 @@ function CtrlBtn({
   onClick,
   active,
 }: {
-  children: React.ReactNode;
+  children: ReactNode;
   onClick: () => void;
   active?: boolean;
 }) {
