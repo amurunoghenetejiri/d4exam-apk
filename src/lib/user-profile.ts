@@ -157,7 +157,20 @@ export async function fetchPublicProfile(
   myUserId?: string | null,
 ): Promise<PublicUserProfile | null> {
   const id = (targetUserId || "").trim();
-  if (!id || id === "undefined" || id === "null") return null;
+  if (!id || id === "undefined" || id === "null" || id === "me") {
+    // "me" → resolve current user
+    if (id === "me" || !id) {
+      try {
+        const { data: auth } = await supabase.auth.getUser();
+        const uid = auth.user?.id;
+        if (!uid) return null;
+        return fetchPublicProfile(uid, uid);
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
 
   let row: Record<string, unknown> | null = null;
 
@@ -167,8 +180,7 @@ export async function fetchPublicProfile(
     });
     if (!error && data && typeof data === "object") {
       row = data as Record<string, unknown>;
-      // empty jsonb object without auth_user_id
-      if (!row.auth_user_id && !row.full_name && !row.profile_id) {
+      if (!row.auth_user_id && !row.full_name && !row.profile_id && !row.avatar_url) {
         row = null;
       }
     }
@@ -181,6 +193,48 @@ export async function fetchPublicProfile(
       row = await fetchProfileFallback(id);
     } catch {
       row = null;
+    }
+  }
+
+  // Last resort: profiles by auth_user_id with minimal fields (RLS may allow own row)
+  if (!row) {
+    try {
+      const { data: p } = await supabase
+        .from("profiles")
+        .select("id, auth_user_id, full_name, first_name, last_name, profile_photo_url, school_id, status, phone")
+        .or(`auth_user_id.eq.${id},id.eq.${id}`)
+        .limit(1)
+        .maybeSingle();
+      if (p) {
+        row = {
+          auth_user_id: (p as { auth_user_id?: string }).auth_user_id || id,
+          profile_id: (p as { id?: string }).id,
+          full_name: (p as { full_name?: string }).full_name,
+          first_name: (p as { first_name?: string }).first_name,
+          last_name: (p as { last_name?: string }).last_name,
+          avatar_url: (p as { profile_photo_url?: string }).profile_photo_url,
+          school_id: (p as { school_id?: string }).school_id,
+          status: (p as { status?: string }).status,
+          phone: (p as { phone?: string }).phone,
+        };
+        const pid = row.profile_id as string | undefined;
+        if (pid) {
+          const { data: st } = await supabase
+            .from("students")
+            .select("id, matric_number, department_id, level_id")
+            .eq("profile_id", pid)
+            .limit(1)
+            .maybeSingle();
+          if (st) {
+            row.matric_number = (st as { matric_number?: string }).matric_number;
+            row.department_id = (st as { department_id?: string }).department_id;
+            row.level_id = (st as { level_id?: string }).level_id;
+            row.student_id = (st as { id?: string }).id;
+          }
+        }
+      }
+    } catch {
+      /* ignore */
     }
   }
 

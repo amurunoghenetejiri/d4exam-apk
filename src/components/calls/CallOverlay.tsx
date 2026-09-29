@@ -14,11 +14,13 @@ import {
   MessageCircle,
   Phone,
   ChevronDown,
+  PhoneCall,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   acceptIncomingCall,
   attachCallVideos,
+  dismissCallUi,
   endCall,
   flipCamera,
   getCallSession,
@@ -34,6 +36,7 @@ import {
   type CallSessionState,
 } from "@/lib/call-session";
 import { appNavigate } from "@/lib/app-navigate";
+import { startDirectCall, notifyCalleeOfIncomingCall } from "@/lib/calls";
 
 export type ActiveCall = {
   callId: string;
@@ -46,7 +49,6 @@ export type ActiveCall = {
   conversationId?: string | null;
 };
 
-/** Mount once at app/messages level — drives UI from global session */
 export function CallOverlay({
   call,
   myUserId,
@@ -60,14 +62,19 @@ export function CallOverlay({
   const [moreOpen, setMoreOpen] = useState(false);
   const localRef = useRef<HTMLVideoElement>(null);
   const remoteRef = useRef<HTMLVideoElement>(null);
+  const bootstrapped = useRef<string | null>(null);
 
   useEffect(() => subscribeCallSession(setSession), []);
 
-  // Bootstrap session from ActiveCall prop
   useEffect(() => {
     if (!call || !myUserId) return;
+    if (bootstrapped.current === call.callId) return;
     const cur = getCallSession();
-    if (cur && cur.callId === call.callId) return;
+    if (cur && cur.callId === call.callId) {
+      bootstrapped.current = call.callId;
+      return;
+    }
+    bootstrapped.current = call.callId;
     if (call.isCaller) {
       void startOutgoingCall({
         callId: call.callId,
@@ -78,18 +85,7 @@ export function CallOverlay({
         peerMatric: call.peerMatric,
         conversationId: call.conversationId,
         myUserId,
-      }).catch(() => onClose());
-    } else if (!cur) {
-      void acceptIncomingCall({
-        callId: call.callId,
-        callType: call.callType,
-        peerId: call.peerId,
-        peerName: call.peerName,
-        peerAvatar: call.peerAvatar,
-        peerMatric: call.peerMatric,
-        conversationId: call.conversationId,
-        myUserId,
-      }).catch(() => onClose());
+      });
     }
   }, [call?.callId, myUserId]);
 
@@ -97,29 +93,157 @@ export function CallOverlay({
     attachCallVideos(localRef.current, remoteRef.current);
   }, [session?.phase, session?.callType]);
 
-  useEffect(() => {
-    if (!session) onClose();
-  }, [session, onClose]);
+  // Prefer session; fall back to call prop so UI never goes blank while starting
+  const view = session || (call
+    ? {
+        callId: call.callId,
+        callType: call.callType,
+        phase: "calling" as const,
+        peerId: call.peerId,
+        peerName: call.peerName,
+        peerAvatar: call.peerAvatar,
+        peerMatric: call.peerMatric,
+        isCaller: call.isCaller,
+        conversationId: call.conversationId,
+        myUserId,
+        muted: false,
+        camOff: false,
+        speakerOn: call.callType === "video",
+        facing: "user" as const,
+        seconds: 0,
+        sharingScreen: false,
+        error: null,
+      }
+    : null);
 
-  if (!session) return null;
-  if (session.phase === "minimized") return null; // floating bubble handles restore
+  if (!view && !call) return null;
 
-  const isVideo = session.callType === "video";
-  const connected = session.phase === "active";
-  const mm = String(Math.floor(session.seconds / 60)).padStart(2, "0");
-  const ss = String(session.seconds % 60).padStart(2, "0");
+  // Minimized → top banner only
+  if (view?.phase === "minimized") {
+    return <MinimizedTopBar session={view} />;
+  }
+
+  if (!view) return null;
+
+  const isVideo = view.callType === "video";
+  const connected = view.phase === "active";
+  const mm = String(Math.floor(view.seconds / 60)).padStart(2, "0");
+  const ss = String(view.seconds % 60).padStart(2, "0");
   const statusLabel =
-    session.phase === "calling"
+    view.phase === "calling"
       ? "Calling…"
-      : session.phase === "ringing"
+      : view.phase === "ringing"
         ? isVideo
           ? "Incoming video call"
           : "Incoming voice call"
-        : session.phase === "connecting"
+        : view.phase === "connecting"
           ? "Connecting…"
-          : connected
-            ? `${mm}:${ss}`
-            : session.phase;
+          : view.phase === "no_answer"
+            ? "No answer"
+            : view.phase === "missed"
+              ? "Missed call"
+              : view.phase === "declined"
+                ? "Call declined"
+                : view.phase === "failed"
+                  ? "Call failed"
+                  : connected
+                    ? `${mm}:${ss}`
+                    : String(view.phase);
+
+  const closeAll = () => {
+    void dismissCallUi();
+    onClose();
+  };
+
+  // No-answer / failed end screens
+  if (view.phase === "no_answer" || view.phase === "failed" || view.phase === "declined") {
+    return (
+      <div className="fixed inset-0 z-[200] flex flex-col text-white">
+        <div
+          className="absolute inset-0"
+          style={{ background: "linear-gradient(180deg, #0b1b3a 0%, #122a52 50%, #0b1b3a 100%)" }}
+        />
+        <Watermark />
+        <div className="relative z-10 flex flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
+          <div className="grid h-20 w-20 place-items-center rounded-full bg-white/10">
+            <PhoneCall className="h-9 w-9 text-[#60a5fa]" />
+          </div>
+          <div>
+            <p className="text-xl font-extrabold">{view.peerName}</p>
+            {view.peerMatric ? (
+              <p className="mt-1 text-sm text-white/60">{view.peerMatric}</p>
+            ) : null}
+            <p className="mt-3 text-base font-semibold text-blue-100">
+              {view.phase === "no_answer"
+                ? "No answer"
+                : view.phase === "declined"
+                  ? "Call declined"
+                  : view.error || "Could not connect"}
+            </p>
+          </div>
+          <div className="mt-4 flex w-full max-w-xs flex-col gap-2">
+            <button
+              type="button"
+              className="rounded-2xl bg-[#2563eb] py-3.5 text-sm font-bold shadow-lg active:scale-[0.98]"
+              onClick={() => {
+                void (async () => {
+                  try {
+                    const id = await startDirectCall({
+                      calleeId: view.peerId,
+                      callType: view.callType,
+                      conversationId: view.conversationId,
+                    });
+                    void notifyCalleeOfIncomingCall({
+                      calleeId: view.peerId,
+                      callId: id,
+                      callType: view.callType,
+                      callerName: view.peerName,
+                    });
+                    dismissCallUi();
+                    void startOutgoingCall({
+                      callId: id,
+                      callType: view.callType,
+                      peerId: view.peerId,
+                      peerName: view.peerName,
+                      peerAvatar: view.peerAvatar,
+                      peerMatric: view.peerMatric,
+                      conversationId: view.conversationId,
+                      myUserId: view.myUserId,
+                    });
+                  } catch {
+                    /* ignore */
+                  }
+                })();
+              }}
+            >
+              Call again
+            </button>
+            <button
+              type="button"
+              className="rounded-2xl bg-white/10 py-3.5 text-sm font-bold active:scale-[0.98]"
+              onClick={() => {
+                closeAll();
+                if (view.conversationId) {
+                  appNavigate(
+                    `/student/messages?chat=${encodeURIComponent(view.conversationId)}`,
+                  );
+                }
+              }}
+            >
+              Send message
+            </button>
+            <button
+              type="button"
+              className="py-2 text-sm font-medium text-white/50"
+              onClick={closeAll}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-[200] flex flex-col overflow-hidden text-white">
@@ -129,42 +253,8 @@ export function CallOverlay({
           background: "linear-gradient(180deg, #0b1b3a 0%, #122a52 45%, #0b1b3a 100%)",
         }}
       />
+      <Watermark />
 
-      {/* Same watermark animation as messages */}
-      <div aria-hidden className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
-        <div className="absolute inset-0 flex items-center justify-center">
-          <div
-            className="relative flex items-center justify-center"
-            style={{ animation: "d4WatermarkFloat 9s ease-in-out infinite" }}
-          >
-            <img
-              src="/logo.png"
-              alt=""
-              className="h-[min(42vh,300px)] w-auto max-w-[62%] select-none object-contain opacity-[0.18]"
-              style={{ filter: "grayscale(0.1) brightness(1.1)" }}
-            />
-            <span
-              className="pointer-events-none absolute inset-[8%] overflow-hidden rounded-full"
-              style={{
-                background:
-                  "linear-gradient(115deg, transparent 25%, rgba(255,255,255,0.45) 48%, rgba(147,197,253,0.3) 52%, transparent 75%)",
-                backgroundSize: "220% 100%",
-                animation: "d4WatermarkShine 5s ease-in-out infinite",
-              }}
-            />
-          </div>
-        </div>
-      </div>
-      <style>{`
-        @keyframes d4WatermarkFloat{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(-12px) scale(1.03)}}
-        @keyframes d4WatermarkShine{0%{background-position:100% 0}100%{background-position:-100% 0}}
-        @keyframes d4BtnIn{0%{transform:scale(.75);opacity:0}100%{transform:scale(1);opacity:1}}
-        @keyframes d4RingPulse{0%,100%{box-shadow:0 0 0 0 rgba(37,99,235,.45)}70%{box-shadow:0 0 0 18px rgba(37,99,235,0)}}
-        .d4-btn-in{animation:d4BtnIn .4s cubic-bezier(.22,1,.36,1) both}
-        .d4-ring-pulse{animation:d4RingPulse 1.8s ease-out infinite}
-      `}</style>
-
-      {/* Remote video when active */}
       {isVideo && connected ? (
         <video
           ref={remoteRef}
@@ -183,9 +273,9 @@ export function CallOverlay({
             autoPlay
             playsInline
             muted
-            className={cn("h-full w-full object-cover", session.camOff && "opacity-0")}
+            className={cn("h-full w-full object-cover", view.camOff && "opacity-0")}
           />
-          {session.camOff ? (
+          {view.camOff ? (
             <div className="absolute inset-0 grid place-items-center bg-[#0b1b3a] text-[10px] font-bold">
               Camera off
             </div>
@@ -195,7 +285,7 @@ export function CallOverlay({
         <video ref={localRef} autoPlay playsInline muted className="pointer-events-none absolute h-0 w-0 opacity-0" />
       )}
 
-      {/* Top bar */}
+      {/* Top */}
       <div className="absolute inset-x-0 top-0 z-30 flex items-start justify-between px-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
         <button
           type="button"
@@ -206,48 +296,48 @@ export function CallOverlay({
           <ChevronDown className="h-5 w-5" />
         </button>
         <div className="max-w-[70%] text-center">
-          <p className="truncate text-base font-extrabold drop-shadow">{session.peerName}</p>
-          {session.peerMatric ? (
-            <p className="truncate text-[11px] font-semibold text-white/75">{session.peerMatric}</p>
+          <p className="truncate text-base font-extrabold drop-shadow">{view.peerName}</p>
+          {view.peerMatric ? (
+            <p className="truncate text-[11px] font-semibold text-white/75">{view.peerMatric}</p>
           ) : null}
           <p className="mt-0.5 text-sm font-medium text-blue-100/90">{statusLabel}</p>
         </div>
         <span className="w-10" />
       </div>
 
-      {/* Center: D4 branding when not showing remote video */}
+      {/* Center: only large background watermark — no extra small logo */}
       {(!isVideo || !connected) && (
-        <div className="relative z-10 flex flex-1 flex-col items-center justify-center gap-4 px-6">
-          <div
-            className={cn(
-              "relative grid place-items-center",
-              (session.phase === "calling" || session.phase === "ringing") && "d4-ring-pulse rounded-full",
-            )}
-          >
+        <div className="relative z-10 flex flex-1 flex-col items-center justify-center px-6">
+          {view.peerAvatar ? (
             <img
-              src="/logo.png"
-              alt="D4EXAM"
-              className="h-28 w-28 object-contain drop-shadow-lg sm:h-32 sm:w-32"
-            />
-          </div>
-          {session.peerAvatar ? (
-            <img
-              src={session.peerAvatar}
+              src={view.peerAvatar}
               alt=""
-              className="h-14 w-14 rounded-full object-cover ring-2 ring-white/30"
+              className="mb-3 h-16 w-16 rounded-full object-cover ring-2 ring-white/25"
             />
+          ) : null}
+          {(view.phase === "calling" || view.phase === "connecting") && (
+            <p className="flex items-center gap-2 text-sm text-white/70">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              {view.phase === "calling" ? "Ringing…" : "Connecting…"}
+            </p>
+          )}
+          {view.error ? (
+            <p className="mt-3 max-w-xs text-center text-sm text-rose-200">{view.error}</p>
           ) : null}
         </div>
       )}
 
       {/* Bottom controls */}
       <div className="absolute inset-x-0 bottom-0 z-30 px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-8">
-        {session.phase === "ringing" && !session.isCaller ? (
+        {view.phase === "ringing" && !view.isCaller ? (
           <div className="mb-4 flex justify-center gap-12">
             <button
               type="button"
-              className="d4-btn-in flex flex-col items-center gap-2"
-              onClick={() => void endCall("rejected")}
+              className="flex flex-col items-center gap-2"
+              onClick={() => {
+                void endCall("rejected");
+                onClose();
+              }}
             >
               <span className="grid h-16 w-16 place-items-center rounded-full bg-rose-500 shadow-lg">
                 <PhoneOff className="h-7 w-7" />
@@ -256,18 +346,17 @@ export function CallOverlay({
             </button>
             <button
               type="button"
-              className="d4-btn-in flex flex-col items-center gap-2"
-              style={{ animationDelay: "0.08s" }}
+              className="flex flex-col items-center gap-2"
               onClick={() =>
                 void acceptIncomingCall({
-                  callId: session.callId,
-                  callType: session.callType,
-                  peerId: session.peerId,
-                  peerName: session.peerName,
-                  peerAvatar: session.peerAvatar,
-                  peerMatric: session.peerMatric,
-                  conversationId: session.conversationId,
-                  myUserId: session.myUserId,
+                  callId: view.callId,
+                  callType: view.callType,
+                  peerId: view.peerId,
+                  peerName: view.peerName,
+                  peerAvatar: view.peerAvatar,
+                  peerMatric: view.peerMatric,
+                  conversationId: view.conversationId,
+                  myUserId: view.myUserId,
                 })
               }
             >
@@ -283,23 +372,28 @@ export function CallOverlay({
               <MoreHorizontal className="h-5 w-5" />
             </Ctrl>
             {isVideo ? (
-              <Ctrl onClick={() => toggleCam()} active={session.camOff}>
-                {session.camOff ? <VideoOff className="h-5 w-5" /> : <Video className="h-5 w-5" />}
+              <Ctrl onClick={() => toggleCam()} active={view.camOff}>
+                {view.camOff ? <VideoOff className="h-5 w-5" /> : <Video className="h-5 w-5" />}
               </Ctrl>
             ) : (
-              <Ctrl onClick={() => { /* upgrade placeholder */ }}>
+              <Ctrl onClick={() => {}}>
                 <Video className="h-5 w-5" />
               </Ctrl>
             )}
-            <Ctrl onClick={() => void toggleSpeaker()} active={session.speakerOn}>
-              {session.speakerOn ? <Volume2 className="h-5 w-5" /> : <VolumeX className="h-5 w-5" />}
+            <Ctrl onClick={() => void toggleSpeaker()} active={view.speakerOn}>
+              {view.speakerOn ? <Volume2 className="h-5 w-5" /> : <VolumeX className="h-5 w-5" />}
             </Ctrl>
-            <Ctrl onClick={() => toggleMute()} active={session.muted}>
-              {session.muted ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
+            <Ctrl onClick={() => toggleMute()} active={view.muted}>
+              {view.muted ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
             </Ctrl>
             <button
               type="button"
-              onClick={() => void endCall(session.isCaller && session.phase === "calling" ? "cancelled" : "ended")}
+              onClick={() => {
+                void endCall(
+                  view.isCaller && view.phase === "calling" ? "cancelled" : "ended",
+                );
+                onClose();
+              }}
               className="grid h-14 w-14 place-items-center rounded-full bg-[#ef4444] shadow-lg transition active:scale-90"
               aria-label="End call"
             >
@@ -307,15 +401,13 @@ export function CallOverlay({
             </button>
           </div>
         )}
-        {session.phase === "calling" ? (
-          <p className="mt-3 flex items-center justify-center gap-2 text-xs text-white/70">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" /> Waiting for answer
-          </p>
-        ) : null}
       </div>
 
       {moreOpen ? (
-        <div className="absolute inset-0 z-40 flex items-end justify-center bg-black/40" onClick={() => setMoreOpen(false)}>
+        <div
+          className="absolute inset-0 z-40 flex items-end justify-center bg-black/40"
+          onClick={() => setMoreOpen(false)}
+        >
           <div
             className="mb-[max(5.5rem,env(safe-area-inset-bottom))] w-[min(92vw,22rem)] overflow-hidden rounded-2xl bg-[#1f2c34] shadow-2xl"
             onClick={(e) => e.stopPropagation()}
@@ -332,9 +424,9 @@ export function CallOverlay({
                 />
                 <SheetRow
                   icon={<MonitorUp className="h-5 w-5" />}
-                  label={session.sharingScreen ? "Stop sharing" : "Share screen"}
+                  label={view.sharingScreen ? "Stop sharing" : "Share screen"}
                   onClick={() => {
-                    if (session.sharingScreen) void stopScreenShare();
+                    if (view.sharingScreen) void stopScreenShare();
                     else void startScreenShare();
                     setMoreOpen(false);
                   }}
@@ -347,8 +439,10 @@ export function CallOverlay({
               onClick={() => {
                 setMoreOpen(false);
                 minimizeCall();
-                if (session.conversationId) {
-                  appNavigate(`/student/messages?chat=${encodeURIComponent(session.conversationId)}`);
+                if (view.conversationId) {
+                  appNavigate(
+                    `/student/messages?chat=${encodeURIComponent(view.conversationId)}`,
+                  );
                 }
               }}
             />
@@ -359,26 +453,101 @@ export function CallOverlay({
   );
 }
 
-/** Floating bubble when call is minimized */
-export function MinimizedCallBubble() {
-  const [session, setSession] = useState<CallSessionState | null>(getCallSession());
-  useEffect(() => subscribeCallSession(setSession), []);
-  if (!session || session.phase !== "minimized") return null;
+function Watermark() {
+  return (
+    <>
+      <div aria-hidden className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div
+            className="relative flex items-center justify-center"
+            style={{ animation: "d4WatermarkFloat 9s ease-in-out infinite" }}
+          >
+            <img
+              src="/logo.png"
+              alt=""
+              className="h-[min(48vh,340px)] w-auto max-w-[70%] select-none object-contain opacity-[0.16]"
+              style={{ filter: "grayscale(0.1) brightness(1.1)" }}
+            />
+            <span
+              className="pointer-events-none absolute inset-[8%] overflow-hidden rounded-full"
+              style={{
+                background:
+                  "linear-gradient(115deg, transparent 25%, rgba(255,255,255,0.45) 48%, rgba(147,197,253,0.3) 52%, transparent 75%)",
+                backgroundSize: "220% 100%",
+                animation: "d4WatermarkShine 5s ease-in-out infinite",
+              }}
+            />
+          </div>
+        </div>
+      </div>
+      <style>{`
+        @keyframes d4WatermarkFloat{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(-12px) scale(1.03)}}
+        @keyframes d4WatermarkShine{0%{background-position:100% 0}100%{background-position:-100% 0}}
+      `}</style>
+    </>
+  );
+}
+
+/** Compact top bar while call continues in background */
+function MinimizedTopBar({ session }: { session: CallSessionState }) {
   const mm = String(Math.floor(session.seconds / 60)).padStart(2, "0");
   const ss = String(session.seconds % 60).padStart(2, "0");
   return (
-    <button
-      type="button"
-      onClick={() => restoreCall()}
-      className="fixed bottom-24 right-3 z-[150] flex items-center gap-2 rounded-full bg-[#0b1b3a] px-3 py-2.5 text-white shadow-xl ring-2 ring-[#2563eb]/50"
-    >
-      <Phone className="h-4 w-4 text-[#60a5fa]" />
-      <span className="max-w-[7rem] truncate text-xs font-bold">{session.peerName}</span>
-      <span className="text-[11px] tabular-nums text-white/70">
-        {mm}:{ss}
-      </span>
-    </button>
+    <div className="fixed inset-x-0 top-0 z-[160] pt-[env(safe-area-inset-top,0px)]">
+      <button
+        type="button"
+        onClick={() => restoreCall()}
+        className="flex w-full items-center gap-3 bg-[#0b1b3a] px-3 py-2.5 text-left text-white shadow-lg"
+      >
+        {session.peerAvatar ? (
+          <img src={session.peerAvatar} alt="" className="h-9 w-9 rounded-full object-cover" />
+        ) : (
+          <span className="grid h-9 w-9 place-items-center rounded-full bg-[#1e3a6e] text-xs font-bold">
+            {session.peerName.slice(0, 2).toUpperCase()}
+          </span>
+        )}
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-bold">{session.peerName}</p>
+          <p className="text-[11px] text-emerald-300">
+            {session.seconds > 0 ? `In call · ${mm}:${ss}` : "Calling…"}
+          </p>
+        </div>
+        <span
+          role="button"
+          tabIndex={0}
+          onClick={(e) => {
+            e.stopPropagation();
+            toggleMute();
+          }}
+          className={cn(
+            "grid h-9 w-9 place-items-center rounded-full",
+            session.muted ? "bg-white text-[#0b1b3a]" : "bg-white/15",
+          )}
+        >
+          {session.muted ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+        </span>
+        <span
+          role="button"
+          tabIndex={0}
+          onClick={(e) => {
+            e.stopPropagation();
+            void toggleSpeaker();
+          }}
+          className={cn(
+            "grid h-9 w-9 place-items-center rounded-full",
+            session.speakerOn ? "bg-white text-[#0b1b3a]" : "bg-white/15",
+          )}
+        >
+          {session.speakerOn ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+        </span>
+      </button>
+    </div>
   );
+}
+
+/** Legacy floating bubble (kept for import compatibility) */
+export function MinimizedCallBubble() {
+  return null;
 }
 
 function Ctrl({

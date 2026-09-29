@@ -1811,45 +1811,56 @@ function CallEventBubble({
   const isVideo = /video/i.test(body);
   const isMissed = /missed/i.test(body);
   const isNoAnswer = /no answer/i.test(body);
+  const isDeclined = /declined/i.test(body);
+  const title = isMissed
+    ? isVideo
+      ? "Missed video call"
+      : "Missed voice call"
+    : isNoAnswer
+      ? isVideo
+        ? "Video call · No answer"
+        : "Voice call · No answer"
+      : body;
   return (
     <div
-      className={cn(
-        "flex max-w-[min(75vw,240px)] flex-col gap-1 rounded-2xl px-3.5 py-2.5 shadow-sm",
-        mine ? "bg-white text-slate-800" : "bg-[#1e3a6e] text-white",
-      )}
+      className={
+        "flex max-w-[min(78vw,260px)] flex-col gap-2 rounded-2xl px-3.5 py-3 shadow-sm " +
+        (mine ? "bg-white text-slate-800" : "bg-[#1e3a6e] text-white")
+      }
     >
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2.5">
         <span
-          className={cn(
-            "grid h-9 w-9 place-items-center rounded-full",
-            mine ? "bg-[#eff6ff] text-[#2563eb]" : "bg-white/15 text-white",
-          )}
+          className={
+            "grid h-10 w-10 place-items-center rounded-full text-lg " +
+            (mine ? "bg-[#eff6ff] text-[#2563eb]" : "bg-white/15 text-white")
+          }
         >
           {isVideo ? "📹" : "📞"}
         </span>
         <div className="min-w-0">
-          <p className="text-[13px] font-bold">{body}</p>
-          <p className={cn("text-[11px]", mine ? "text-slate-500" : "text-white/70")}>
+          <p className="text-[13px] font-bold leading-tight">{title}</p>
+          <p className={"text-[11px] " + (mine ? "text-slate-500" : "text-white/70")}>
             {timeLabel}
-            {isMissed || isNoAnswer ? " · Tap to call back" : ""}
+            {isMissed ? " · Tap to call back" : isNoAnswer ? " · Call again" : ""}
           </p>
         </div>
       </div>
-      {(isMissed || isNoAnswer) && onCallback ? (
+      {(isMissed || isNoAnswer || isDeclined) && onCallback ? (
         <button
           type="button"
           onClick={() => onCallback(isVideo ? "video" : "voice")}
-          className={cn(
-            "mt-1 rounded-xl px-3 py-1.5 text-center text-[12px] font-bold",
-            mine ? "bg-[#2563eb] text-white" : "bg-white/20 text-white",
-          )}
+          className={
+            "rounded-xl px-3 py-2 text-center text-[12px] font-bold " +
+            (mine ? "bg-[#2563eb] text-white" : "bg-white/20 text-white")
+          }
         >
-          {isVideo ? "Video call again" : "Call again"}
+          {isMissed ? "Call back" : "Call again"}
         </button>
       ) : null}
     </div>
   );
 }
+
 
 function LinkMessageBody({
   body,

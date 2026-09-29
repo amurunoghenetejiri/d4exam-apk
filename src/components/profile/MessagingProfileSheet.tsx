@@ -8,6 +8,7 @@ import {
   Heart,
   Loader2,
   MessageCircle,
+  Camera,
   MoreVertical,
   Phone,
   Search,
@@ -24,6 +25,7 @@ import {
   blockUser,
   fetchPublicProfile,
   unblockUser,
+  updateMyProfilePhoto,
 } from "@/lib/user-profile";
 import { getOrCreateDirectConversation } from "@/lib/messaging";
 import { appNavigate } from "@/lib/app-navigate";
@@ -185,17 +187,42 @@ export function MessagingProfileSheet({
           <>
             {/* Avatar + identity */}
             <div className="flex flex-col items-center px-4 pt-2">
-              <button
-                type="button"
-                onClick={() => setPhotoOpen(true)}
-                className="grid h-[7.5rem] w-[7.5rem] place-items-center overflow-hidden rounded-full bg-[#1f2c34] shadow-lg ring-2 ring-white/10"
-              >
-                {p.avatarUrl ? (
-                  <img src={p.avatarUrl} alt="" className="h-full w-full object-cover" />
-                ) : (
-                  <span className="text-4xl font-extrabold text-[#53bdeb]">{initials(p.fullName)}</span>
-                )}
-              </button>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setPhotoOpen(true)}
+                  className="grid h-[7.5rem] w-[7.5rem] place-items-center overflow-hidden rounded-full bg-[#1f2c34] shadow-lg ring-2 ring-white/10"
+                >
+                  {p.avatarUrl ? (
+                    <img src={p.avatarUrl} alt="" className="h-full w-full object-cover" />
+                  ) : (
+                    <span className="text-4xl font-extrabold text-[#53bdeb]">{initials(p.fullName)}</span>
+                  )}
+                </button>
+                {p.isMe ? (
+                  <label className="absolute bottom-0 right-0 grid h-9 w-9 cursor-pointer place-items-center rounded-full bg-[#2563eb] text-white shadow-lg">
+                    <Camera className="h-4 w-4" />
+                    <input
+                      type="file"
+                      accept="image/*"
+                      capture="user"
+                      className="hidden"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (!f || !session?.profileId) return;
+                        setBusy("photo");
+                        void updateMyProfilePhoto(session.profileId, f)
+                          .then(() => {
+                            toast.success("Photo updated");
+                            void qc.invalidateQueries({ queryKey: ["public-profile", userId] });
+                          })
+                          .catch((err) => toast.error(err instanceof Error ? err.message : "Upload failed"))
+                          .finally(() => setBusy(null));
+                      }}
+                    />
+                  </label>
+                ) : null}
+              </div>
               <h1 className="mt-4 text-center text-2xl font-bold tracking-tight">{p.fullName}</h1>
               {p.matricNumber ? (
                 <p className="mt-1 text-sm font-medium text-white/55">{p.matricNumber}</p>

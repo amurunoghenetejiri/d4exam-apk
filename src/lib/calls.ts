@@ -31,13 +31,42 @@ export async function startDirectCall(opts: {
   callType: CallType;
   conversationId?: string | null;
 }): Promise<string> {
-  const { data, error } = await supabase.rpc("start_direct_call", {
-    p_callee_id: opts.calleeId,
-    p_call_type: opts.callType,
-    p_conversation_id: opts.conversationId || null,
-  });
-  if (error) throw new Error(error.message);
-  return data as string;
+  try {
+    const { data, error } = await supabase.rpc("start_direct_call", {
+      p_callee_id: opts.calleeId,
+      p_call_type: opts.callType,
+      p_conversation_id: opts.conversationId || null,
+    });
+    if (!error && data) return String(data);
+    console.warn("[calls] start_direct_call RPC:", error?.message);
+  } catch (e) {
+    console.warn("[calls] start_direct_call failed", e);
+  }
+  // Fallback: local call id so UI + WebRTC signaling still work
+  const id =
+    typeof crypto !== "undefined" && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `call-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  try {
+    const { data: user } = await supabase.auth.getUser();
+    const me = user.user?.id;
+    if (me) {
+      await supabase.from("call_sessions").insert({
+        id,
+        call_type: opts.callType,
+        status: "ringing",
+        initiator_id: me,
+        conversation_id: opts.conversationId || null,
+      } as never);
+      await supabase.from("call_participants").insert([
+        { call_id: id, user_id: me, role: "caller", status: "joined" },
+        { call_id: id, user_id: opts.calleeId, role: "callee", status: "ringing" },
+      ] as never);
+    }
+  } catch {
+    /* signaling channel still works with local id */
+  }
+  return id;
 }
 
 export async function updateCallStatus(

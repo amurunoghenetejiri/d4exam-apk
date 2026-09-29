@@ -1,6 +1,5 @@
 /**
- * Global call session — owns WebRTC + signaling outside React lifecycle
- * so minimize / navigate does not kill the call.
+ * Global call session — owns WebRTC + signaling outside React lifecycle.
  */
 import { supabase } from "@/integrations/supabase/client";
 import {
@@ -30,9 +29,9 @@ export type CallPhase =
   | "connecting"
   | "active"
   | "minimized"
+  | "no_answer"
   | "ended"
   | "declined"
-  | "no_answer"
   | "missed"
   | "failed";
 
@@ -44,8 +43,6 @@ export type CallSessionState = {
   peerName: string;
   peerAvatar: string | null;
   peerMatric?: string | null;
-  peerDepartment?: string | null;
-  peerLevel?: string | null;
   isCaller: boolean;
   conversationId?: string | null;
   myUserId: string;
@@ -55,6 +52,7 @@ export type CallSessionState = {
   facing: "user" | "environment";
   seconds: number;
   sharingScreen: boolean;
+  error?: string | null;
 };
 
 type Listener = (s: CallSessionState | null) => void;
@@ -65,9 +63,12 @@ let localStream: MediaStream | null = null;
 let remoteStream: MediaStream | null = null;
 let channel: RealtimeChannel | null = null;
 let timer: ReturnType<typeof setInterval> | null = null;
+let ringTimeout: ReturnType<typeof setTimeout> | null = null;
 let listeners = new Set<Listener>();
 let localVideoEl: HTMLVideoElement | null = null;
 let remoteVideoEl: HTMLVideoElement | null = null;
+
+const RING_MS = 30_000;
 
 function emit() {
   for (const l of listeners) {
@@ -117,13 +118,15 @@ async function postSystemMessage(
   }
 }
 
-function clearTimer() {
+function clearTimers() {
   if (timer) clearInterval(timer);
   timer = null;
+  if (ringTimeout) clearTimeout(ringTimeout);
+  ringTimeout = null;
 }
 
-async function teardown(endStatus: "ended" | "cancelled" | "rejected" | "missed" | "busy" = "ended") {
-  clearTimer();
+async function hardTeardown() {
+  clearTimers();
   await nativeStopRing();
   await nativeStopCallService();
   try {
@@ -147,47 +150,6 @@ async function teardown(endStatus: "ended" | "cancelled" | "rejected" | "missed"
     }
   }
   channel = null;
-
-  if (state) {
-    try {
-      await updateCallStatus(state.callId, endStatus === "cancelled" ? "cancelled" : endStatus);
-      await updateParticipantStatus(state.callId, state.myUserId, "left");
-    } catch {
-      /* ignore */
-    }
-
-    const answered = state.phase === "active" || state.phase === "minimized";
-    if (!answered) {
-      if (endStatus === "rejected") {
-        await postSystemMessage(
-          state.conversationId,
-          state.myUserId,
-          state.callType === "video" ? "Video call declined" : "Voice call declined",
-        );
-      } else if (state.isCaller) {
-        await postSystemMessage(
-          state.conversationId,
-          state.myUserId,
-          state.callType === "video" ? "Video call · No answer" : "Voice call · No answer",
-        );
-      } else {
-        await postSystemMessage(
-          state.conversationId,
-          state.myUserId,
-          state.callType === "video" ? "Missed video call" : "Missed voice call",
-        );
-      }
-    } else {
-      await postSystemMessage(
-        state.conversationId,
-        state.myUserId,
-        state.callType === "video" ? "Video call ended" : "Voice call ended",
-      );
-    }
-  }
-
-  state = null;
-  emit();
 }
 
 export async function startOutgoingCall(opts: {
@@ -200,7 +162,7 @@ export async function startOutgoingCall(opts: {
   conversationId?: string | null;
   myUserId: string;
 }) {
-  if (state) await teardown("cancelled");
+  if (state) await endCall("cancelled");
 
   state = {
     callId: opts.callId,
@@ -219,13 +181,28 @@ export async function startOutgoingCall(opts: {
     facing: "user",
     seconds: 0,
     sharingScreen: false,
+    error: null,
   };
   emit();
 
   try {
     localStream = await getLocalMedia(opts.callType === "video", "user");
     if (localVideoEl) localVideoEl.srcObject = localStream;
+  } catch (e) {
+    const msg =
+      opts.callType === "video"
+        ? "Camera/microphone permission is required for video calls."
+        : "Microphone permission is required for voice calls.";
+    if (state) {
+      state.error = msg;
+      state.phase = "failed";
+      emit();
+    }
+    console.error(e);
+    return;
+  }
 
+  try {
     pc = createPeerConnection();
     localStream.getTracks().forEach((t) => pc!.addTrack(t, localStream!));
 
@@ -233,15 +210,16 @@ export async function startOutgoingCall(opts: {
       remoteStream = ev.streams[0] || null;
       if (remoteVideoEl && remoteStream) remoteVideoEl.srcObject = remoteStream;
       if (state) {
+        clearTimers();
         state.phase = "active";
+        state.error = null;
         emit();
         void nativeStartCallService(
           state.peerName,
           state.callType === "video" ? "Video call" : "Voice call",
         );
-        clearTimer();
         timer = setInterval(() => {
-          if (state) {
+          if (state && (state.phase === "active" || state.phase === "minimized")) {
             state.seconds += 1;
             emit();
           }
@@ -262,30 +240,81 @@ export async function startOutgoingCall(opts: {
 
     channel = subscribeCallChannel(opts.callId, handleSignal);
 
-    // Create offer after short delay
     window.setTimeout(() => {
       void (async () => {
         if (!pc || !channel || !state) return;
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        await broadcastSignal(channel, {
-          type: "offer",
-          sdp: offer,
-          from: state.myUserId,
-        });
+        try {
+          const offer = await pc.createOffer({
+            offerToReceiveAudio: true,
+            offerToReceiveVideo: opts.callType === "video",
+          });
+          await pc.setLocalDescription(offer);
+          await broadcastSignal(channel, {
+            type: "offer",
+            sdp: offer,
+            from: state.myUserId,
+          });
+        } catch (e) {
+          console.error(e);
+        }
       })();
-    }, 350);
+    }, 300);
 
-    // Auto no-answer timeout 45s
-    window.setTimeout(() => {
-      if (state && (state.phase === "calling" || state.phase === "ringing" || state.phase === "connecting")) {
-        void endCall("missed");
+    // 30s no-answer
+    ringTimeout = setTimeout(() => {
+      if (
+        state &&
+        state.isCaller &&
+        (state.phase === "calling" || state.phase === "connecting" || state.phase === "ringing")
+      ) {
+        void markNoAnswer();
       }
-    }, 45_000);
+    }, RING_MS);
   } catch (e) {
     console.error(e);
-    await teardown("cancelled");
-    throw e;
+    if (state) {
+      state.error = "Could not start the call. Check your connection.";
+      state.phase = "failed";
+      emit();
+    }
+  }
+}
+
+async function markNoAnswer() {
+  if (!state) return;
+  state.phase = "no_answer";
+  emit();
+  await nativeStopRing();
+  try {
+    await updateCallStatus(state.callId, "missed");
+  } catch {
+    /* ignore */
+  }
+  await postSystemMessage(
+    state.conversationId,
+    state.myUserId,
+    state.callType === "video" ? "Video call · No answer" : "Voice call · No answer",
+  );
+  // Keep UI on no_answer; media can stop
+  try {
+    localStream?.getTracks().forEach((t) => t.stop());
+  } catch {
+    /* ignore */
+  }
+  try {
+    pc?.close();
+  } catch {
+    /* ignore */
+  }
+  pc = null;
+  if (channel) {
+    try {
+      await broadcastSignal(channel, { type: "hangup", from: state.myUserId });
+      await channel.unsubscribe();
+    } catch {
+      /* ignore */
+    }
+    channel = null;
   }
 }
 
@@ -300,7 +329,6 @@ export async function acceptIncomingCall(opts: {
   myUserId: string;
 }) {
   await nativeStopRing();
-  if (state && state.callId !== opts.callId) await teardown("busy");
 
   state = {
     callId: opts.callId,
@@ -319,12 +347,26 @@ export async function acceptIncomingCall(opts: {
     facing: "user",
     seconds: 0,
     sharingScreen: false,
+    error: null,
   };
   emit();
 
   try {
     localStream = await getLocalMedia(opts.callType === "video", "user");
     if (localVideoEl) localVideoEl.srcObject = localStream;
+  } catch (e) {
+    if (state) {
+      state.error =
+        opts.callType === "video"
+          ? "Camera/microphone permission is required."
+          : "Microphone permission is required.";
+      state.phase = "failed";
+      emit();
+    }
+    return;
+  }
+
+  try {
     pc = createPeerConnection();
     localStream.getTracks().forEach((t) => pc!.addTrack(t, localStream!));
     pc.ontrack = (ev) => {
@@ -334,9 +376,9 @@ export async function acceptIncomingCall(opts: {
         state.phase = "active";
         emit();
         void nativeStartCallService(state.peerName, "In call");
-        clearTimer();
+        clearTimers();
         timer = setInterval(() => {
-          if (state) {
+          if (state && (state.phase === "active" || state.phase === "minimized")) {
             state.seconds += 1;
             emit();
           }
@@ -357,12 +399,14 @@ export async function acceptIncomingCall(opts: {
     await updateParticipantStatus(opts.callId, opts.myUserId, "joined");
   } catch (e) {
     console.error(e);
-    await teardown("cancelled");
-    throw e;
+    if (state) {
+      state.error = "Could not answer the call.";
+      state.phase = "failed";
+      emit();
+    }
   }
 }
 
-/** Callee: show ring UI + native ringtone when invite arrives */
 export async function notifyIncomingCall(opts: {
   callId: string;
   callType: "voice" | "video";
@@ -373,8 +417,7 @@ export async function notifyIncomingCall(opts: {
   conversationId?: string | null;
   myUserId: string;
 }) {
-  if (state && state.phase !== "idle" && state.phase !== "ended") {
-    // busy
+  if (state && !["idle", "ended", "no_answer", "failed", "declined", "missed"].includes(state.phase)) {
     return;
   }
   state = {
@@ -394,6 +437,7 @@ export async function notifyIncomingCall(opts: {
     facing: "user",
     seconds: 0,
     sharingScreen: false,
+    error: null,
   };
   emit();
   await nativeStartRing();
@@ -408,6 +452,28 @@ export async function notifyIncomingCall(opts: {
       .join(" · "),
     callType: opts.callType,
   });
+  ringTimeout = setTimeout(() => {
+    if (state && state.phase === "ringing" && !state.isCaller) {
+      void markMissed();
+    }
+  }, RING_MS);
+}
+
+async function markMissed() {
+  if (!state) return;
+  state.phase = "missed";
+  emit();
+  await nativeStopRing();
+  await postSystemMessage(
+    state.conversationId,
+    state.myUserId,
+    state.callType === "video" ? "Missed video call" : "Missed voice call",
+  );
+  try {
+    await updateCallStatus(state.callId, "missed");
+  } catch {
+    /* ignore */
+  }
 }
 
 function handleSignal(ev: SignalEvent) {
@@ -443,11 +509,21 @@ function handleSignal(ev: SignalEvent) {
           /* ignore */
         }
       } else if (ev.type === "hangup") {
-        await endCall("ended");
+        if (state?.isCaller) await endCall("ended");
+        else await markMissed();
       } else if (ev.type === "reject") {
-        await endCall("rejected");
+        if (state) {
+          state.phase = "declined";
+          emit();
+          await hardTeardown();
+          await postSystemMessage(
+            state.conversationId,
+            state.myUserId,
+            state.callType === "video" ? "Video call declined" : "Voice call declined",
+          );
+        }
       } else if (ev.type === "busy") {
-        await endCall("busy");
+        await endCall("ended");
       }
     } catch (e) {
       console.error(e);
@@ -455,23 +531,52 @@ function handleSignal(ev: SignalEvent) {
   })();
 }
 
-export async function endCall(reason: "ended" | "cancelled" | "rejected" | "missed" | "busy" = "ended") {
-  if (channel && state) {
+export async function endCall(
+  reason: "ended" | "cancelled" | "rejected" | "missed" | "busy" = "ended",
+) {
+  const snap = state;
+  if (channel && snap) {
     try {
       await broadcastSignal(channel, {
         type: reason === "rejected" ? "reject" : "hangup",
-        from: state.myUserId,
+        from: snap.myUserId,
       });
     } catch {
       /* ignore */
     }
   }
-  await teardown(reason);
+  if (snap && reason === "rejected") {
+    await postSystemMessage(
+      snap.conversationId,
+      snap.myUserId,
+      snap.callType === "video" ? "Video call declined" : "Voice call declined",
+    );
+  }
+  await hardTeardown();
+  try {
+    if (snap) {
+      await updateCallStatus(
+        snap.callId,
+        reason === "cancelled" ? "cancelled" : reason === "rejected" ? "rejected" : "ended",
+      );
+      await updateParticipantStatus(snap.callId, snap.myUserId, "left");
+    }
+  } catch {
+    /* ignore */
+  }
+  state = null;
+  emit();
+}
+
+export function dismissCallUi() {
+  void hardTeardown();
+  state = null;
+  emit();
 }
 
 export function minimizeCall() {
   if (!state) return;
-  if (state.phase === "active") {
+  if (state.phase === "active" || state.phase === "calling" || state.phase === "connecting") {
     state.phase = "minimized";
     emit();
   }
@@ -480,7 +585,7 @@ export function minimizeCall() {
 export function restoreCall() {
   if (!state) return;
   if (state.phase === "minimized") {
-    state.phase = "active";
+    state.phase = state.seconds > 0 ? "active" : "calling";
     emit();
   }
 }
@@ -526,10 +631,11 @@ export async function flipCamera() {
 export async function startScreenShare() {
   if (!state || !pc) return;
   try {
-    // Prefer native MediaProjection via ScreenSharePlugin when available
-    const display = await (navigator.mediaDevices as MediaDevices & {
-      getDisplayMedia?: (c: MediaStreamConstraints) => Promise<MediaStream>;
-    }).getDisplayMedia?.({ video: true, audio: false });
+    const display = await (
+      navigator.mediaDevices as MediaDevices & {
+        getDisplayMedia?: (c: MediaStreamConstraints) => Promise<MediaStream>;
+      }
+    ).getDisplayMedia?.({ video: true, audio: false });
     if (!display) return;
     const track = display.getVideoTracks()[0];
     if (!track) return;
