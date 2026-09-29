@@ -547,7 +547,7 @@ export function ImageBubble({
       className="relative block max-w-[min(72vw,280px)] md:max-w-[min(48vw,380px)] lg:max-w-[min(36vw,440px)] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
       onContextMenu={(e) => e.preventDefault()}
     >
-      <img src={src} alt="" className="max-h-72 w-full object-cover" draggable={false} />
+      <img src={src} alt="" className="max-h-[min(70vh,28rem)] w-full object-contain bg-black/5" draggable={false} />
       {(count || 0) > 1 ? (
         <span className="absolute left-2 top-2 rounded-full bg-black/60 px-2 py-0.5 text-[11px] font-bold text-white">
           +{(count || 1) - 1}
@@ -604,7 +604,7 @@ export function VideoBubble({
       ) : null}
       <video
         src={src}
-        className="aspect-video max-h-72 w-full object-cover"
+        className="max-h-[min(70vh,28rem)] w-full object-contain bg-black"
         muted
         playsInline
         preload="metadata"

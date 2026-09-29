@@ -96,6 +96,7 @@ export type ConversationListItem = {
   peerUserId?: string | null;
   online?: boolean;
   hasMessage?: boolean;
+  lastSenderId?: string | null;
 };
 
 function previewFromMessage(m: {
@@ -247,6 +248,7 @@ export async function listMyConversations(
       isGroup,
       peerUserId: peer?.userId || null,
       hasMessage,
+      lastSenderId: (c as { last_message_sender_id?: string | null }).last_message_sender_id || null,
     };
   });
 
@@ -982,13 +984,21 @@ export async function setConversationMemberRole(
   memberUserId: string,
   role: "admin" | "member",
 ) {
-  const { error } = await supabase
-    .from("conversation_members")
-    .update({ role })
-    .eq("conversation_id", conversationId)
-    .eq("user_id", memberUserId)
-    .is("left_at", null);
-  if (error) throw new Error(error.message);
+  const { error } = await supabase.rpc("set_campus_member_role", {
+    p_conversation_id: conversationId,
+    p_member_user_id: memberUserId,
+    p_role: role,
+  });
+  if (error) {
+    // Fallback direct update
+    const { error: e2 } = await supabase
+      .from("conversation_members")
+      .update({ role })
+      .eq("conversation_id", conversationId)
+      .eq("user_id", memberUserId)
+      .is("left_at", null);
+    if (e2) throw new Error(error.message || e2.message);
+  }
 }
 
 

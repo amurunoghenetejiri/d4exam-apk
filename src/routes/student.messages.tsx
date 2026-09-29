@@ -625,6 +625,8 @@ function ConversationList({
   onEmptyAction?: () => void;
   emptyActionLabel?: string;
 }) {
+  const { data: session } = useSessionUser();
+  const myId = session?.userId || "";
   if (loading) {
     return (
       <div className="space-y-3 px-4 py-6">
@@ -715,12 +717,18 @@ function ConversationList({
                       </span>
                     );
                   }
-                  if (isReply) {
+                  // Only "You got a reply" when someone else replied (not when you reply)
+                  if (isReply && c.lastSenderId && c.lastSenderId !== myId) {
                     return (
                       <p className="truncate text-[13px] text-slate-500">
                         <span className="font-semibold text-[#2563eb]">You got a reply · </span>
                         {label}
                       </p>
+                    );
+                  }
+                  if (isReply) {
+                    return (
+                      <p className="truncate text-[13px] text-slate-500">{label}</p>
                     );
                   }
                   return (

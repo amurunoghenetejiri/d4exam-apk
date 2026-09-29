@@ -3,7 +3,7 @@
  * Reuses MessageMedia; stores in campus_messages.
  */
 import { createFileRoute, useNavigate, useParams } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -119,8 +119,15 @@ export function ConversationChat({
   };
 
   const [text, setText] = useState("");
+  const typingLink = useMemo(() => {
+    const m = text.match(/https?:\/\/[^\s]+/i);
+    return m ? m[0] : null;
+  }, [text]);
   const [optimistic, setOptimistic] = useState<CampusMessage[]>([]);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+  const [lightboxUrls, setLightboxUrls] = useState<string[] | null>(null);
+  const [lightboxIndex, setLightboxIndex] = useState(0);
+  const [highlightId, setHighlightId] = useState<string | null>(null);
   const [videoSrc, setVideoSrc] = useState<string | null>(null);
   const [showScroll, setShowScroll] = useState(false);
 
@@ -481,6 +488,8 @@ export function ConversationChat({
   const finishAndSendVoice = async () => {
     stopRecTimer();
     const durationSec = recSecs;
+    const replyId = replyTo?.id || null;
+    setReplyTo(null);
     await new Promise<void>((resolve) => {
       const rec = mediaRec.current;
       if (!rec || rec.state === "inactive") {
@@ -502,7 +511,7 @@ export function ConversationChat({
               body: null,
               attachment_url: localUrl,
               attachment_type: "audio",
-              reply_to_id: null,
+              reply_to_id: replyId,
               forwarded_from_id: null,
               client_id: clientId,
               duration_sec: durationSec,
@@ -682,6 +691,34 @@ export function ConversationChat({
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Upload failed");
     }
+  };
+
+  const URL_RE = /https?:\/\/[^\s<>"{}|\\^`[\]]+/gi;
+  const linkifyText = (text: string, mine: boolean) => {
+    const parts: ReactNode[] = [];
+    let last = 0;
+    const re = new RegExp(URL_RE.source, "gi");
+    let match: RegExpExecArray | null;
+    let k = 0;
+    while ((match = re.exec(text)) !== null) {
+      if (match.index > last) parts.push(text.slice(last, match.index));
+      const url = match[0];
+      parts.push(
+        <a
+          key={`u-${k++}`}
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={cn("underline break-all", mine ? "text-blue-700" : "text-white")}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {url}
+        </a>,
+      );
+      last = match.index + url.length;
+    }
+    if (last < text.length) parts.push(text.slice(last));
+    return parts.length ? parts : text;
   };
 
   const nameOf = (uid: string | null | undefined) => {
@@ -887,8 +924,9 @@ export function ConversationChat({
                 key={m.id}
                 id={`msg-${m.id}`}
                 className={cn(
-                  "relative flex w-full touch-pan-y",
+                  "relative flex w-full touch-pan-y rounded-2xl transition-shadow duration-300",
                   mine ? "justify-end" : "justify-start",
+                  highlightId === m.id && "ring-2 ring-[#2563eb] ring-offset-2 ring-offset-[#e8f4fc]",
                 )}
                 style={{
                   transform: `translateX(${swipeDx[m.id] || 0}px)`,
@@ -997,9 +1035,16 @@ export function ConversationChat({
                       </span>
                     ) : null}
                     {m.forwarded_from_id ? (
-                      <p className="mb-0.5 flex items-center gap-1 px-1 text-[10px] font-semibold italic text-slate-500">
-                        <span>↗</span> Forwarded
-                      </p>
+                      <span
+                        className={cn(
+                          "mb-1 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold",
+                          mine
+                            ? "bg-slate-200/90 text-slate-600"
+                            : "bg-[#dbeafe] text-[#1d4ed8]",
+                        )}
+                      >
+                        <span aria-hidden>↗</span> Forwarded
+                      </span>
                     ) : null}
                 {isVoice && m.attachment_url ? (
                   <div className="flex flex-col gap-1">
@@ -1007,8 +1052,12 @@ export function ConversationChat({
                       <button
                         type="button"
                         onClick={() => {
-                          const el = document.getElementById(`msg-${m.reply_to_id}`);
+                          const id = m.reply_to_id;
+                          if (!id) return;
+                          setHighlightId(id);
+                          const el = document.getElementById(`msg-${id}`);
                           el?.scrollIntoView({ behavior: "smooth", block: "center" });
+                          window.setTimeout(() => setHighlightId(null), 1600);
                         }}
                         className={cn(
                           "w-full min-w-[10rem] rounded-lg border-l-2 px-2 py-1 text-left text-[11px]",
@@ -1040,10 +1089,14 @@ export function ConversationChat({
                   <ImageBubble
                     id={m.id}
                     src={urls[0] || m.attachment_url!}
+                    count={Math.max(urls.length, 1)}
                     mine={mine}
                     timeLabel={timeLabel}
                     tick={tick === "pending" ? "pending" : mine ? "delivered" : "none"}
-                    onOpen={() => setLightboxSrc(urls[0] || m.attachment_url!)}
+                    onOpen={() => {
+                      setLightboxUrls(urls.length ? urls : [urls[0] || m.attachment_url!]);
+                      setLightboxIndex(0);
+                    }}
                   />
                 ) : isVideo && m.attachment_url ? (
                   <VideoBubble
@@ -1075,8 +1128,12 @@ export function ConversationChat({
                       <button
                         type="button"
                         onClick={() => {
-                          const el = document.getElementById(`msg-${m.reply_to_id}`);
+                          const id = m.reply_to_id;
+                          if (!id) return;
+                          setHighlightId(id);
+                          const el = document.getElementById(`msg-${id}`);
                           el?.scrollIntoView({ behavior: "smooth", block: "center" });
+                          window.setTimeout(() => setHighlightId(null), 1600);
                         }}
                         className={cn(
                           "mb-1.5 w-full rounded-lg border-l-2 px-2 py-1 text-left text-[11px]",
@@ -1097,7 +1154,7 @@ export function ConversationChat({
                     ) : null}
                     {m.body ? (
                       <p className="break-words whitespace-pre-wrap text-[15px] leading-snug">
-                        {m.body}
+                        {linkifyText(m.body, mine)}
                       </p>
                     ) : null}
                     <div
@@ -1157,6 +1214,17 @@ export function ConversationChat({
           />
         ) : (
           <>
+          {typingLink ? (
+            <div className="mx-auto mb-2 flex max-w-2xl items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
+              <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-[#eff6ff] text-xs font-bold text-[#2563eb]">
+                🔗
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-xs font-semibold text-slate-800">Link preview</p>
+                <p className="truncate text-[11px] text-slate-500">{typingLink}</p>
+              </div>
+            </div>
+          ) : null}
           {replyTo ? (
             <div className="mx-auto mb-2 flex max-w-2xl items-start gap-2 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2">
               <div className="min-w-0 flex-1">
@@ -1188,14 +1256,18 @@ export function ConversationChat({
               multiple
               className="hidden"
               onChange={(e) => {
-                const files = e.target.files;
-                if (files?.length) {
-                  void (async () => {
-                    for (const f of Array.from(files)) {
-                      await onFile(f);
-                    }
-                  })();
-                }
+                const files = e.target.files ? Array.from(e.target.files) : [];
+                if (!files.length) return;
+                const images = files.filter((f) => f.type.startsWith("image/"));
+                const rest = files.filter((f) => !f.type.startsWith("image/"));
+                void (async () => {
+                  if (images.length > 1) {
+                    await onImagesBatch(images);
+                  } else if (images.length === 1) {
+                    await onFile(images[0]);
+                  }
+                  for (const f of rest) await onFile(f);
+                })();
                 e.target.value = "";
               }}
             />
@@ -1434,7 +1506,16 @@ export function ConversationChat({
         </div>
       ) : null}
 
-      {lightboxSrc ? (
+      {lightboxUrls && lightboxUrls.length ? (
+        <ImageLightbox
+          urls={lightboxUrls}
+          index={lightboxIndex}
+          onClose={() => {
+            setLightboxUrls(null);
+            setLightboxSrc(null);
+          }}
+        />
+      ) : lightboxSrc ? (
         <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />
       ) : null}
       {videoSrc ? (
@@ -1716,6 +1797,18 @@ function GroupMenuSheet({
       toast.success("Member removed");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Remove failed");
+    }
+  };
+
+  const toggleAdmin = async (memberId: string, currentRole: string) => {
+    const next = currentRole === "admin" || currentRole === "owner" ? "member" : "admin";
+    try {
+      await setConversationMemberRole(conversationId, memberId, next);
+      void membersQ.refetch();
+      void qc.invalidateQueries({ queryKey: ["campus-members", conversationId] });
+      toast.success(next === "admin" ? "Made admin" : "Demoted to member");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not update role");
     }
   };
 
