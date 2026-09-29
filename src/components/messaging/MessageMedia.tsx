@@ -573,6 +573,8 @@ export function VideoBubble({
   tick,
   onOpen,
   id,
+  durationSec,
+  forwarded,
 }: {
   src: string;
   mine?: boolean;
@@ -580,40 +582,68 @@ export function VideoBubble({
   tick?: "none" | "sent" | "delivered" | "read" | "pending";
   onOpen: () => void;
   id?: string;
+  durationSec?: number | null;
+  forwarded?: boolean;
 }) {
+  const dur =
+    durationSec != null && durationSec > 0
+      ? `${Math.floor(durationSec / 60)}:${String(Math.round(durationSec) % 60).padStart(2, "0")}`
+      : null;
   return (
     <button
       id={id}
       type="button"
       onClick={onOpen}
-      className="relative block max-w-[min(72vw,280px)] md:max-w-[min(48vw,380px)] lg:max-w-[min(36vw,440px)] overflow-hidden rounded-2xl border border-slate-200 bg-black shadow-sm"
+      className="relative block max-w-[min(72vw,280px)] overflow-hidden rounded-2xl border border-slate-200 bg-slate-900 shadow-sm"
       onContextMenu={(e) => e.preventDefault()}
     >
-      <video src={src} className="max-h-72 w-full object-cover" muted playsInline preload="metadata" />
-      <span className="absolute inset-0 grid place-items-center">
+      {forwarded ? (
+        <span className="absolute left-2 top-2 z-10 rounded-full bg-black/50 px-2 py-0.5 text-[10px] font-semibold text-white">
+          ↗ Forwarded
+        </span>
+      ) : null}
+      <video
+        src={src}
+        className="aspect-video max-h-72 w-full object-cover"
+        muted
+        playsInline
+        preload="metadata"
+        // seek to first frame for poster-like preview
+        onLoadedMetadata={(e) => {
+          try {
+            const v = e.currentTarget;
+            if (v.currentTime < 0.1) v.currentTime = 0.1;
+          } catch { /* ignore */ }
+        }}
+      />
+      <span className="pointer-events-none absolute inset-0 grid place-items-center bg-black/25">
         {tick === "pending" ? (
-          <span className="grid h-12 w-12 place-items-center rounded-full bg-black/55 text-white shadow-lg ring-2 ring-white/40">
-            <Clock className="h-6 w-6 animate-pulse" />
+          <span className="grid h-14 w-14 place-items-center rounded-full bg-black/55 text-white shadow-lg ring-2 ring-white/50">
+            <Clock className="h-7 w-7 animate-pulse" />
           </span>
         ) : (
-          <span className="grid h-12 w-12 place-items-center rounded-full bg-black/55 text-white shadow-lg ring-2 ring-white/40">
-            <Play className="ml-0.5 h-6 w-6" />
+          <span className="grid h-14 w-14 place-items-center rounded-full bg-black/55 text-white shadow-lg ring-2 ring-white/50">
+            <Play className="ml-1 h-7 w-7 fill-white" />
           </span>
         )}
       </span>
-      <div className="absolute bottom-1.5 right-1.5 flex items-center gap-1 rounded-md bg-black/55 px-1.5 py-0.5 text-[10px] text-white">
+      <span className="absolute bottom-1.5 right-2 flex items-center gap-1 rounded-full bg-black/55 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-white">
+        {dur ? <span>{dur}</span> : null}
         <span>{timeLabel}</span>
         {tick === "pending" ? (
-          <Clock className="h-3 w-3 text-white/90" />
-        ) : tick === "read" ? (
-          <CheckCheck className="h-3 w-3 text-sky-300" />
-        ) : tick === "delivered" || tick === "sent" ? (
-          <CheckCheck className="h-3 w-3 text-white/80" />
+          <Clock className="h-3 w-3" />
+        ) : tick && tick !== "none" ? (
+          tick === "read" ? (
+            <CheckCheck className="h-3 w-3 text-sky-300" />
+          ) : (
+            <CheckCheck className="h-3 w-3" />
+          )
         ) : null}
-      </div>
+      </span>
     </button>
   );
 }
+
 
 export function FileBubble({
   src,

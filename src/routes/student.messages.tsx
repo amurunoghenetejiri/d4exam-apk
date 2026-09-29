@@ -710,7 +710,7 @@ function ConversationList({
                     return (
                       <span className="flex min-w-0 items-center gap-1 truncate text-[13px] text-slate-500">
                         {isReply ? <span className="shrink-0 text-[#2563eb]">↩</span> : null}
-                        <Mic className="h-3.5 w-3.5 shrink-0 text-[#2563eb]" />
+                        <Mic className="h-3.5 w-3.5 shrink-0 text-slate-500" />
                         <span className="truncate">{label || "Voice note"}</span>
                       </span>
                     );

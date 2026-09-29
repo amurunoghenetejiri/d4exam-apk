@@ -545,6 +545,7 @@ export function ConversationChat({
               attachmentType: "audio",
               clientId,
               durationSec,
+              replyToId: replyId,
             });
             void qc.invalidateQueries({
               queryKey: ["campus-messages", conversationId],
@@ -630,6 +631,7 @@ export function ConversationChat({
           ? "audio"
           : "file";
     const clientId = `opt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const replyId = replyTo?.id || null;
     setOptimistic((p) => [
       ...p,
       {
@@ -639,7 +641,7 @@ export function ConversationChat({
         body: null,
         attachment_url: localUrl,
         attachment_type: attType,
-        reply_to_id: null,
+        reply_to_id: replyId,
         forwarded_from_id: null,
         client_id: clientId,
         duration_sec: null,
@@ -648,6 +650,7 @@ export function ConversationChat({
         deleted_at: null,
       },
     ]);
+    setReplyTo(null);
     try {
       if (!isOnlineNow()) {
         const { blobToDataUrlIfSmall } = await import("@/lib/message-outbox");
@@ -673,6 +676,7 @@ export function ConversationChat({
         attachmentType:
           up.type === "image" ? "image" : up.type === "audio" ? "audio" : attType,
         clientId,
+        replyToId: replyId,
       });
       void qc.invalidateQueries({ queryKey: ["campus-messages", conversationId] });
     } catch (e) {
@@ -881,6 +885,7 @@ export function ConversationChat({
             return (
               <div
                 key={m.id}
+                id={`msg-${m.id}`}
                 className={cn(
                   "relative flex w-full touch-pan-y",
                   mine ? "justify-end" : "justify-start",
@@ -968,9 +973,9 @@ export function ConversationChat({
                     </span>
                   </div>
                 ) : null}
-                <div className={cn("flex max-w-[92%] items-end gap-2", mine ? "flex-row-reverse" : "flex-row")}>
+                <div className={cn("flex max-w-[92%] items-start gap-2", mine ? "flex-row-reverse" : "flex-row")}>
                   {meta?.isGroup && !mine ? (
-                    <div className="mb-1 grid h-8 w-8 shrink-0 place-items-center overflow-hidden rounded-full bg-[#0b1b3a] text-[10px] font-bold text-white ring-2 ring-white shadow">
+                    <div className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center overflow-hidden rounded-full bg-[#0b1b3a] text-[10px] font-bold text-white ring-2 ring-white shadow">
                       {senderNames[m.sender_id]?.avatar ? (
                         <img src={senderNames[m.sender_id]!.avatar!} alt="" className="h-full w-full object-cover" />
                       ) : (
@@ -980,9 +985,16 @@ export function ConversationChat({
                   ) : null}
                   <div className={cn("flex min-w-0 flex-col", mine ? "items-end" : "items-start")}>
                     {meta?.isGroup ? (
-                      <p className={cn("mb-0.5 px-1 text-[11px] font-bold", mine ? "text-slate-500" : "text-[#1d4ed8]")}>
+                      <span
+                        className={cn(
+                          "mb-1 inline-flex max-w-full items-center rounded-full px-2 py-0.5 text-[11px] font-bold",
+                          mine
+                            ? "bg-slate-200/80 text-slate-600"
+                            : "bg-[#dbeafe] text-[#1d4ed8]",
+                        )}
+                      >
                         {nameOf(m.sender_id)}
-                      </p>
+                      </span>
                     ) : null}
                     {m.forwarded_from_id ? (
                       <p className="mb-0.5 flex items-center gap-1 px-1 text-[10px] font-semibold italic text-slate-500">
@@ -992,23 +1004,28 @@ export function ConversationChat({
                 {isVoice && m.attachment_url ? (
                   <div className="flex flex-col gap-1">
                     {m.reply_to_id ? (
-                      <div
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const el = document.getElementById(`msg-${m.reply_to_id}`);
+                          el?.scrollIntoView({ behavior: "smooth", block: "center" });
+                        }}
                         className={cn(
-                          "rounded-lg border-l-2 px-2 py-1 text-left text-[11px]",
+                          "w-full min-w-[10rem] rounded-lg border-l-2 px-2 py-1 text-left text-[11px]",
                           mine
                             ? "border-blue-400 bg-white/90 text-slate-600"
                             : "border-[#2563eb] bg-white text-slate-600",
                         )}
                       >
-                        <p className="font-bold">
+                        <p className="truncate font-bold">
                           {nameOf(findMsg(m.reply_to_id)?.sender_id)}
                         </p>
-                        <p className="line-clamp-2 opacity-80">
+                        <p className="line-clamp-2 break-words opacity-80">
                           {findMsg(m.reply_to_id)
                             ? replySnippet(findMsg(m.reply_to_id)!)
                             : "Message"}
                         </p>
-                      </div>
+                      </button>
                     ) : null}
                     <VoiceBubble
                       id={m.id}
@@ -1035,6 +1052,8 @@ export function ConversationChat({
                     timeLabel={timeLabel}
                     tick={tick === "pending" ? "pending" : mine ? "delivered" : "none"}
                     onOpen={() => setVideoSrc(m.attachment_url!)}
+                    durationSec={m.duration_sec}
+                    forwarded={Boolean(m.forwarded_from_id)}
                   />
                 ) : isFile && m.attachment_url ? (
                   <FileBubble
@@ -1046,48 +1065,53 @@ export function ConversationChat({
                 ) : (
                   <div
                     className={cn(
-                      "max-w-[85%] md:max-w-[70%] rounded-2xl px-3 py-2 text-sm shadow-sm",
+                      "min-w-[7.5rem] max-w-[85%] md:max-w-[70%] rounded-2xl px-3 py-2 text-sm shadow-sm",
                       mine
                         ? "rounded-br-md border border-slate-200 bg-white text-slate-800"
                         : "rounded-bl-md bg-[#2563eb] text-white",
                     )}
                   >
                     {m.reply_to_id ? (
-                      <div
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const el = document.getElementById(`msg-${m.reply_to_id}`);
+                          el?.scrollIntoView({ behavior: "smooth", block: "center" });
+                        }}
                         className={cn(
-                          "mb-1.5 rounded-lg border-l-2 px-2 py-1 text-left text-[11px]",
+                          "mb-1.5 w-full rounded-lg border-l-2 px-2 py-1 text-left text-[11px]",
                           mine
                             ? "border-blue-400 bg-slate-50 text-slate-600"
                             : "border-white/50 bg-white/15 text-blue-50",
                         )}
                       >
-                        <p className="font-bold opacity-90">
-                          {nameOf(findMsg(m.reply_to_id)?.sender_id || m.sender_id)}
+                        <p className="truncate font-bold opacity-90">
+                          {nameOf(findMsg(m.reply_to_id)?.sender_id)}
                         </p>
-                        <p className="line-clamp-2 opacity-80">
+                        <p className="line-clamp-2 break-words opacity-80">
                           {findMsg(m.reply_to_id)
                             ? replySnippet(findMsg(m.reply_to_id)!)
                             : "Original message"}
                         </p>
-                      </div>
+                      </button>
                     ) : null}
                     {m.body ? (
-                      <p className="whitespace-pre-wrap text-[15px] leading-snug">
+                      <p className="break-words whitespace-pre-wrap text-[15px] leading-snug">
                         {m.body}
                       </p>
                     ) : null}
                     <div
                       className={cn(
-                        "mt-1 flex items-center justify-end gap-1 text-[10px]",
+                        "mt-1 flex shrink-0 items-center justify-end gap-1 whitespace-nowrap text-[10px] tabular-nums",
                         mine ? "text-slate-400" : "text-white/70",
                       )}
                     >
-                      <span>{timeLabel}</span>
+                      <span className="shrink-0">{timeLabel}</span>
                       {mine ? (
                         pending ? (
-                          <Check className="h-3 w-3 opacity-70" />
+                          <Check className="h-3 w-3 shrink-0 opacity-70" />
                         ) : (
-                          <CheckCheck className="h-3 w-3" />
+                          <CheckCheck className="h-3 w-3 shrink-0" />
                         )
                       ) : null}
                     </div>
@@ -1161,10 +1185,17 @@ export function ConversationChat({
               ref={fileRef}
               type="file"
               accept="image/*,video/*,audio/*,.pdf,.doc,.docx"
+              multiple
               className="hidden"
               onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) void onFile(f);
+                const files = e.target.files;
+                if (files?.length) {
+                  void (async () => {
+                    for (const f of Array.from(files)) {
+                      await onFile(f);
+                    }
+                  })();
+                }
                 e.target.value = "";
               }}
             />
