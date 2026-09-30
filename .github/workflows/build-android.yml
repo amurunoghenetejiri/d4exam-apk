@@ -291,26 +291,17 @@ jobs:
           else
             echo "firebase-messaging already present"
           fi
+          # Register FCM service in manifest if overlay missed it
           MANIFEST="android/app/src/main/AndroidManifest.xml"
           if ! grep -q "D4FirebaseMessagingService" "$MANIFEST"; then
-            python3 -c '
-from pathlib import Path
-p = Path("android/app/src/main/AndroidManifest.xml")
-text = p.read_text()
-snippet = """        <service android:name=\".D4FirebaseMessagingService\" android:exported=\"false\"><intent-filter><action android:name=\"com.google.firebase.MESSAGING_EVENT\" /></intent-filter></service>\n"""
-marker = "android:foregroundServiceType=\"microphone|phoneCall\" />"
-if marker in text and "D4FirebaseMessagingService" not in text:
-    text = text.replace(marker, marker + "\n" + snippet, 1)
-    p.write_text(text)
-    print("Manifest: FCM service registered")
-else:
-    print("Manifest skip or already present")
-'
+            sed -i 's|android:foregroundServiceType="microphone|phoneCall" />|android:foregroundServiceType="microphone|phoneCall" />\n        <service android:name=".D4FirebaseMessagingService" android:exported="false"><intent-filter><action android:name="com.google.firebase.MESSAGING_EVENT" /></intent-filter></service>|' "$MANIFEST" || true
+            echo "Attempted manifest FCM service inject"
           else
             echo "FCM service already in manifest"
           fi
           test -f android/app/src/main/java/com/d4exam/app/D4FirebaseMessagingService.java
           ls -la android/app/src/main/java/com/d4exam/app/D4FirebaseMessagingService.java
+          grep -n "firebase-messaging\|D4FirebaseMessagingService" "$GRADLE" "$MANIFEST" || true
 
       - name: Build debug APK
         run: |
