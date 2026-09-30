@@ -80,7 +80,8 @@ public class D4FirebaseMessagingService extends FirebaseMessagingService {
         .setAutoCancel(true)
         .setOngoing(true)
         .setVibrate(new long[] {0, 800, 400, 800, 400})
-        .setSound(ringUri)
+        // Sound handled by D4CallPlugin ringtone when app processes the call
+        // .setSound(ringUri)
         .setFullScreenIntent(fullScreenPendingIntent, true)
         .setContentIntent(fullScreenPendingIntent)
         .addAction(android.R.drawable.ic_menu_call, "Accept", answerPendingIntent)

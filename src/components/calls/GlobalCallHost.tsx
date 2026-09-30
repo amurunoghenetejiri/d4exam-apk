@@ -69,13 +69,15 @@ export function GlobalCallHost() {
   // Mirror global session into ActiveCall so overlay stays mounted
   useEffect(() => {
     if (!sess) {
-      // keep activeCall briefly for no_answer UI inside overlay
+      // Session torn down (end/reject) — close overlay unless we were never in a call
+      setActiveCall((prev) => (prev ? null : prev));
       return;
     }
     if (sess.phase === "ended") {
       setActiveCall(null);
       return;
     }
+    // Keep end-state screens (no_answer, declined, failed, missed) visible
     setActiveCall({
       callId: sess.callId,
       callType: sess.callType,
@@ -86,7 +88,7 @@ export function GlobalCallHost() {
       isCaller: sess.isCaller,
       conversationId: sess.conversationId,
     });
-  }, [sess?.callId, sess?.phase, sess?.peerName]);
+  }, [sess?.callId, sess?.phase, sess?.peerName, sess?.peerAvatar, sess?.peerMatric]);
 
   const onIncoming = useCallback(
     (call: {

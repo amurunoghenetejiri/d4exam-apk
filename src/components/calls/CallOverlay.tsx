@@ -8,7 +8,7 @@ import {
   acceptIncomingCall, attachCallVideos, dismissCallUi, endCall, flipCamera,
   getCallSession, minimizeCall, rejectIncomingCall, restoreCall, startOutgoingCall,
   startScreenShare, stopScreenShare, subscribeCallSession, toggleCam, toggleMute,
-  toggleSpeaker, type CallSessionState,
+  toggleSpeaker, upgradeToVideo, type CallSessionState,
 } from "@/lib/call-session";
 import { appNavigate } from "@/lib/app-navigate";
 import { startDirectCall, notifyCalleeOfIncomingCall } from "@/lib/calls";
@@ -36,36 +36,50 @@ function PeerFace({ name, src, className }: { name: string; src?: string | null;
   );
 }
 
-function RingWaves() {
+function OrbitRings() {
   return (
     <>
-      {[0, 1, 2].map((i) => (
+      {[0, 1, 2, 3].map((i) => (
         <span
           key={i}
-          className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full border border-[#3b82f6]/45"
+          className="pointer-events-none absolute left-1/2 top-1/2 rounded-full"
           style={{
-            width: `${8 + i * 2.4}rem`,
-            height: `${8 + i * 2.4}rem`,
-            animation: `d4RingWave 2.2s ease-out ${i * 0.5}s infinite`,
+            width: `${7.2 + i * 1.85}rem`,
+            height: `${7.2 + i * 1.85}rem`,
+            marginLeft: `-${(7.2 + i * 1.85) / 2}rem`,
+            marginTop: `-${(7.2 + i * 1.85) / 2}rem`,
+            border: "1.5px solid rgba(96,165,250,0.35)",
+            animation: `d4Orbit ${2.4 + i * 0.35}s linear infinite`,
+            animationDelay: `${i * 0.2}s`,
+            boxShadow: "0 0 12px rgba(59,130,246,0.15)",
           }}
         />
       ))}
-      <style>{`@keyframes d4RingWave{0%{transform:translate(-50%,-50%) scale(.9);opacity:.55}100%{transform:translate(-50%,-50%) scale(1.4);opacity:0}}`}</style>
+      <style>{`
+        @keyframes d4Orbit {
+          0% { transform: rotate(0deg) scale(1); opacity: 0.55; border-color: rgba(96,165,250,0.5); }
+          50% { transform: rotate(180deg) scale(1.06); opacity: 0.25; border-color: rgba(147,197,253,0.25); }
+          100% { transform: rotate(360deg) scale(1); opacity: 0.55; border-color: rgba(96,165,250,0.5); }
+        }
+        @keyframes d4Breath {
+          0%, 100% { transform: scale(1); filter: drop-shadow(0 0 18px rgba(37,99,235,0.55)); }
+          50% { transform: scale(1.07); filter: drop-shadow(0 0 36px rgba(59,130,246,0.85)); }
+        }
+      `}</style>
     </>
   );
 }
 
 function D4Center({ pulsing }: { pulsing?: boolean }) {
   return (
-    <div className="relative grid place-items-center py-6">
-      {pulsing ? <RingWaves /> : null}
+    <div className="relative grid place-items-center py-8">
+      {pulsing ? <OrbitRings /> : null}
       <div
-        className="relative grid h-[7.75rem] w-[7.75rem] place-items-center rounded-full bg-gradient-to-b from-[#1e3a6e] to-[#0b1b3a] shadow-[0_0_56px_rgba(37,99,235,0.55)] ring-2 ring-[#3b82f6]/80"
-        style={pulsing ? { animation: "d4LogoPulse 1.8s ease-in-out infinite" } : undefined}
+        className="relative z-10 grid h-[7.5rem] w-[7.5rem] place-items-center rounded-full bg-gradient-to-br from-[#2563eb] via-[#1e3a6e] to-[#0b1b3a] ring-2 ring-sky-400/70"
+        style={pulsing ? { animation: "d4Breath 2s ease-in-out infinite" } : undefined}
       >
-        <img src="/logo.png" alt="D4" className="h-[4.5rem] w-[4.5rem] object-contain drop-shadow-lg" />
+        <img src="/logo.png" alt="D4" className="h-[4.25rem] w-[4.25rem] object-contain" />
       </div>
-      <style>{`@keyframes d4LogoPulse{0%,100%{transform:scale(1);box-shadow:0 0 40px rgba(37,99,235,0.4)}50%{transform:scale(1.04);box-shadow:0 0 64px rgba(59,130,246,0.7)}}`}</style>
     </div>
   );
 }
@@ -98,8 +112,13 @@ export function CallOverlay({
   const localRef = useRef<HTMLVideoElement>(null);
   const remoteRef = useRef<HTMLVideoElement>(null);
   const bootstrapped = useRef<string | null>(null);
+  const [closed, setClosed] = useState(false);
 
   useEffect(() => subscribeCallSession(setSession), []);
+  useEffect(() => {
+    setClosed(false);
+    bootstrapped.current = null;
+  }, [call?.callId]);
   useEffect(() => {
     if (!call || !myUserId) return;
     if (bootstrapped.current === call.callId) return;
@@ -127,6 +146,7 @@ export function CallOverlay({
     facing: "user" as const, seconds: 0, sharingScreen: false, error: null,
   } : null);
 
+  if (closed) return null;
   if (!view && !call) return null;
   if (view?.phase === "minimized") return <MinimizedTopBar session={view} />;
   if (!view) return null;
@@ -253,7 +273,7 @@ export function CallOverlay({
 
       {/* Top bar */}
       <div className="relative z-20 flex items-center justify-between px-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
-        <button type="button" onClick={() => minimizeCall()} className="flex items-center gap-1 rounded-full bg-black/30 px-3 py-1.5 text-xs font-semibold backdrop-blur">
+        <button type="button" onClick={(e) => { e.stopPropagation(); minimizeCall(); }} className="flex items-center gap-1 rounded-full bg-black/30 px-3 py-1.5 text-xs font-semibold backdrop-blur">
           <ChevronDown className="h-4 w-4" /> Minimize
         </button>
         <span className="text-xs font-semibold text-white/50">D4EXAM</span>
@@ -295,66 +315,102 @@ export function CallOverlay({
         )}
       </div>
 
-      {/* Controls */}
-      <div className="relative z-20 px-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-4">
-        <div className="mx-auto flex max-w-sm items-center justify-center gap-5">
-          <CtrlBtn
-            icon={view.muted ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
-            label="Mute"
-            active={view.muted}
-            onClick={() => toggleMute()}
-          />
-          <CtrlBtn
-            icon={view.speakerOn ? <Volume2 className="h-5 w-5" /> : <VolumeX className="h-5 w-5" />}
-            label="Speaker"
-            active={view.speakerOn}
-            onClick={() => void toggleSpeaker()}
-          />
-          {isVideo ? (
-            <>
-              <CtrlBtn
-                icon={view.camOff ? <VideoOff className="h-5 w-5" /> : <Video className="h-5 w-5" />}
-                label="Camera"
-                active={view.camOff}
-                onClick={() => toggleCam()}
-              />
-              <CtrlBtn icon={<SwitchCamera className="h-5 w-5" />} label="Switch" onClick={() => void flipCamera()} />
-            </>
-          ) : (
-            <CtrlBtn
-              icon={<Video className="h-5 w-5" />}
-              label="Video"
-              onClick={() => {
-                // Best-effort: user enables local video on voice call
-                if (view.camOff) toggleCam();
-              }}
-            />
-          )}
-          <CtrlBtn
-            icon={<MoreHorizontal className="h-5 w-5" />}
-            label="More"
-            active={moreOpen}
-            onClick={() => setMoreOpen((v) => !v)}
-          />
-        </div>
-        <div className="mt-5 flex justify-center">
+      {/* Controls — single row like classic dialer */}
+      <div className="relative z-20 border-t border-white/10 px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-4">
+        <div className="mx-auto flex max-w-md items-center justify-between gap-2">
           <button
             type="button"
-            onClick={() => void endCall("local")}
-            className="grid h-16 w-16 place-items-center rounded-full bg-rose-500 shadow-lg shadow-rose-500/40 active:scale-95"
+            onClick={(e) => { e.stopPropagation(); toggleMute(); }}
+            className="flex flex-col items-center gap-1 active:scale-95"
+          >
+            <span className={cn(
+              "grid h-12 w-12 place-items-center rounded-full text-white",
+              view.muted ? "bg-white text-[#0b1b3a]" : "bg-white/15",
+            )}>
+              {view.muted ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
+            </span>
+            <span className="text-[10px] font-medium text-white/70">Mute</span>
+          </button>
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); void toggleSpeaker(); }}
+            className="flex flex-col items-center gap-1 active:scale-95"
+          >
+            <span className={cn(
+              "grid h-12 w-12 place-items-center rounded-full text-white",
+              view.speakerOn ? "bg-white text-[#0b1b3a]" : "bg-white/15",
+            )}>
+              {view.speakerOn ? <Volume2 className="h-5 w-5" /> : <VolumeX className="h-5 w-5" />}
+            </span>
+            <span className="text-[10px] font-medium text-white/70">Speaker</span>
+          </button>
+          {isVideo ? (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); toggleCam(); }}
+              className="flex flex-col items-center gap-1 active:scale-95"
+            >
+              <span className={cn(
+                "grid h-12 w-12 place-items-center rounded-full text-white",
+                view.camOff ? "bg-white text-[#0b1b3a]" : "bg-white/15",
+              )}>
+                {view.camOff ? <VideoOff className="h-5 w-5" /> : <Video className="h-5 w-5" />}
+              </span>
+              <span className="text-[10px] font-medium text-white/70">Camera</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); void upgradeToVideo(); }}
+              className="flex flex-col items-center gap-1 active:scale-95"
+            >
+              <span className="grid h-12 w-12 place-items-center rounded-full bg-white/15 text-white">
+                <Video className="h-5 w-5" />
+              </span>
+              <span className="text-[10px] font-medium text-white/70">Video</span>
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); setMoreOpen((v) => !v); }}
+            className="flex flex-col items-center gap-1 active:scale-95"
+          >
+            <span className={cn(
+              "grid h-12 w-12 place-items-center rounded-full text-white",
+              moreOpen ? "bg-white text-[#0b1b3a]" : "bg-white/15",
+            )}>
+              <MoreHorizontal className="h-5 w-5" />
+            </span>
+            <span className="text-[10px] font-medium text-white/70">More</span>
+          </button>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              void (async () => {
+                try { await endCall("ended"); } catch { /* ignore */ }
+                setClosed(true);
+                onClose();
+              })();
+            }}
+            className="flex flex-col items-center gap-1 active:scale-95"
             aria-label="End call"
           >
-            <PhoneOff className="h-7 w-7" />
+            <span className="grid h-14 w-14 place-items-center rounded-full bg-rose-500 text-white shadow-lg shadow-rose-500/40">
+              <PhoneOff className="h-6 w-6" />
+            </span>
+            <span className="text-[10px] font-medium text-white/70">End</span>
           </button>
         </div>
-        <p className="mt-2 text-center text-[11px] font-medium text-white/45">End Call</p>
       </div>
 
       {moreOpen ? (
-        <div className="absolute inset-x-4 bottom-36 z-30 overflow-hidden rounded-2xl border border-white/10 bg-[#122a52]/95 shadow-2xl backdrop-blur">
+        <div className="absolute inset-x-4 bottom-28 z-40 overflow-hidden rounded-2xl border border-white/10 bg-[#0d2140] shadow-2xl">
           <MoreRow icon={<MessageCircle className="h-4 w-4" />} label="Send Message" onClick={() => {
             setMoreOpen(false);
-            if (view.conversationId) appNavigate(`/student/messages?chat=${encodeURIComponent(view.conversationId)}`);
+            const cid = view.conversationId;
+            if (cid) appNavigate(`/student/messages?chat=${encodeURIComponent(cid)}`);
+            else appNavigate("/student/messages");
           }} />
           <MoreRow icon={<MonitorUp className="h-4 w-4" />} label={view.sharingScreen ? "Stop Screen Share" : "Share Screen"} onClick={() => {
             setMoreOpen(false);
@@ -363,7 +419,9 @@ export function CallOverlay({
           }} />
           <MoreRow icon={<User className="h-4 w-4" />} label="View Profile" onClick={() => {
             setMoreOpen(false);
-            appNavigate(`/student/user/${encodeURIComponent(view.peerId)}`);
+            if (view.peerId && view.peerId !== "unknown") {
+              appNavigate(`/student/user/${encodeURIComponent(view.peerId)}`);
+            }
           }} />
           <button type="button" className="w-full py-3 text-sm font-semibold text-white/60" onClick={() => setMoreOpen(false)}>Cancel</button>
         </div>
@@ -425,7 +483,7 @@ function MinimizedTopBar({ session }: { session: CallSessionState }) {
             <button type="button" onClick={() => void toggleSpeaker()} className={cn("grid h-10 w-10 place-items-center rounded-full", session.speakerOn ? "bg-white text-[#0b1b3a]" : "bg-white/15")}>
               {session.speakerOn ? <Volume2 className="h-4.5 w-4.5" /> : <VolumeX className="h-4.5 w-4.5" />}
             </button>
-            <button type="button" onClick={() => void endCall("local")} className="grid h-10 w-10 place-items-center rounded-full bg-rose-500 shadow-md active:scale-95" aria-label="End">
+            <button type="button" onClick={() => { void endCall("ended"); }} className="grid h-10 w-10 place-items-center rounded-full bg-rose-500 shadow-md active:scale-95" aria-label="End">
               <PhoneOff className="h-4.5 w-4.5" />
             </button>
           </>

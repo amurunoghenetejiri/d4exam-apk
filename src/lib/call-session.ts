@@ -130,8 +130,11 @@ function wirePcConnectionHandlers() {
     if (!pc || !state) return;
     const st = pc.connectionState;
     if (st === "connected") {
-      clearTimers();
-      if (state.phase !== "active" && state.phase !== "minimized") {
+      const wasActive = state.phase === "active" || state.phase === "minimized";
+      if (!wasActive) {
+        if (ringTimeout) { clearTimeout(ringTimeout); ringTimeout = null; }
+        if (inviteInterval) { clearInterval(inviteInterval); inviteInterval = null; }
+        if (readyInterval) { clearInterval(readyInterval); readyInterval = null; }
         state.phase = "active";
         state.error = null;
         emit();
@@ -139,12 +142,14 @@ function wirePcConnectionHandlers() {
           state.peerName,
           state.callType === "video" ? "Video call" : "Voice call",
         );
-        timer = setInterval(() => {
-          if (state && (state.phase === "active" || state.phase === "minimized")) {
-            state.seconds += 1;
-            emit();
-          }
-        }, 1000);
+        if (!timer) {
+          timer = setInterval(() => {
+            if (state && (state.phase === "active" || state.phase === "minimized")) {
+              state.seconds += 1;
+              emit();
+            }
+          }, 1000);
+        }
         void updateCallStatus(state.callId, "active").catch(() => {});
       }
     } else if (st === "failed") {
@@ -257,8 +262,10 @@ export async function startOutgoingCall(opts: {
     pc.ontrack = (ev) => {
       remoteStream = ev.streams[0] || null;
       if (remoteVideoEl && remoteStream) remoteVideoEl.srcObject = remoteStream;
-      if (state) {
-        clearTimers();
+      if (state && state.phase !== "active" && state.phase !== "minimized") {
+        if (ringTimeout) { clearTimeout(ringTimeout); ringTimeout = null; }
+        if (inviteInterval) { clearInterval(inviteInterval); inviteInterval = null; }
+        if (readyInterval) { clearInterval(readyInterval); readyInterval = null; }
         state.phase = "active";
         state.error = null;
         emit();
@@ -266,12 +273,14 @@ export async function startOutgoingCall(opts: {
           state.peerName,
           state.callType === "video" ? "Video call" : "Voice call",
         );
-        timer = setInterval(() => {
-          if (state && (state.phase === "active" || state.phase === "minimized")) {
-            state.seconds += 1;
-            emit();
-          }
-        }, 1000);
+        if (!timer) {
+          timer = setInterval(() => {
+            if (state && (state.phase === "active" || state.phase === "minimized")) {
+              state.seconds += 1;
+              emit();
+            }
+          }, 1000);
+        }
         void updateCallStatus(state.callId, "active");
       }
     };
@@ -288,7 +297,7 @@ export async function startOutgoingCall(opts: {
 
     wirePcConnectionHandlers();
     channel = subscribeCallChannel(opts.callId, handleSignal);
-    void waitChannelReady(channel, 3500);
+    await waitChannelReady(channel, 5000);
 
     // Pulse invite on personal channel until answered.
     // Offer is created only after callee sends "ready".
@@ -299,14 +308,16 @@ export async function startOutgoingCall(opts: {
         callId: opts.callId,
         callType: opts.callType,
         conversationId: opts.conversationId,
-        callerName: "D4EXAM",
+        callerName: opts.peerName || "D4EXAM",
         fromUserId: opts.myUserId,
       });
       void notifyCalleeOfIncomingCall({
         calleeId: opts.peerId,
         callId: opts.callId,
         callType: opts.callType,
-        callerName: "D4EXAM",
+        callerName: opts.peerName || "D4EXAM",
+        fromUserId: opts.myUserId,
+        conversationId: opts.conversationId,
       });
     };
     pulseInvite();
@@ -431,18 +442,22 @@ export async function acceptIncomingCall(opts: {
     pc.ontrack = (ev) => {
       remoteStream = ev.streams[0] || null;
       if (remoteVideoEl && remoteStream) remoteVideoEl.srcObject = remoteStream;
-      if (state) {
-        clearTimers();
+      if (state && state.phase !== "active" && state.phase !== "minimized") {
+        if (ringTimeout) { clearTimeout(ringTimeout); ringTimeout = null; }
+        if (inviteInterval) { clearInterval(inviteInterval); inviteInterval = null; }
+        if (readyInterval) { clearInterval(readyInterval); readyInterval = null; }
         state.phase = "active";
         state.error = null;
         emit();
         void nativeStartCallService(state.peerName, "In call");
-        timer = setInterval(() => {
-          if (state && (state.phase === "active" || state.phase === "minimized")) {
-            state.seconds += 1;
-            emit();
-          }
-        }, 1000);
+        if (!timer) {
+          timer = setInterval(() => {
+            if (state && (state.phase === "active" || state.phase === "minimized")) {
+              state.seconds += 1;
+              emit();
+            }
+          }, 1000);
+        }
         void updateCallStatus(state.callId, "active").catch(() => {});
       }
     };
@@ -619,8 +634,13 @@ function handleSignal(ev: SignalEvent) {
           clearInterval(readyInterval);
           readyInterval = null;
         }
+        // Glare / renegotiation: if we have a local offer, rollback first
+        try {
+          if (pc.signalingState === "have-local-offer") {
+            await pc.setLocalDescription({ type: "rollback" } as RTCSessionDescriptionInit);
+          }
+        } catch { /* ignore */ }
         await pc.setRemoteDescription(ev.sdp);
-        // Flush any ICE that arrived before remote description
         for (const c of pendingIce) {
           try { await pc.addIceCandidate(c); } catch { /* ignore */ }
         }
@@ -634,7 +654,7 @@ function handleSignal(ev: SignalEvent) {
             from: state!.myUserId,
           });
         }
-        if (state) {
+        if (state && state.phase !== "active" && state.phase !== "minimized") {
           state.phase = "connecting";
           emit();
         }
@@ -659,8 +679,12 @@ function handleSignal(ev: SignalEvent) {
           /* ignore */
         }
       } else if (ev.type === "hangup") {
-        if (state?.isCaller) await endCall("ended");
-        else await markMissed();
+        // Either side hanging up ends the call for both
+        if (state && (state.phase === "ringing" || state.phase === "calling") && !state.isCaller) {
+          await markMissed();
+        } else {
+          await endCall("ended");
+        }
       } else if (ev.type === "reject") {
         if (state) {
           state.phase = "declined";
@@ -682,9 +706,11 @@ function handleSignal(ev: SignalEvent) {
 }
 
 export async function endCall(
-  reason: "ended" | "cancelled" | "rejected" | "missed" | "busy" = "ended",
+  reason: "ended" | "cancelled" | "rejected" | "missed" | "busy" | "local" | string = "ended",
 ) {
   const snap = state;
+  // Stop ring immediately so user hears hangup
+  await stopCallRingtone();
   if (channel && snap) {
     try {
       await broadcastSignal(channel, {
@@ -705,10 +731,11 @@ export async function endCall(
   await hardTeardown();
   try {
     if (snap) {
-      await updateCallStatus(
-        snap.callId,
-        reason === "cancelled" ? "cancelled" : reason === "rejected" ? "rejected" : "ended",
-      );
+      const status =
+        reason === "cancelled" ? "cancelled" :
+        reason === "rejected" ? "rejected" :
+        reason === "missed" ? "missed" : "ended";
+      await updateCallStatus(snap.callId, status as "ended");
       await updateParticipantStatus(snap.callId, snap.myUserId, "left");
     }
   } catch {
@@ -776,20 +803,24 @@ export function restoreCall() {
 }
 
 export function toggleMute() {
-  if (!state || !localStream) return;
+  if (!state) return;
   state.muted = !state.muted;
-  localStream.getAudioTracks().forEach((t) => {
-    t.enabled = !state!.muted;
-  });
+  if (localStream) {
+    localStream.getAudioTracks().forEach((t) => {
+      t.enabled = !state!.muted;
+    });
+  }
   emit();
 }
 
 export function toggleCam() {
-  if (!state || !localStream) return;
+  if (!state) return;
   state.camOff = !state.camOff;
-  localStream.getVideoTracks().forEach((t) => {
-    t.enabled = !state!.camOff;
-  });
+  if (localStream) {
+    localStream.getVideoTracks().forEach((t) => {
+      t.enabled = !state!.camOff;
+    });
+  }
   emit();
 }
 
@@ -797,7 +828,62 @@ export async function toggleSpeaker() {
   if (!state) return;
   state.speakerOn = !state.speakerOn;
   await nativeSetSpeaker(state.speakerOn);
+  // WebView audio element routing best-effort
+  try {
+    if (remoteVideoEl) {
+      // @ts-expect-error setSinkId not in all typings
+      if (typeof remoteVideoEl.setSinkId === "function") {
+        // leave default
+      }
+    }
+  } catch { /* ignore */ }
   emit();
+}
+
+/** Upgrade an active voice call to video (local camera + renegotiate). */
+export async function upgradeToVideo() {
+  if (!state || !pc) return;
+  try {
+    const cam = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: state.facing || "user" },
+      audio: false,
+    });
+    const vTrack = cam.getVideoTracks()[0];
+    if (!vTrack) return;
+    if (!localStream) localStream = new MediaStream();
+    // Remove old video tracks
+    localStream.getVideoTracks().forEach((t) => {
+      localStream!.removeTrack(t);
+      try { t.stop(); } catch { /* ignore */ }
+    });
+    localStream.addTrack(vTrack);
+    const sender = pc.getSenders().find((s) => s.track?.kind === "video");
+    if (sender) {
+      await sender.replaceTrack(vTrack);
+    } else {
+      pc.addTrack(vTrack, localStream);
+    }
+    if (localVideoEl) localVideoEl.srcObject = localStream;
+    state.callType = "video";
+    state.camOff = false;
+    state.speakerOn = true;
+    await nativeSetSpeaker(true);
+    emit();
+    // Renegotiate so peer receives video
+    if (state.isCaller || pc.signalingState === "stable") {
+      const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
+      await pc.setLocalDescription(offer);
+      if (channel) {
+        await broadcastSignal(channel, { type: "offer", sdp: offer, from: state.myUserId });
+      }
+    }
+  } catch (e) {
+    console.error("[calls] upgradeToVideo", e);
+    if (state) {
+      state.error = "Could not enable camera";
+      emit();
+    }
+  }
 }
 
 export async function flipCamera() {
@@ -814,25 +900,61 @@ export async function flipCamera() {
 }
 
 export async function startScreenShare() {
-  if (!state || !pc) return;
+  if (!state || !pc) {
+    return;
+  }
   try {
-    const display = await (
-      navigator.mediaDevices as MediaDevices & {
-        getDisplayMedia?: (c: MediaStreamConstraints) => Promise<MediaStream>;
+    const md = navigator.mediaDevices as MediaDevices & {
+      getDisplayMedia?: (c: MediaStreamConstraints) => Promise<MediaStream>;
+    };
+    if (typeof md.getDisplayMedia !== "function") {
+      if (state) {
+        state.error = "Screen share is not supported on this device";
+        emit();
+        window.setTimeout(() => {
+          if (state) { state.error = null; emit(); }
+        }, 2500);
       }
-    ).getDisplayMedia?.({ video: true, audio: false });
+      return;
+    }
+    const display = await md.getDisplayMedia({ video: true, audio: false });
     if (!display) return;
     const track = display.getVideoTracks()[0];
     if (!track) return;
-    const sender = pc.getSenders().find((s) => s.track?.kind === "video");
-    if (sender) await sender.replaceTrack(track);
+    // Ensure we have a video sender (voice calls may not)
+    let sender = pc.getSenders().find((s) => s.track?.kind === "video");
+    if (sender) {
+      await sender.replaceTrack(track);
+    } else {
+      if (!localStream) localStream = new MediaStream();
+      localStream.addTrack(track);
+      pc.addTrack(track, localStream);
+      // Renegotiate
+      try {
+        const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
+        await pc.setLocalDescription(offer);
+        if (channel && state) {
+          await broadcastSignal(channel, { type: "offer", sdp: offer, from: state.myUserId });
+        }
+      } catch (e) {
+        console.warn("[calls] screen share renegotiate", e);
+      }
+    }
     track.onended = () => {
       void stopScreenShare();
     };
     state.sharingScreen = true;
+    state.callType = "video";
     emit();
-  } catch {
-    /* cancelled */
+  } catch (e) {
+    console.warn("[calls] startScreenShare", e);
+    if (state) {
+      state.error = "Screen share cancelled or denied";
+      emit();
+      window.setTimeout(() => {
+        if (state) { state.error = null; emit(); }
+      }, 2500);
+    }
   }
 }
 

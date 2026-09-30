@@ -217,9 +217,9 @@ jobs:
           bunx cap sync android
           python3 scripts/ensure-capacitor-plugins.py
           if [ -f android/app/build.gradle ]; then
-            sed -i 's/versionCode [0-9]*/versionCode 51/' android/app/build.gradle || true
-            sed -i 's/versionName "[^"]*"/versionName "1.5.1-background-call"/' android/app/build.gradle || true
-            echo "OK: versionName 1.5.1-background-call"
+            sed -i 's/versionCode [0-9]*/versionCode 52/' android/app/build.gradle || true
+            sed -i 's/versionName "[^"]*"/versionName "1.5.2-call-controls"/' android/app/build.gradle || true
+            echo "OK: versionName 1.5.2-call-controls"
           fi
           python3 scripts/force-local-capacitor-assets.py || true
           if [ -f android/variables.gradle ]; then

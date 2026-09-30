@@ -64,9 +64,21 @@ export async function startCallRingtone() {
   if (playing) return;
   playing = true;
   if (Capacitor.isNativePlatform()) {
+    // Native RingtoneManager only — do NOT also play web beeps (double ring)
     await nativeStartRing();
+    try {
+      const nav = navigator as Navigator & { vibrate?: (p: number | number[]) => boolean };
+      if (typeof nav.vibrate === "function") {
+        const pulse = () => {
+          if (!playing) return;
+          try { nav.vibrate?.([400, 200, 400, 200, 400, 600]); } catch { /* ignore */ }
+        };
+        pulse();
+        interval = setInterval(pulse, 1800);
+      }
+    } catch { /* ignore */ }
+    return;
   }
-  // Always also try web tone (covers browser + when native silent)
   startWebRing();
   // Android Chrome WebView vibration pattern (loop-ish via interval)
   try {
