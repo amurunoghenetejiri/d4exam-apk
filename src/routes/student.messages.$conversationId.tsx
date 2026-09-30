@@ -1058,26 +1058,22 @@ export function ConversationChat({
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-0.5">
-          {!meta?.isGroup ? (
-            <>
-              <button
-                type="button"
-                onClick={() => void startPeerCall("voice")}
-                className="grid h-9 w-9 place-items-center rounded-full text-white hover:bg-white/10"
-                aria-label="Voice call"
-              >
-                <Phone className="h-4.5 w-4.5 h-[1.15rem] w-[1.15rem]" />
-              </button>
-              <button
-                type="button"
-                onClick={() => void startPeerCall("video")}
-                className="grid h-9 w-9 place-items-center rounded-full text-white hover:bg-white/10"
-                aria-label="Video call"
-              >
-                <Video className="h-4.5 w-4.5 h-[1.15rem] w-[1.15rem]" />
-              </button>
-            </>
-          ) : null}
+          <button
+            type="button"
+            onClick={() => void startPeerCall("voice")}
+            className="grid h-9 w-9 place-items-center rounded-full text-white hover:bg-white/10"
+            aria-label={meta?.isGroup ? "Group voice call" : "Voice call"}
+          >
+            <Phone className="h-4.5 w-4.5 h-[1.15rem] w-[1.15rem]" />
+          </button>
+          <button
+            type="button"
+            onClick={() => void startPeerCall("video")}
+            className="grid h-9 w-9 place-items-center rounded-full text-white hover:bg-white/10"
+            aria-label={meta?.isGroup ? "Group video call" : "Video call"}
+          >
+            <Video className="h-4.5 w-4.5 h-[1.15rem] w-[1.15rem]" />
+          </button>
           <div className="relative">
           <button
             type="button"

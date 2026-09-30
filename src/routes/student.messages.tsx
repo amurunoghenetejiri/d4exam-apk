@@ -419,8 +419,8 @@ function MessagesHub() {
             <button
               type="button"
               onClick={() => {
-                if (userId) openUserProfile(userId);
-                else setProfileSheetUserId(userId || "me");
+                if (userId) appNavigate(`/student/user/${encodeURIComponent(userId)}`);
+                else appNavigate("/student/user/me");
               }}
               className="grid h-10 w-10 place-items-center rounded-full bg-white/10 text-white transition active:scale-95"
               aria-label="My profile"

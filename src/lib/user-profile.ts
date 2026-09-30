@@ -41,9 +41,12 @@ function mapRow(
     schoolId: (row.school_id as string) || null,
     matricNumber: (row.matric_number as string) || null,
     departmentId: (row.department_id as string) || null,
-    departmentName: extras?.departmentName ?? ((row.department_name as string) || null),
+    departmentName:
+      extras?.departmentName ??
+      ((row.department_name as string) || (row.department as string) || null),
     levelId: (row.level_id as string) || null,
-    levelName: extras?.levelName ?? ((row.level_name as string) || null),
+    levelName:
+      extras?.levelName ?? ((row.level_name as string) || (row.level as string) || null),
     studentId: (row.student_id as string) || null,
     status: (row.status as string) || null,
     isMe: Boolean(myUserId && myUserId === authUserId),
@@ -55,24 +58,64 @@ function mapRow(
 async function enrichDeptLevel(p: PublicUserProfile): Promise<PublicUserProfile> {
   let departmentName = p.departmentName;
   let levelName = p.levelName;
-  if (departmentName && levelName) return p;
-  if (p.departmentId && !departmentName) {
-    const { data: d } = await supabase
-      .from("departments")
-      .select("name")
-      .eq("id", p.departmentId)
-      .maybeSingle();
-    departmentName = (d as { name?: string } | null)?.name || null;
+  let matricNumber = p.matricNumber;
+  let departmentId = p.departmentId;
+  let levelId = p.levelId;
+
+  // Prefer SECURITY DEFINER list RPC (returns department/level text + matric)
+  if ((!departmentName || !levelName || !matricNumber) && p.authUserId) {
+    try {
+      const { data: rows } = await supabase.rpc("list_school_students_for_messaging", {
+        p_query: null,
+        p_department_id: null,
+        p_limit: 200,
+      });
+      const hit = (Array.isArray(rows) ? rows : []).find(
+        (r: Record<string, unknown>) =>
+          String(r.auth_user_id || "") === p.authUserId ||
+          String(r.profile_id || "") === (p.profileId || ""),
+      ) as Record<string, unknown> | undefined;
+      if (hit) {
+        departmentName = departmentName || (hit.department as string) || null;
+        levelName = levelName || (hit.level as string) || null;
+        matricNumber = matricNumber || (hit.matric_number as string) || null;
+        departmentId = departmentId || (hit.department_id as string) || null;
+        levelId = levelId || (hit.level_id as string) || null;
+      }
+    } catch {
+      /* ignore */
+    }
   }
-  if (p.levelId && !levelName) {
-    const { data: l } = await supabase
-      .from("levels")
-      .select("name")
-      .eq("id", p.levelId)
-      .maybeSingle();
-    levelName = (l as { name?: string } | null)?.name || null;
+
+  if (departmentName && levelName && matricNumber) {
+    return { ...p, departmentName, levelName, matricNumber, departmentId, levelId };
   }
-  return { ...p, departmentName, levelName };
+
+  if (departmentId && !departmentName) {
+    try {
+      const { data: d } = await supabase
+        .from("departments")
+        .select("name")
+        .eq("id", departmentId)
+        .maybeSingle();
+      departmentName = (d as { name?: string } | null)?.name || null;
+    } catch {
+      /* ignore */
+    }
+  }
+  if (levelId && !levelName) {
+    try {
+      const { data: l } = await supabase
+        .from("levels")
+        .select("name")
+        .eq("id", levelId)
+        .maybeSingle();
+      levelName = (l as { name?: string } | null)?.name || null;
+    } catch {
+      /* ignore */
+    }
+  }
+  return { ...p, departmentName, levelName, matricNumber, departmentId, levelId };
 }
 
 async function attachBlocks(
@@ -308,6 +351,40 @@ export async function fetchPublicProfile(
   }
 
   if (!row) return null;
+
+  // Ensure student academic fields even if RPC omitted them
+  if (!row.matric_number || !row.department_id || !row.level_id) {
+    try {
+      const pid = (row.profile_id as string) || (row.id as string);
+      const authId = (row.auth_user_id as string) || id;
+      let profileId = pid;
+      if (!profileId) {
+        const { data: pr } = await supabase
+          .from("profiles")
+          .select("id")
+          .eq("auth_user_id", authId)
+          .maybeSingle();
+        profileId = (pr as { id?: string } | null)?.id || "";
+      }
+      if (profileId) {
+        const { data: st } = await supabase
+          .from("students")
+          .select("id, matric_number, department_id, level_id, school_id")
+          .eq("profile_id", profileId)
+          .limit(1)
+          .maybeSingle();
+        if (st) {
+          row.matric_number = row.matric_number || (st as { matric_number?: string }).matric_number;
+          row.department_id = row.department_id || (st as { department_id?: string }).department_id;
+          row.level_id = row.level_id || (st as { level_id?: string }).level_id;
+          row.student_id = row.student_id || (st as { id?: string }).id;
+          row.school_id = row.school_id || (st as { school_id?: string }).school_id;
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }
 
   let profile = mapRow(row, id, myUserId);
   try {

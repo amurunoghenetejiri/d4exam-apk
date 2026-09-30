@@ -33,9 +33,17 @@ function RoleShell({ config, children }: { config: RoleConfig; children: ReactNo
 /** CBT exam must be distraction-free: no sidebar, top bar, or bottom nav. */
 export function StudentLayout({ children }: { children: ReactNode }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const isExamMode = pathname.startsWith("/student/exam/");
+  const hash =
+    typeof window !== "undefined" ? (window.location.hash || "").replace(/^#/, "") : "";
+  const pathForCheck = hash.startsWith("/") ? hash : pathname;
+  const isExamMode = pathForCheck.startsWith("/student/exam/");
+  // Full-screen profile (own or peer) — no school top bar / bottom nav
+  const isUserProfile =
+    pathForCheck.includes("/student/user/") ||
+    pathForCheck.endsWith("/student/user") ||
+    pathForCheck.includes("/user/");
 
-  if (isExamMode) {
+  if (isExamMode || isUserProfile) {
     return <>{children}</>;
   }
 
