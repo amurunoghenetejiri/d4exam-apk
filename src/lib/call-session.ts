@@ -346,18 +346,46 @@ export async function startOutgoingCall(opts: {
 
 async function markNoAnswer() {
   if (!state) return;
+  const snap = { ...state };
   state.phase = "no_answer";
   emit();
   await stopCallRingtone();
   try {
-    await updateCallStatus(state.callId, "missed");
+    await updateCallStatus(snap.callId, "missed");
   } catch {
     /* ignore */
   }
+  // Callee missed the call — push so their phone shows "Missed call"
+  try {
+    const { dispatchPushToUser } = await import("@/lib/push-send.functions");
+    // Resolve caller display name best-effort
+    let callerName = "D4EXAM";
+    try {
+      const { fetchPublicProfile } = await import("@/lib/user-profile");
+      const me = await fetchPublicProfile(snap.myUserId, snap.myUserId);
+      if (me?.fullName) callerName = me.fullName;
+    } catch { /* ignore */ }
+    await dispatchPushToUser({
+      data: {
+        recipientUserId: snap.peerId,
+        title: "Missed call",
+        message: `Missed call from ${callerName}`,
+        link: snap.conversationId
+          ? `/student/messages?chat=${encodeURIComponent(snap.conversationId)}`
+          : "/student/messages",
+        type: "missed_call",
+        callId: snap.callId,
+        callerName,
+        callerMatric: "",
+      },
+    });
+  } catch {
+    /* best-effort */
+  }
   await postSystemMessage(
-    state.conversationId,
-    state.myUserId,
-    state.callType === "video" ? "Missed video call · No answer" : "Missed voice call · No answer",
+    snap.conversationId,
+    snap.myUserId,
+    snap.callType === "video" ? "Missed video call · No answer" : "Missed voice call · No answer",
   );
   // Keep UI on no_answer; media can stop
   try {

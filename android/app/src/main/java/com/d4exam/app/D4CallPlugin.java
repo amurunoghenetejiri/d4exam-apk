@@ -37,6 +37,83 @@ public class D4CallPlugin extends Plugin {
   private Vibrator vibrator;
   private boolean ringing = false;
 
+  private static Ringtone sRingtone;
+  private static Vibrator sVibrator;
+  private static boolean sRinging = false;
+
+  /** Called from FCM service when app is backgrounded / killed. */
+  public static void startIncomingRing(Context ctx) {
+    if (ctx == null) return;
+    stopIncomingRingStatic(ctx);
+    try {
+      ensureIncomingChannelStatic(ctx);
+      Uri uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE);
+      if (uri == null) uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
+      sRingtone = RingtoneManager.getRingtone(ctx, uri);
+      if (sRingtone != null) {
+        if (Build.VERSION.SDK_INT >= 28) {
+          sRingtone.setLooping(true);
+        }
+        AudioManager am = (AudioManager) ctx.getSystemService(Context.AUDIO_SERVICE);
+        if (am == null || am.getRingerMode() == AudioManager.RINGER_MODE_NORMAL) {
+          sRingtone.play();
+        }
+      }
+    } catch (Throwable ignored) {}
+    try {
+      if (Build.VERSION.SDK_INT >= 31) {
+        VibratorManager vm = (VibratorManager) ctx.getSystemService(Context.VIBRATOR_MANAGER_SERVICE);
+        sVibrator = vm != null ? vm.getDefaultVibrator() : null;
+      } else {
+        sVibrator = (Vibrator) ctx.getSystemService(Context.VIBRATOR_SERVICE);
+      }
+      if (sVibrator != null) {
+        long[] pattern = new long[] {0, 800, 400, 800, 400};
+        if (Build.VERSION.SDK_INT >= 26) {
+          sVibrator.vibrate(VibrationEffect.createWaveform(pattern, 0));
+        } else {
+          sVibrator.vibrate(pattern, 0);
+        }
+      }
+    } catch (Throwable ignored) {}
+    sRinging = true;
+  }
+
+  public static void stopIncomingRingStatic(Context ctx) {
+    try {
+      if (sRingtone != null && sRingtone.isPlaying()) sRingtone.stop();
+    } catch (Throwable ignored) {}
+    sRingtone = null;
+    try {
+      if (sVibrator != null) sVibrator.cancel();
+    } catch (Throwable ignored) {}
+    sVibrator = null;
+    sRinging = false;
+    try {
+      if (ctx != null) NotificationManagerCompat.from(ctx).cancel(INCOMING_NOTIF_ID);
+    } catch (Throwable ignored) {}
+  }
+
+  private static void ensureIncomingChannelStatic(Context ctx) {
+    if (Build.VERSION.SDK_INT < 26) return;
+    NotificationManager nm = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
+    if (nm == null) return;
+    NotificationChannel ch = new NotificationChannel(
+        INCOMING_CHANNEL, "Incoming Calls", NotificationManager.IMPORTANCE_HIGH);
+    ch.setDescription("D4EXAM incoming call ringtone");
+    Uri ringUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE);
+    AudioAttributes attrs = new AudioAttributes.Builder()
+        .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+        .build();
+    ch.setSound(ringUri, attrs);
+    ch.enableVibration(true);
+    ch.setVibrationPattern(new long[] {0, 800, 400, 800, 400});
+    nm.createNotificationChannel(ch);
+  }
+
+
+
   @PluginMethod
   public void startIncomingRing(PluginCall call) {
     Context ctx = getContext();
@@ -98,6 +175,7 @@ public class D4CallPlugin extends Plugin {
   @PluginMethod
   public void stopIncomingRing(PluginCall call) {
     stopRingInternal();
+    stopIncomingRingStatic(getContext());
     try {
       NotificationManagerCompat.from(getContext()).cancel(INCOMING_NOTIF_ID);
     } catch (Throwable ignored) {}
