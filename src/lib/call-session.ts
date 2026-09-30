@@ -724,9 +724,38 @@ export function dismissCallUi() {
   emit();
 }
 
+export async function rejectIncomingCall() {
+  await stopCallRingtone();
+  if (channel && state) {
+    try {
+      await broadcastSignal(channel, { type: "reject", from: state.myUserId });
+    } catch {
+      /* ignore */
+    }
+  }
+  if (state) {
+    try {
+      await updateParticipantStatus(state.callId, state.myUserId, "declined");
+    } catch {
+      /* ignore */
+    }
+    try {
+      await updateCallStatus(state.callId, "ended");
+    } catch {
+      /* ignore */
+    }
+    state.phase = "declined";
+    state.error = "Call declined";
+    emit();
+  }
+  await endCall("declined");
+}
+
 export function minimizeCall() {
   if (!state) return;
-  if (state.phase === "active" || state.phase === "calling" || state.phase === "connecting") {
+  // Allow minimize while ringing/calling/connecting/active — does NOT end the call
+  if (["active", "connecting", "calling", "ringing"].includes(state.phase)) {
+    (state as { _preMinimizePhase?: string })._preMinimizePhase = state.phase;
     state.phase = "minimized";
     emit();
   }
@@ -735,7 +764,13 @@ export function minimizeCall() {
 export function restoreCall() {
   if (!state) return;
   if (state.phase === "minimized") {
-    state.phase = state.seconds > 0 ? "active" : "calling";
+    const prev = (state as { _preMinimizePhase?: string })._preMinimizePhase;
+    state.phase =
+      prev === "ringing" || prev === "calling" || prev === "connecting" || prev === "active"
+        ? (prev as typeof state.phase)
+        : state.seconds > 0
+          ? "active"
+          : "connecting";
     emit();
   }
 }

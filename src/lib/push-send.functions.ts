@@ -29,6 +29,12 @@ type PushInput = {
   message: string;
   link?: string | null;
   actionLabel?: string | null;
+  /** high-priority call wake */
+  type?: string | null;
+  callId?: string | null;
+  callType?: string | null;
+  callerName?: string | null;
+  callerMatric?: string | null;
 };
 
 type ServiceAccount = {
@@ -102,6 +108,7 @@ async function sendFcmV1(
   sa: ServiceAccount,
   accessToken: string,
   actionLabel?: string | null,
+  extra?: Partial<PushInput> | null,
 ) {
   const projectId = sa.project_id || process.env["FIREBASE_PROJECT_ID"] || "d4exam-6506a";
   const url = `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`;
@@ -138,16 +145,21 @@ async function sendFcmV1(
           url: absoluteLink,
           icon: String(icon),
           badge: String(icon),
-          tag: "d4exam-notification",
+          tag: extra?.type === "incoming_call" ? "d4exam-incoming-call" : "d4exam-notification",
           actionLabel: action,
           action_label: action,
           actionLink: link || "/",
           click_action: absoluteLink,
+          type: String(extra?.type || ""),
+          callId: String(extra?.callId || ""),
+          callType: String(extra?.callType || ""),
+          callerName: String(extra?.callerName || fullTitle),
+          callerMatric: String(extra?.callerMatric || ""),
         },
         android: {
           priority: "HIGH",
           notification: {
-            channel_id: "d4exam_default",
+            channel_id: extra?.type === "incoming_call" ? "d4exam_incoming_call_wake" : "d4exam_default",
             sound: "default",
             default_sound: true,
             default_vibrate_timings: true,
@@ -176,6 +188,7 @@ async function sendFcmLegacy(
   link: string,
   serverKey: string,
   actionLabel?: string | null,
+  extra?: Partial<PushInput> | null,
 ) {
   const origin = appOrigin();
   const icon = `${origin}/icon-192.png`;
@@ -198,10 +211,15 @@ async function sendFcmLegacy(
         link: link || "/",
         icon,
         badge: icon,
-        tag: "d4exam-notification",
+        tag: extra?.type === "incoming_call" ? "d4exam-incoming-call" : "d4exam-notification",
         actionLabel: action,
         action_label: action,
         actionLink: link || "/",
+        type: String(extra?.type || ""),
+        callId: String(extra?.callId || ""),
+        callType: String(extra?.callType || ""),
+        callerName: String(extra?.callerName || fullTitle),
+        callerMatric: String(extra?.callerMatric || ""),
       },
       priority: "high",
       content_available: true,
@@ -242,6 +260,11 @@ export const dispatchPushToUser = createServerFn({ method: "POST" })
       message: String(o.message || ""),
       link: o.link != null ? String(o.link) : "/",
       actionLabel: o.actionLabel != null ? String(o.actionLabel) : undefined,
+      type: o.type != null ? String(o.type) : undefined,
+      callId: o.callId != null ? String(o.callId) : undefined,
+      callType: o.callType != null ? String(o.callType) : undefined,
+      callerName: o.callerName != null ? String(o.callerName) : undefined,
+      callerMatric: o.callerMatric != null ? String(o.callerMatric) : undefined,
     } satisfies PushInput;
   })
   .handler(async ({ data }) => {
@@ -334,6 +357,7 @@ export const dispatchPushToUser = createServerFn({ method: "POST" })
                 sa,
                 accessToken,
                 data.actionLabel,
+                data,
               )
             : await sendFcmLegacy(
                 token,
@@ -342,6 +366,7 @@ export const dispatchPushToUser = createServerFn({ method: "POST" })
                 data.link || "/",
                 legacyKey,
                 data.actionLabel,
+                data,
               );
 
         if (result.ok) sent += 1;

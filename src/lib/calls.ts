@@ -284,6 +284,12 @@ export async function notifyCalleeOfIncomingCall(opts: {
             ? `Incoming video call${opts.callerMatric ? " · " + opts.callerMatric : ""}`
             : `Incoming voice call${opts.callerMatric ? " · " + opts.callerMatric : ""}`,
         link: `/student/messages?incomingCall=${encodeURIComponent(opts.callId)}&type=${opts.callType}`,
+        // Native D4FirebaseMessagingService keys
+        type: "incoming_call",
+        callId: opts.callId,
+        callType: opts.callType,
+        callerName: opts.callerName || "Incoming Call",
+        callerMatric: opts.callerMatric || "",
       },
     });
   } catch {

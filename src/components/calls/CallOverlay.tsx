@@ -25,6 +25,7 @@ import {
   flipCamera,
   getCallSession,
   minimizeCall,
+  rejectIncomingCall,
   restoreCall,
   startOutgoingCall,
   startScreenShare,
@@ -488,59 +489,112 @@ function Watermark() {
   );
 }
 
-/** Compact top bar while call continues in background */
+/** Compact top bar while call continues (or is still ringing) in the app */
 function MinimizedTopBar({ session }: { session: CallSessionState }) {
   const mm = String(Math.floor(session.seconds / 60)).padStart(2, "0");
   const ss = String(session.seconds % 60).padStart(2, "0");
+  const prev = (session as { _preMinimizePhase?: string })._preMinimizePhase;
+  const isIncomingRing =
+    !session.isCaller && (prev === "ringing" || session.phase === "ringing");
+  const status =
+    session.seconds > 0 || prev === "active"
+      ? `In call · ${mm}:${ss}`
+      : prev === "connecting" || session.phase === "connecting"
+        ? "Connecting…"
+        : isIncomingRing
+          ? session.callType === "video"
+            ? "Incoming video · Ringing…"
+            : "Incoming voice · Ringing…"
+          : "Calling…";
+
   return (
     <div className="fixed inset-x-0 top-0 z-[160] pt-[env(safe-area-inset-top,0px)]">
-      <button
-        type="button"
-        onClick={() => restoreCall()}
-        className="flex w-full items-center gap-3 bg-[#0b1b3a] px-3 py-2.5 text-left text-white shadow-lg"
-      >
-        {session.peerAvatar ? (
-          <img src={session.peerAvatar} alt="" className="h-9 w-9 rounded-full object-cover" />
+      <div className="flex w-full items-center gap-2 bg-[#0b1b3a] px-3 py-2.5 text-white shadow-lg ring-1 ring-white/10">
+        <button
+          type="button"
+          onClick={() => restoreCall()}
+          className="flex min-w-0 flex-1 items-center gap-3 text-left"
+        >
+          {session.peerAvatar ? (
+            <img src={session.peerAvatar} alt="" className="h-9 w-9 shrink-0 rounded-full object-cover" />
+          ) : (
+            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#1e3a6e] text-xs font-bold">
+              {session.peerName.slice(0, 2).toUpperCase()}
+            </span>
+          )}
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-bold">{session.peerName}</p>
+            {session.peerMatric ? (
+              <p className="truncate text-[10px] text-white/50">{session.peerMatric}</p>
+            ) : null}
+            <p className={cn("text-[11px]", session.seconds > 0 ? "text-emerald-300" : "text-sky-300")}>
+              {status}
+            </p>
+          </div>
+        </button>
+        {isIncomingRing ? (
+          <>
+            <button
+              type="button"
+              className="rounded-full bg-rose-500 px-3 py-1.5 text-[11px] font-bold"
+              onClick={() => void rejectIncomingCall()}
+            >
+              Decline
+            </button>
+            <button
+              type="button"
+              className="rounded-full bg-emerald-500 px-3 py-1.5 text-[11px] font-bold"
+              onClick={() => {
+                void acceptIncomingCall({
+                  callId: session.callId,
+                  callType: session.callType,
+                  peerId: session.peerId,
+                  peerName: session.peerName,
+                  peerAvatar: session.peerAvatar,
+                  peerMatric: session.peerMatric,
+                  conversationId: session.conversationId,
+                  myUserId: session.myUserId,
+                });
+              }}
+            >
+              Accept
+            </button>
+          </>
         ) : (
-          <span className="grid h-9 w-9 place-items-center rounded-full bg-[#1e3a6e] text-xs font-bold">
-            {session.peerName.slice(0, 2).toUpperCase()}
-          </span>
+          <>
+            <button
+              type="button"
+              onClick={() => toggleMute()}
+              className={cn(
+                "grid h-9 w-9 place-items-center rounded-full",
+                session.muted ? "bg-white text-[#0b1b3a]" : "bg-white/15",
+              )}
+              aria-label="Mute"
+            >
+              {session.muted ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+            </button>
+            <button
+              type="button"
+              onClick={() => void toggleSpeaker()}
+              className={cn(
+                "grid h-9 w-9 place-items-center rounded-full",
+                session.speakerOn ? "bg-white text-[#0b1b3a]" : "bg-white/15",
+              )}
+              aria-label="Speaker"
+            >
+              {session.speakerOn ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+            </button>
+            <button
+              type="button"
+              onClick={() => void endCall("local")}
+              className="grid h-9 w-9 place-items-center rounded-full bg-rose-500"
+              aria-label="End call"
+            >
+              <PhoneOff className="h-4 w-4" />
+            </button>
+          </>
         )}
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-bold">{session.peerName}</p>
-          <p className="text-[11px] text-emerald-300">
-            {session.seconds > 0 ? `In call · ${mm}:${ss}` : "Calling…"}
-          </p>
-        </div>
-        <span
-          role="button"
-          tabIndex={0}
-          onClick={(e) => {
-            e.stopPropagation();
-            toggleMute();
-          }}
-          className={cn(
-            "grid h-9 w-9 place-items-center rounded-full",
-            session.muted ? "bg-white text-[#0b1b3a]" : "bg-white/15",
-          )}
-        >
-          {session.muted ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
-        </span>
-        <span
-          role="button"
-          tabIndex={0}
-          onClick={(e) => {
-            e.stopPropagation();
-            void toggleSpeaker();
-          }}
-          className={cn(
-            "grid h-9 w-9 place-items-center rounded-full",
-            session.speakerOn ? "bg-white text-[#0b1b3a]" : "bg-white/15",
-          )}
-        >
-          {session.speakerOn ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
-        </span>
-      </button>
+      </div>
     </div>
   );
 }
