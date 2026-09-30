@@ -35,6 +35,9 @@ type PushInput = {
   callType?: string | null;
   callerName?: string | null;
   callerMatric?: string | null;
+  fromUserId?: string | null;
+  callerId?: string | null;
+  conversationId?: string | null;
 };
 
 type ServiceAccount = {
@@ -123,56 +126,68 @@ async function sendFcmV1(
   const fullTitle = String(title || "D4EXAM");
   const action = (actionLabel || "").trim();
 
+  const isCall = extra?.type === "incoming_call";
+  // Data-only for incoming_call so D4FirebaseMessagingService.onMessageReceived always runs
+  // even when the app is backgrounded / killed (notification+data is tray-only when backgrounded).
+  const messagePayload: Record<string, unknown> = {
+    token,
+    data: {
+      title: fullTitle,
+      body: fullBody,
+      message: fullBody,
+      link: link || "/",
+      url: absoluteLink,
+      icon: String(icon),
+      badge: String(icon),
+      tag: isCall ? "d4exam-incoming-call" : "d4exam-notification",
+      actionLabel: action,
+      action_label: action,
+      actionLink: link || "/",
+      click_action: absoluteLink,
+      type: String(extra?.type || ""),
+      callId: String(extra?.callId || ""),
+      callType: String(extra?.callType || ""),
+      callerName: String(extra?.callerName || fullTitle),
+      callerMatric: String(extra?.callerMatric || ""),
+      fromUserId: String(extra?.fromUserId || extra?.callerId || ""),
+      callerId: String(extra?.callerId || extra?.fromUserId || ""),
+      conversationId: String(extra?.conversationId || ""),
+    },
+    android: {
+      priority: "HIGH",
+      ttl: isCall ? "60s" : "86400s",
+      ...(isCall
+        ? {}
+        : {
+            notification: {
+              channel_id: "d4exam_default",
+              sound: "default",
+              default_sound: true,
+              default_vibrate_timings: true,
+              notification_priority: "PRIORITY_HIGH",
+              visibility: "PUBLIC",
+              click_action: "FCM_PLUGIN_ACTIVITY",
+              image: icon,
+              ticker: fullTitle,
+            },
+          }),
+    },
+  };
+  if (!isCall) {
+    messagePayload.notification = {
+      title: fullTitle,
+      body: fullBody,
+      image: icon,
+    };
+  }
+
   const res = await fetch(url, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${accessToken}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      message: {
-        token,
-        notification: {
-          title: fullTitle,
-          body: fullBody,
-          image: icon,
-        },
-        data: {
-          title: fullTitle,
-          body: fullBody,
-          message: fullBody,
-          link: link || "/",
-          url: absoluteLink,
-          icon: String(icon),
-          badge: String(icon),
-          tag: extra?.type === "incoming_call" ? "d4exam-incoming-call" : "d4exam-notification",
-          actionLabel: action,
-          action_label: action,
-          actionLink: link || "/",
-          click_action: absoluteLink,
-          type: String(extra?.type || ""),
-          callId: String(extra?.callId || ""),
-          callType: String(extra?.callType || ""),
-          callerName: String(extra?.callerName || fullTitle),
-          callerMatric: String(extra?.callerMatric || ""),
-        },
-        android: {
-          priority: "HIGH",
-          notification: {
-            channel_id: extra?.type === "incoming_call" ? "d4exam_incoming_call_wake" : "d4exam_default",
-            sound: "default",
-            default_sound: true,
-            default_vibrate_timings: true,
-            notification_priority: "PRIORITY_MAX",
-            visibility: "PUBLIC",
-            click_action: "FCM_PLUGIN_ACTIVITY",
-            image: icon,
-            // Encourage big-text style when shade is expanded
-            ticker: fullTitle,
-          },
-        },
-      },
-    }),
+    body: JSON.stringify({ message: messagePayload }),
   });
   if (!res.ok) {
     const text = await res.text();
@@ -220,6 +235,9 @@ async function sendFcmLegacy(
         callType: String(extra?.callType || ""),
         callerName: String(extra?.callerName || fullTitle),
         callerMatric: String(extra?.callerMatric || ""),
+      fromUserId: String(extra?.fromUserId || extra?.callerId || ""),
+      callerId: String(extra?.callerId || extra?.fromUserId || ""),
+      conversationId: String(extra?.conversationId || ""),
       },
       priority: "high",
       content_available: true,

@@ -20,6 +20,52 @@ export function GlobalCallHost() {
 
   useEffect(() => subscribeCallSession(setSess), []);
 
+  // Native full-screen / notification intent (FCM wake → MainActivity → WebView)
+  useEffect(() => {
+    if (!myUserId) return;
+    const onNative = (ev: Event) => {
+      const detail = (ev as CustomEvent).detail as {
+        action?: string;
+        callId?: string;
+        callType?: string;
+      } | undefined;
+      if (!detail?.callId) return;
+      void import("@/lib/call-session").then(async ({ notifyIncomingCall, acceptIncomingCall, getCallSession }) => {
+        const cur = getCallSession();
+        if (!cur || ["ended", "no_answer", "missed", "failed", "declined", "idle"].includes(cur.phase)) {
+          await notifyIncomingCall({
+            callId: detail.callId!,
+            callType: detail.callType === "video" ? "video" : "voice",
+            peerId: "unknown",
+            peerName: "Incoming call",
+            peerAvatar: null,
+            peerMatric: null,
+            conversationId: null,
+            myUserId,
+          });
+        }
+        if (detail.action === "answer") {
+          const s = getCallSession();
+          if (s && (s.phase === "ringing" || s.phase === "minimized")) {
+            await acceptIncomingCall({
+              callId: s.callId,
+              callType: s.callType,
+              peerId: s.peerId,
+              peerName: s.peerName,
+              peerAvatar: s.peerAvatar,
+              peerMatric: s.peerMatric,
+              conversationId: s.conversationId,
+              myUserId: s.myUserId,
+            });
+          }
+        }
+      });
+    };
+    window.addEventListener("d4-native-call", onNative);
+    return () => window.removeEventListener("d4-native-call", onNative);
+  }, [myUserId]);
+
+
   // Mirror global session into ActiveCall so overlay stays mounted
   useEffect(() => {
     if (!sess) {

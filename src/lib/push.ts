@@ -49,7 +49,7 @@ let webOnMessageBound = false;
 
 /** Real FCM registration (needs google-services.json in APK build). */
 /** false until APK is built with google-services.json — register() crashes the process without it. */
-const ENABLE_NATIVE_FCM_REGISTER = false; // enable only when APK is built with google-services.json
+const ENABLE_NATIVE_FCM_REGISTER = true; // real FCM token registration for background call wake
 
 export type PushPermissionState = "granted" | "denied" | "default" | "unsupported";
 
@@ -272,6 +272,46 @@ async function bindNativePushListeners(userId: string, role?: string | null): Pr
     await PushNotifications.addListener("pushNotificationReceived", (notification) => {
       try {
         const data = notification.data as Record<string, string> | undefined;
+        // High-priority incoming call wake — hand off to call session (UI + ring)
+        if (data?.type === "incoming_call" && data.callId) {
+          void import("@/lib/call-session").then(async ({ notifyIncomingCall, getCallSession }) => {
+            const cur = getCallSession();
+            if (cur && !["ended", "no_answer", "missed", "failed", "declined", "idle"].includes(cur.phase)) {
+              return;
+            }
+            const { useSessionUser } = await import("@/lib/session");
+            // Resolve peer profile best-effort
+            let peerName = data.callerName || "Incoming call";
+            let peerAvatar: string | null = null;
+            let peerMatric = data.callerMatric || null;
+            try {
+              const { fetchPublicProfile } = await import("@/lib/user-profile");
+              const { supabase } = await import("@/integrations/supabase/client");
+              const { data: auth } = await supabase.auth.getUser();
+              const myId = auth.user?.id || "";
+              // fromUserId not always in FCM payload — use callerName for display
+              const p = await fetchPublicProfile(data.fromUserId || data.callerId || "", myId).catch(() => null);
+              if (p) {
+                peerName = p.fullName || peerName;
+                peerAvatar = p.avatarUrl;
+                peerMatric = p.matricNumber || peerMatric;
+              }
+              await notifyIncomingCall({
+                callId: data.callId!,
+                callType: data.callType === "video" ? "video" : "voice",
+                peerId: data.fromUserId || data.callerId || "unknown",
+                peerName,
+                peerAvatar,
+                peerMatric,
+                conversationId: data.conversationId || null,
+                myUserId: myId,
+              });
+            } catch (e) {
+              console.warn("[push] incoming_call handle", e);
+            }
+          });
+          return;
+        }
         const title = data?.title || notification.title || "D4EXAM";
         const body = data?.message || data?.body || notification.body || "";
         const actionLabel = data?.actionLabel || data?.action_label || undefined;
@@ -299,6 +339,45 @@ async function bindNativePushListeners(userId: string, role?: string | null): Pr
     await PushNotifications.addListener("pushNotificationActionPerformed", (action) => {
       try {
         const data = action.notification?.data as Record<string, string> | undefined;
+        if (data?.type === "incoming_call" && data.callId) {
+          void import("@/lib/call-session").then(async ({ notifyIncomingCall, getCallSession }) => {
+            const cur = getCallSession();
+            if (!cur || ["ended", "no_answer", "missed", "failed", "declined", "idle"].includes(cur.phase)) {
+              const { supabase } = await import("@/integrations/supabase/client");
+              const { data: auth } = await supabase.auth.getUser();
+              const myId = auth.user?.id || "";
+              await notifyIncomingCall({
+                callId: data.callId!,
+                callType: data.callType === "video" ? "video" : "voice",
+                peerId: data.fromUserId || data.callerId || "unknown",
+                peerName: data.callerName || "Incoming call",
+                peerAvatar: null,
+                peerMatric: data.callerMatric || null,
+                conversationId: data.conversationId || null,
+                myUserId: myId,
+              });
+            }
+            // Accept if user tapped Accept action
+            const act = (action.actionId || "").toLowerCase();
+            if (act === "answer" || act === "accept") {
+              const { acceptIncomingCall, getCallSession: gs } = await import("@/lib/call-session");
+              const s = gs();
+              if (s && s.phase === "ringing") {
+                await acceptIncomingCall({
+                  callId: s.callId,
+                  callType: s.callType,
+                  peerId: s.peerId,
+                  peerName: s.peerName,
+                  peerAvatar: s.peerAvatar,
+                  peerMatric: s.peerMatric,
+                  conversationId: s.conversationId,
+                  myUserId: s.myUserId,
+                });
+              }
+            }
+          });
+          return;
+        }
         let link = (data?.link || data?.actionLink || data?.url || "").trim();
         if (!link) link = "/student/notifications";
         if (link.startsWith("http")) {

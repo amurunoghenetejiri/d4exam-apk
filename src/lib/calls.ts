@@ -272,9 +272,18 @@ export async function notifyCalleeOfIncomingCall(opts: {
   callType: "voice" | "video";
   callerName: string;
   callerMatric?: string | null;
+  fromUserId?: string | null;
+  conversationId?: string | null;
 }) {
   try {
     const { dispatchPushToUser } = await import("@/lib/push-send.functions");
+    let fromUserId = opts.fromUserId || "";
+    if (!fromUserId) {
+      try {
+        const { data: auth } = await supabase.auth.getUser();
+        fromUserId = auth.user?.id || "";
+      } catch { /* ignore */ }
+    }
     await dispatchPushToUser({
       data: {
         recipientUserId: opts.calleeId,
@@ -290,6 +299,9 @@ export async function notifyCalleeOfIncomingCall(opts: {
         callType: opts.callType,
         callerName: opts.callerName || "Incoming Call",
         callerMatric: opts.callerMatric || "",
+        fromUserId,
+        callerId: fromUserId,
+        conversationId: opts.conversationId || "",
       },
     });
   } catch {

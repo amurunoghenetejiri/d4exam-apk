@@ -76,8 +76,6 @@ public class ScreenCaptureService extends Service {
     Notification notification = builder.build();
     boolean ok = false;
 
-    // Typed MEDIA_PROJECTION FGS is required on API 29+. Always call startForeground
-    // so the system does not kill the process for FGS timeout.
     try {
       if (Build.VERSION.SDK_INT >= 29) {
         startForeground(
@@ -112,7 +110,6 @@ public class ScreenCaptureService extends Service {
         Log.i(TAG, "startForeground MEDIA_PROJECTION retry ok");
       } catch (Exception e2) {
         Log.e(TAG, "typed FGS retry failed", e2);
-        // Last resort: untyped so process is not killed for missing startForeground.
         try {
           startForeground(NOTIF_ID, notification);
           Log.w(TAG, "untyped startForeground fallback (MediaProjection may fail)");

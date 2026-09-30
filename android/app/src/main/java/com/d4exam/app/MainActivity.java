@@ -3,6 +3,7 @@ package com.d4exam.app;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
+import android.content.Intent;
 import android.os.Bundle;
 import android.view.View;
 import android.view.Window;
@@ -33,6 +34,46 @@ public class MainActivity extends BridgeActivity {
     applyChromeColors();
     installInAppNavigationClient();
     enableBackgroundMedia();
+    deliverCallIntent(getIntent());
+  }
+
+  @Override
+  protected void onNewIntent(Intent intent) {
+    super.onNewIntent(intent);
+    setIntent(intent);
+    deliverCallIntent(intent);
+  }
+
+  /** Forward full-screen / notification call intents into the WebView. */
+  private void deliverCallIntent(Intent intent) {
+    if (intent == null) return;
+    String action = intent.getStringExtra("d4_call_action");
+    if (action == null || action.isEmpty()) return;
+    String callId = intent.getStringExtra("d4_call_id");
+    String callType = intent.getStringExtra("d4_call_type");
+    if (callId == null) callId = "";
+    if (callType == null) callType = "voice";
+    final String js =
+        "window.dispatchEvent(new CustomEvent('d4-native-call',{detail:{"
+            + "action:" + jsonStr(action) + ","
+            + "callId:" + jsonStr(callId) + ","
+            + "callType:" + jsonStr(callType)
+            + "}}));";
+    try {
+      Bridge bridge = getBridge();
+      if (bridge != null && bridge.getWebView() != null) {
+        bridge.getWebView().post(() -> {
+          try {
+            bridge.getWebView().evaluateJavascript(js, null);
+          } catch (Throwable ignored) {}
+        });
+      }
+    } catch (Throwable ignored) {}
+  }
+
+  private static String jsonStr(String s) {
+    if (s == null) return "null";
+    return "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
   }
 
   /** Allow voice notes / call audio without an extra user gesture after first interaction. */

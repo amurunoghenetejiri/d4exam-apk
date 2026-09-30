@@ -85,6 +85,10 @@ public class ExamImmersivePlugin extends Plugin {
     });
   }
 
+  /**
+   * Native motor vibration — pattern is ms alternating delay/on (same as navigator.vibrate).
+   * Always runs on the main thread so OEM vibrator services accept the call.
+   */
   @PluginMethod
   public void vibrate(PluginCall call) {
     final long[] pattern = parsePattern(call);
