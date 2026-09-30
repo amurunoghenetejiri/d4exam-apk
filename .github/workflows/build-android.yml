@@ -217,9 +217,9 @@ jobs:
           bunx cap sync android
           python3 scripts/ensure-capacitor-plugins.py
           if [ -f android/app/build.gradle ]; then
-            sed -i 's/versionCode 53[0-9]*/versionCode 53/' android/app/build.gradle || true
-            sed -i 's/versionName "[^"]*"/versionName "1.5.3-ring-pill"/' android/app/build.gradle || true
-            echo "OK: versionName 1.5.3-ring-pill"
+            sed -i 's/versionCode [0-9]*/versionCode 54/' android/app/build.gradle || true
+            sed -i 's/versionName "[^"]*"/versionName "1.5.4-deploy-fix"/' android/app/build.gradle || true
+            echo "OK: versionName 1.5.4-deploy-fix"
           fi
           python3 scripts/force-local-capacitor-assets.py || true
           if [ -f android/variables.gradle ]; then
@@ -276,6 +276,41 @@ jobs:
           else
             echo "No google-services.json available — FCM may be disabled in this build"
           fi
+
+      - name: Ensure Firebase Messaging dependency for FCM service
+        run: |
+          set -euo pipefail
+          GRADLE="android/app/build.gradle"
+          if ! grep -q "firebase-messaging" "$GRADLE"; then
+            if grep -q "implementation project(':capacitor-cordova-android-plugins')" "$GRADLE"; then
+              sed -i "/implementation project(':capacitor-cordova-android-plugins')/a\    implementation platform('com.google.firebase:firebase-bom:33.7.0')\n    implementation 'com.google.firebase:firebase-messaging'" "$GRADLE"
+            else
+              printf "\ndependencies {\n    implementation platform('com.google.firebase:firebase-bom:33.7.0')\n    implementation 'com.google.firebase:firebase-messaging'\n}\n" >> "$GRADLE"
+            fi
+            echo "Injected firebase-messaging into app build.gradle"
+          else
+            echo "firebase-messaging already present"
+          fi
+          MANIFEST="android/app/src/main/AndroidManifest.xml"
+          if ! grep -q "D4FirebaseMessagingService" "$MANIFEST"; then
+            python3 -c '
+from pathlib import Path
+p = Path("android/app/src/main/AndroidManifest.xml")
+text = p.read_text()
+snippet = """        <service android:name=\".D4FirebaseMessagingService\" android:exported=\"false\"><intent-filter><action android:name=\"com.google.firebase.MESSAGING_EVENT\" /></intent-filter></service>\n"""
+marker = "android:foregroundServiceType=\"microphone|phoneCall\" />"
+if marker in text and "D4FirebaseMessagingService" not in text:
+    text = text.replace(marker, marker + "\n" + snippet, 1)
+    p.write_text(text)
+    print("Manifest: FCM service registered")
+else:
+    print("Manifest skip or already present")
+'
+          else
+            echo "FCM service already in manifest"
+          fi
+          test -f android/app/src/main/java/com/d4exam/app/D4FirebaseMessagingService.java
+          ls -la android/app/src/main/java/com/d4exam/app/D4FirebaseMessagingService.java
 
       - name: Build debug APK
         run: |

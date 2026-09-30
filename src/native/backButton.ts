@@ -69,3 +69,7 @@ export function registerBackButton() {
     });
   }).catch(() => {});
 }
+
+/** Alias used by __root.tsx */
+export const registerAndroidBackButton = registerBackButton;
+

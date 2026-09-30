@@ -653,3 +653,12 @@ function MinimizedTopBar({
     </div>
   );
 }
+
+/** Alias used by messages list (minimized call UI). */
+export function MinimizedCallBubble() {
+  const [session, setSession] = useState<CallSessionState | null>(getCallSession());
+  useEffect(() => subscribeCallSession(setSession), []);
+  if (!session || session.phase !== "minimized") return null;
+  return <MinimizedTopBar session={session} />;
+}
+
