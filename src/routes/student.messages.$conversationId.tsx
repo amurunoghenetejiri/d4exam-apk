@@ -17,6 +17,7 @@ import {
   ArrowLeft,
   Check,
   CheckCheck,
+  Clock,
   Mic,
   Paperclip,
   Send,
@@ -43,8 +44,12 @@ import { cn } from "@/lib/utils";
 import {
   listMessages,
   markConversationRead,
+  markMessagesDelivered,
+  getPeerLastReadAt,
   sendCampusMessage,
+  computeMessageTick,
   type CampusMessage,
+  type MessageTick,
 } from "@/lib/messaging";
 import { uploadMessageMedia } from "@/lib/message-media";
 import {
@@ -313,6 +318,7 @@ export function ConversationChat({
   const [peerOnline, setPeerOnline] = useState(false);
   const [peerTyping, setPeerTyping] = useState(false);
   const [peerRecording, setPeerRecording] = useState(false);
+  const [peerLastReadAt, setPeerLastReadAt] = useState<string | null>(null);
   const [peerLastAt, setPeerLastAt] = useState<number | null>(null);
   const [localTitle, setLocalTitle] = useState<string | null>(null);
   const presenceApi = useRef<ReturnType<typeof joinMessagingPresence> | null>(null);
@@ -433,6 +439,8 @@ export function ConversationChat({
         () => {
           void qc.invalidateQueries({ queryKey: ["campus-messages", conversationId] });
           void qc.invalidateQueries({ queryKey: ["campus-conversations"] });
+          // ACK delivery for messages we received
+          void markMessagesDelivered(conversationId);
         },
       );
       ch.subscribe();
@@ -449,6 +457,46 @@ export function ConversationChat({
       }
     };
   }, [conversationId, qc]);
+
+  // Delivery ACK + peer read receipts
+  useEffect(() => {
+    if (!conversationId || !userId) return;
+    void markMessagesDelivered(conversationId);
+    void getPeerLastReadAt(conversationId, userId).then(setPeerLastReadAt).catch(() => {});
+    // Subscribe to peer last_read_at changes
+    const topic = `campus-members-${conversationId}`;
+    let ch: ReturnType<typeof supabase.channel> | null = null;
+    try {
+      ch = supabase.channel(topic);
+      ch.on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "conversation_members",
+          filter: `conversation_id=eq.${conversationId}`,
+        },
+        (payload) => {
+          const row = payload.new as { user_id?: string; last_read_at?: string | null };
+          if (row?.user_id && row.user_id !== userId && row.last_read_at) {
+            setPeerLastReadAt((prev) => {
+              if (!prev) return row.last_read_at || null;
+              return new Date(row.last_read_at!).getTime() > new Date(prev).getTime()
+                ? row.last_read_at!
+                : prev;
+            });
+          }
+        },
+      );
+      ch.subscribe();
+    } catch { /* ignore */ }
+    return () => {
+      if (ch) {
+        try { void supabase.removeChannel(ch); } catch { /* ignore */ }
+      }
+    };
+  }, [conversationId, userId]);
+
 
   // Flush campus outbox when back online
   useEffect(() => {
@@ -1188,10 +1236,12 @@ export function ConversationChat({
             const isVideo = !isCall && att.includes("video") && !att.includes("call");
             const isFile =
               Boolean(m.attachment_url) && !isVoice && !isImage && !isVideo && !isCall;
-            const pending =
-              m.id.startsWith("opt-") || Boolean(m.client_id?.startsWith("opt-"));
             const timeLabel = formatTime(m.created_at);
-            const tick = pending ? "pending" : "delivered";
+            const tick: MessageTick = computeMessageTick(m, {
+              mine,
+              peerLastReadAt,
+            });
+            const pending = tick === "pending";
 
             return (
               <div
@@ -1368,7 +1418,7 @@ export function ConversationChat({
                       src={m.attachment_url}
                       mine={mine}
                       timeLabel={timeLabel}
-                      tick={tick === "pending" ? "pending" : mine ? "delivered" : "none"}
+                      tick={mine ? tick : "none"}
                       durationSec={m.duration_sec}
                     />
                   </div>
@@ -1379,7 +1429,7 @@ export function ConversationChat({
                     count={Math.max(urls.length, 1)}
                     mine={mine}
                     timeLabel={timeLabel}
-                    tick={tick === "pending" ? "pending" : mine ? "delivered" : "none"}
+                    tick={mine ? tick : "none"}
                     onOpen={() => {
                       setLightboxUrls(urls.length ? urls : [urls[0] || m.attachment_url!]);
                       setLightboxIndex(0);
@@ -1390,7 +1440,7 @@ export function ConversationChat({
                     src={m.attachment_url}
                     mine={mine}
                     timeLabel={timeLabel}
-                    tick={tick === "pending" ? "pending" : mine ? "delivered" : "none"}
+                    tick={mine ? tick : "none"}
                     onOpen={() => setVideoSrc(m.attachment_url!)}
                     durationSec={m.duration_sec}
                     forwarded={Boolean(m.forwarded_from_id)}
@@ -1400,7 +1450,7 @@ export function ConversationChat({
                     src={m.attachment_url}
                     mine={mine}
                     timeLabel={timeLabel}
-                    tick={tick === "pending" ? "pending" : mine ? "delivered" : "none"}
+                    tick={mine ? tick : "none"}
                   />
                 ) : (
                   <div
@@ -1450,11 +1500,15 @@ export function ConversationChat({
                     >
                       <span className="shrink-0">{timeLabel}</span>
                       {mine ? (
-                        pending ? (
+                        tick === "pending" ? (
+                          <Clock className="h-3 w-3 shrink-0 opacity-70" />
+                        ) : tick === "sent" ? (
                           <Check className="h-3 w-3 shrink-0 opacity-70" />
-                        ) : (
-                          <CheckCheck className="h-3 w-3 shrink-0" />
-                        )
+                        ) : tick === "delivered" ? (
+                          <CheckCheck className="h-3 w-3 shrink-0 opacity-70" />
+                        ) : tick === "read" ? (
+                          <CheckCheck className="h-3 w-3 shrink-0 text-[#53bdeb]" />
+                        ) : null
                       ) : null}
                     </div>
                   </div>
@@ -1464,7 +1518,49 @@ export function ConversationChat({
               </div>
             );
           })}
+          {(peerTyping || peerRecording) && !meta?.isGroup ? (
+            <div className="flex w-full justify-start">
+              <div className="flex items-center gap-2 rounded-2xl rounded-bl-md bg-white px-3 py-2 shadow-sm border border-slate-100">
+                {peerRecording ? (
+                  <>
+                    <span className="relative flex h-2.5 w-2.5">
+                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-rose-400 opacity-75" />
+                      <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-rose-500" />
+                    </span>
+                    <span className="text-[12px] font-medium text-slate-500">Recording voice note…</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="flex items-end gap-0.5 h-3.5" aria-label="Typing">
+                      <span className="d4-typing-dot h-1.5 w-1.5 rounded-full bg-slate-400" style={{ animationDelay: "0ms" }} />
+                      <span className="d4-typing-dot h-1.5 w-1.5 rounded-full bg-slate-400" style={{ animationDelay: "150ms" }} />
+                      <span className="d4-typing-dot h-1.5 w-1.5 rounded-full bg-slate-400" style={{ animationDelay: "300ms" }} />
+                    </span>
+                    <span className="text-[12px] font-medium text-slate-500">typing…</span>
+                  </>
+                )}
+              </div>
+            </div>
+          ) : peerTyping && meta?.isGroup ? (
+            <div className="flex w-full justify-start">
+              <div className="flex items-center gap-2 rounded-2xl rounded-bl-md bg-white px-3 py-2 shadow-sm border border-slate-100">
+                <span className="flex items-end gap-0.5 h-3.5" aria-label="Typing">
+                  <span className="d4-typing-dot h-1.5 w-1.5 rounded-full bg-slate-400" style={{ animationDelay: "0ms" }} />
+                  <span className="d4-typing-dot h-1.5 w-1.5 rounded-full bg-slate-400" style={{ animationDelay: "150ms" }} />
+                  <span className="d4-typing-dot h-1.5 w-1.5 rounded-full bg-slate-400" style={{ animationDelay: "300ms" }} />
+                </span>
+                <span className="text-[12px] font-medium text-slate-500">Someone is typing…</span>
+              </div>
+            </div>
+          ) : null}
           <div ref={endRef} />
+          <style>{`
+            @keyframes d4TypingBounce {
+              0%, 60%, 100% { transform: translateY(0); opacity: 0.45; }
+              30% { transform: translateY(-3px); opacity: 1; }
+            }
+            .d4-typing-dot { animation: d4TypingBounce 1.2s ease-in-out infinite; display: inline-block; }
+          `}</style>
         </div>
 
         {showScroll ? (

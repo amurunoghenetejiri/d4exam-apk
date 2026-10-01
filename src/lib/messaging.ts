@@ -68,7 +68,33 @@ export type CampusMessage = {
   created_at: string;
   edited_at: string | null;
   deleted_at: string | null;
+  /** Set when at least one recipient device has received the message */
+  delivered_at?: string | null;
 };
+
+export type MessageTick = "none" | "pending" | "sent" | "delivered" | "read";
+
+/** WhatsApp-style status for the SENDER only. */
+export function computeMessageTick(
+  m: CampusMessage,
+  opts: { mine: boolean; peerLastReadAt?: string | null },
+): MessageTick {
+  if (!opts.mine) return "none";
+  // Only optimistic local messages (not yet on server) show clock
+  if (String(m.id || "").startsWith("opt-")) return "pending";
+  // Read: peer opened conversation after this message
+  if (opts.peerLastReadAt) {
+    const msgT = new Date(m.created_at).getTime();
+    const readT = new Date(opts.peerLastReadAt).getTime();
+    if (Number.isFinite(msgT) && Number.isFinite(readT) && readT >= msgT) {
+      return "read";
+    }
+  }
+  // Delivered to recipient device
+  if (m.delivered_at) return "delivered";
+  // On server, not yet delivered
+  return "sent";
+}
 
 export type StudentDiscover = {
   id: string;
@@ -615,6 +641,41 @@ export async function markConversationRead(
     .update({ last_read_at: new Date().toISOString() })
     .eq("conversation_id", conversationId)
     .eq("user_id", userId);
+}
+
+/** Recipient marks undelivered messages as delivered (best-effort RPC). */
+export async function markMessagesDelivered(conversationId: string) {
+  try {
+    await supabase.rpc("mark_messages_delivered", {
+      p_conversation_id: conversationId,
+    } as never);
+  } catch {
+    /* ignore if RPC not deployed */
+  }
+}
+
+/** Peer last_read_at for direct chats (for read receipts). */
+export async function getPeerLastReadAt(
+  conversationId: string,
+  myUserId: string,
+): Promise<string | null> {
+  const { data } = await supabase
+    .from("conversation_members")
+    .select("user_id, last_read_at")
+    .eq("conversation_id", conversationId)
+    .is("left_at", null);
+  const peers = (data || []).filter(
+    (r) => String((r as { user_id?: string }).user_id) !== myUserId,
+  );
+  if (!peers.length) return null;
+  // For groups use the max last_read among peers (any peer read = partial; use max for progressive)
+  let max: string | null = null;
+  for (const p of peers) {
+    const lr = (p as { last_read_at?: string | null }).last_read_at;
+    if (!lr) continue;
+    if (!max || new Date(lr).getTime() > new Date(max).getTime()) max = lr;
+  }
+  return max;
 }
 
 /** Load messages for a conversation. */
