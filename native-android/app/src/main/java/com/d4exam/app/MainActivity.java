@@ -44,9 +44,25 @@ public class MainActivity extends BridgeActivity {
     deliverCallIntent(intent);
   }
 
-  /** Forward full-screen / notification call intents into the WebView. */
+  /** Forward full-screen / notification call & message intents into the WebView. */
   private void deliverCallIntent(Intent intent) {
     if (intent == null) return;
+
+    // Deep-link from message / missed-call notification
+    String openPath = intent.getStringExtra("d4_open_path");
+    if (openPath != null && !openPath.isEmpty()) {
+      boolean markRead = intent.getBooleanExtra("d4_mark_read", false);
+      String conversationId = intent.getStringExtra("d4_conversation_id");
+      if (conversationId == null) conversationId = "";
+      final String navJs =
+          "window.dispatchEvent(new CustomEvent('d4-native-nav',{detail:{"
+              + "path:" + jsonStr(openPath) + ","
+              + "conversationId:" + jsonStr(conversationId) + ","
+              + "markRead:" + (markRead ? "true" : "false")
+              + "}}));";
+      evalJs(navJs);
+    }
+
     String action = intent.getStringExtra("d4_call_action");
     if (action == null || action.isEmpty()) return;
     String callId = intent.getStringExtra("d4_call_id");
@@ -59,6 +75,10 @@ public class MainActivity extends BridgeActivity {
             + "callId:" + jsonStr(callId) + ","
             + "callType:" + jsonStr(callType)
             + "}}));";
+    evalJs(js);
+  }
+
+  private void evalJs(final String js) {
     try {
       Bridge bridge = getBridge();
       if (bridge != null && bridge.getWebView() != null) {

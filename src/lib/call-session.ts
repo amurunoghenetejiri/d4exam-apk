@@ -317,21 +317,33 @@ export async function startOutgoingCall(opts: {
 
     // Pulse invite on personal channel until answered.
     // Offer is created only after callee sends "ready".
-    const pulseInvite = () => {
+    const pulseInvite = async () => {
       if (!state || state.phase !== "calling") return;
+      // Resolve *caller* display name (not peer — peer is the callee)
+      let myName = "D4EXAM";
+      let myMatric = "";
+      try {
+        const { fetchPublicProfile } = await import("@/lib/user-profile");
+        const me = await fetchPublicProfile(opts.myUserId, opts.myUserId);
+        if (me?.fullName) myName = me.fullName;
+        if (me?.matricNumber) myMatric = me.matricNumber;
+      } catch {
+        /* ignore */
+      }
       void inviteCalleeOnPersonalChannel({
         calleeId: opts.peerId,
         callId: opts.callId,
         callType: opts.callType,
         conversationId: opts.conversationId,
-        callerName: opts.peerName || "D4EXAM",
+        callerName: myName,
         fromUserId: opts.myUserId,
       });
       void notifyCalleeOfIncomingCall({
         calleeId: opts.peerId,
         callId: opts.callId,
         callType: opts.callType,
-        callerName: opts.peerName || "D4EXAM",
+        callerName: myName,
+        callerMatric: myMatric,
         fromUserId: opts.myUserId,
         conversationId: opts.conversationId,
       });

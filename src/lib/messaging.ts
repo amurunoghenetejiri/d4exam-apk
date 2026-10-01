@@ -452,6 +452,81 @@ export async function createGroup(opts: {
   return cid;
 }
 
+
+/** Best-effort FCM to other members when a message is sent (works when their app is killed). */
+async function notifyMessageRecipients(opts: {
+  conversationId: string;
+  senderId: string;
+  preview: string;
+  attachmentType?: string | null;
+  messageId?: string;
+}) {
+  try {
+    const { data: members } = await supabase
+      .from("conversation_members")
+      .select("user_id")
+      .eq("conversation_id", opts.conversationId)
+      .is("left_at", null);
+    const recipients = (members || [])
+      .map((m) => String((m as { user_id?: string }).user_id || ""))
+      .filter((id) => id && id !== opts.senderId);
+    if (!recipients.length) return;
+
+    // Resolve sender display name for notification title
+    let senderName = "D4EXAM";
+    let senderMatric = "";
+    try {
+      const { data: prof } = await supabase
+        .from("profiles")
+        .select("full_name, first_name, last_name")
+        .eq("auth_user_id", opts.senderId)
+        .maybeSingle();
+      if (prof) {
+        const p = prof as { full_name?: string; first_name?: string; last_name?: string };
+        senderName =
+          (p.full_name || "").trim() ||
+          [p.first_name, p.last_name].filter(Boolean).join(" ").trim() ||
+          senderName;
+      }
+      const { data: st } = await supabase
+        .from("students")
+        .select("matric_number")
+        .eq("auth_user_id", opts.senderId)
+        .maybeSingle();
+      if (st && (st as { matric_number?: string }).matric_number) {
+        senderMatric = String((st as { matric_number?: string }).matric_number);
+      }
+    } catch {
+      /* ignore */
+    }
+
+    const title = senderMatric ? `${senderName} · ${senderMatric}` : senderName;
+    const link = `/student/messages?chat=${encodeURIComponent(opts.conversationId)}`;
+    const { dispatchPushToUser } = await import("@/lib/push-send.functions");
+    await Promise.all(
+      recipients.map((recipientUserId) =>
+        dispatchPushToUser({
+          data: {
+            recipientUserId,
+            title,
+            message: opts.preview || "New message",
+            link,
+            type: "chat_message",
+            conversationId: opts.conversationId,
+            callerName: senderName,
+            callerMatric: senderMatric,
+            fromUserId: opts.senderId,
+            callerId: opts.senderId,
+            actionLabel: "Reply",
+          },
+        }).catch(() => null),
+      ),
+    );
+  } catch {
+    /* best-effort — Realtime still delivers when app is open */
+  }
+}
+
 /** Send a campus message (idempotent via client_id). */
 export async function sendCampusMessage(opts: {
   conversationId: string;
@@ -479,11 +554,20 @@ export async function sendCampusMessage(opts: {
   // Prefer plain insert (works with partial unique index on client_id)
   const ins = await supabase.from("campus_messages").insert(row).select("*").single();
   if (!ins.error && ins.data) {
+    const preview = previewFromMessage(row);
     await touchConversation(
       opts.conversationId,
       opts.senderId,
-      previewFromMessage(row),
+      preview,
     );
+    // Background FCM so recipients see notifications when app is closed/minimized
+    void notifyMessageRecipients({
+      conversationId: opts.conversationId,
+      senderId: opts.senderId,
+      preview,
+      attachmentType: opts.attachmentType || null,
+      messageId: (ins.data as CampusMessage).id,
+    });
     return ins.data as CampusMessage;
   }
 

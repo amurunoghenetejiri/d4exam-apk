@@ -14,20 +14,28 @@ import android.os.PowerManager;
 import android.util.Log;
 import androidx.annotation.NonNull;
 import androidx.core.app.NotificationCompat;
+import androidx.core.app.Person;
+import androidx.core.app.RemoteInput;
 import com.google.firebase.messaging.FirebaseMessagingService;
 import com.google.firebase.messaging.RemoteMessage;
 import java.util.Map;
 
+/**
+ * Native FCM entry — wakes device for incoming calls and shows rich message notifications
+ * even when the WebView / React UI is not running.
+ */
 public class D4FirebaseMessagingService extends FirebaseMessagingService {
   private static final String TAG = "D4FCMService";
   public static final String CALL_CHANNEL_ID = "d4_incoming_calls_v2";
   public static final String MSG_CHANNEL_ID = "d4_messages_channel";
   public static final int CALL_NOTIF_ID = 9001;
+  public static final String KEY_TEXT_REPLY = "d4_reply_text";
 
   @Override
   public void onNewToken(@NonNull String token) {
     super.onNewToken(token);
     Log.d(TAG, "New FCM Token: " + token);
+    // Token is also registered from JS (push.ts). Log only here.
   }
 
   @Override
@@ -41,6 +49,8 @@ public class D4FirebaseMessagingService extends FirebaseMessagingService {
       handleIncomingCall(data);
     } else if ("missed_call".equalsIgnoreCase(type)) {
       handleMissedCall(data);
+    } else if ("chat_message".equalsIgnoreCase(type) || "message".equalsIgnoreCase(type)) {
+      handleChatMessage(data);
     } else {
       handleNormalNotification(remoteMessage);
     }
@@ -111,6 +121,11 @@ public class D4FirebaseMessagingService extends FirebaseMessagingService {
     String body = "Incoming " + ("video".equals(callType) ? "video" : "voice") + " call";
     if (callerMatric != null && !callerMatric.isEmpty()) body = body + " · " + callerMatric;
 
+    Person caller = new Person.Builder()
+        .setName(callerName)
+        .setImportant(true)
+        .build();
+
     NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CALL_CHANNEL_ID)
         .setSmallIcon(appIcon())
         .setContentTitle(callerName)
@@ -118,12 +133,21 @@ public class D4FirebaseMessagingService extends FirebaseMessagingService {
         .setPriority(NotificationCompat.PRIORITY_MAX)
         .setCategory(NotificationCompat.CATEGORY_CALL)
         .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-        .setAutoCancel(true)
+        .setAutoCancel(false)
         .setOngoing(true)
         .setContentIntent(fullScreenPending)
         .setFullScreenIntent(fullScreenPending, true)
+        .setTimeoutAfter(45000)
         .addAction(0, "Decline", declinePending)
         .addAction(0, "Accept", acceptPending);
+
+    // CallStyle when available (Android 12+ / androidx)
+    try {
+      builder.setStyle(
+          NotificationCompat.CallStyle.forIncomingCall(caller, declinePending, acceptPending));
+    } catch (Throwable t) {
+      Log.d(TAG, "CallStyle not applied: " + t.getMessage());
+    }
 
     try {
       nm.notify(CALL_NOTIF_ID, builder.build());
@@ -139,22 +163,20 @@ public class D4FirebaseMessagingService extends FirebaseMessagingService {
 
     NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
     if (nm == null) return;
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-      NotificationChannel ch = new NotificationChannel(
-          MSG_CHANNEL_ID, "D4EXAM Messages", NotificationManager.IMPORTANCE_HIGH);
-      ch.enableVibration(true);
-      nm.createNotificationChannel(ch);
-    }
+    ensureMsgChannel(nm);
 
     String callerName = data.get("callerName");
     String callerMatric = data.get("callerMatric");
+    String conversationId = data.get("conversationId");
     if (callerName == null || callerName.isEmpty()) callerName = "Someone";
     String body = "Missed call from " + callerName;
     if (callerMatric != null && !callerMatric.isEmpty()) body = body + " · " + callerMatric;
 
     Intent intent = new Intent(this, MainActivity.class);
     intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-    intent.putExtra("d4_call_action", "missed");
+    intent.putExtra("d4_open_path", conversationId != null && !conversationId.isEmpty()
+        ? "/student/messages?chat=" + conversationId
+        : "/student/messages");
     PendingIntent pi = PendingIntent.getActivity(
         this, 200, intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
@@ -164,7 +186,8 @@ public class D4FirebaseMessagingService extends FirebaseMessagingService {
         .setContentText(body)
         .setAutoCancel(true)
         .setContentIntent(pi)
-        .setPriority(NotificationCompat.PRIORITY_HIGH);
+        .setPriority(NotificationCompat.PRIORITY_HIGH)
+        .setCategory(NotificationCompat.CATEGORY_MISSED_CALL);
 
     try {
       nm.cancel(CALL_NOTIF_ID);
@@ -172,30 +195,138 @@ public class D4FirebaseMessagingService extends FirebaseMessagingService {
     } catch (SecurityException ignored) {}
   }
 
+  private void handleChatMessage(Map<String, String> data) {
+    NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+    if (nm == null) return;
+    ensureMsgChannel(nm);
+
+    String title = data.get("title");
+    String body = data.get("message");
+    if (body == null || body.isEmpty()) body = data.get("body");
+    String conversationId = data.get("conversationId");
+    String link = data.get("link");
+    if (title == null || title.isEmpty()) title = "D4EXAM";
+    if (body == null || body.isEmpty()) body = "New message";
+
+    String openPath = link;
+    if (openPath == null || openPath.isEmpty()) {
+      openPath = (conversationId != null && !conversationId.isEmpty())
+          ? "/student/messages?chat=" + conversationId
+          : "/student/messages";
+    }
+    // Normalize absolute URLs to path for in-app navigation
+    if (openPath.startsWith("http")) {
+      try {
+        Uri u = Uri.parse(openPath);
+        openPath = u.getPath();
+        if (u.getQuery() != null) openPath = openPath + "?" + u.getQuery();
+      } catch (Throwable ignored) {}
+    }
+
+    Intent openIntent = new Intent(this, MainActivity.class);
+    openIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+    openIntent.putExtra("d4_open_path", openPath);
+    openIntent.putExtra("d4_conversation_id", conversationId);
+    PendingIntent openPending = PendingIntent.getActivity(
+        this,
+        Math.abs((conversationId != null ? conversationId : "msg").hashCode()) & 0xffff,
+        openIntent,
+        PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+
+    // Mark as read action
+    Intent markIntent = new Intent(this, MainActivity.class);
+    markIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+    markIntent.putExtra("d4_open_path", openPath);
+    markIntent.putExtra("d4_conversation_id", conversationId);
+    markIntent.putExtra("d4_mark_read", true);
+    PendingIntent markPending = PendingIntent.getActivity(
+        this,
+        (Math.abs((conversationId != null ? conversationId : "msg").hashCode()) + 1) & 0xffff,
+        markIntent,
+        PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+
+    // Reply (inline)
+    RemoteInput remoteInput = new RemoteInput.Builder(KEY_TEXT_REPLY)
+        .setLabel("Reply")
+        .build();
+    Intent replyIntent = new Intent(this, MainActivity.class);
+    replyIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+    replyIntent.putExtra("d4_open_path", openPath);
+    replyIntent.putExtra("d4_conversation_id", conversationId);
+    replyIntent.putExtra("d4_reply_action", true);
+    PendingIntent replyPending = PendingIntent.getActivity(
+        this,
+        (Math.abs((conversationId != null ? conversationId : "msg").hashCode()) + 2) & 0xffff,
+        replyIntent,
+        PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_MUTABLE);
+
+    NotificationCompat.Action replyAction = new NotificationCompat.Action.Builder(
+        0, "Reply", replyPending)
+        .addRemoteInput(remoteInput)
+        .setAllowGeneratedReplies(true)
+        .build();
+
+    String groupKey = "d4_chat_" + (conversationId != null && !conversationId.isEmpty()
+        ? conversationId
+        : "general");
+
+    NotificationCompat.Builder b = new NotificationCompat.Builder(this, MSG_CHANNEL_ID)
+        .setSmallIcon(appIcon())
+        .setContentTitle(title)
+        .setContentText(body)
+        .setStyle(new NotificationCompat.BigTextStyle().bigText(body))
+        .setAutoCancel(true)
+        .setContentIntent(openPending)
+        .setPriority(NotificationCompat.PRIORITY_HIGH)
+        .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+        .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+        .setGroup(groupKey)
+        .addAction(replyAction)
+        .addAction(0, "Mark as read", markPending);
+
+    int notifId = Math.abs(groupKey.hashCode());
+    try {
+      nm.notify(notifId, b.build());
+      // Summary for grouped notifications
+      NotificationCompat.Builder summary = new NotificationCompat.Builder(this, MSG_CHANNEL_ID)
+          .setSmallIcon(appIcon())
+          .setContentTitle("D4EXAM")
+          .setContentText("New messages")
+          .setStyle(new NotificationCompat.InboxStyle())
+          .setGroup(groupKey)
+          .setGroupSummary(true)
+          .setAutoCancel(true)
+          .setContentIntent(openPending);
+      nm.notify(notifId + 1, summary.build());
+    } catch (SecurityException ignored) {}
+  }
+
   private void handleNormalNotification(RemoteMessage remoteMessage) {
     NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
     if (nm == null) return;
-
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-      NotificationChannel ch = new NotificationChannel(
-          MSG_CHANNEL_ID, "D4EXAM Messages", NotificationManager.IMPORTANCE_HIGH);
-      ch.enableVibration(true);
-      nm.createNotificationChannel(ch);
-    }
+    ensureMsgChannel(nm);
 
     String title = "D4EXAM";
     String body = "New notification";
+    String link = null;
     if (remoteMessage.getNotification() != null) {
       if (remoteMessage.getNotification().getTitle() != null) title = remoteMessage.getNotification().getTitle();
       if (remoteMessage.getNotification().getBody() != null) body = remoteMessage.getNotification().getBody();
-    } else if (remoteMessage.getData() != null) {
-      if (remoteMessage.getData().get("title") != null) title = remoteMessage.getData().get("title");
-      if (remoteMessage.getData().get("message") != null) body = remoteMessage.getData().get("message");
-      else if (remoteMessage.getData().get("body") != null) body = remoteMessage.getData().get("body");
+    }
+    Map<String, String> data = remoteMessage.getData();
+    if (data != null) {
+      if (data.get("title") != null) title = data.get("title");
+      if (data.get("message") != null) body = data.get("message");
+      else if (data.get("body") != null) body = data.get("body");
+      link = data.get("link");
+      if (link == null) link = data.get("url");
     }
 
     Intent intent = new Intent(this, MainActivity.class);
     intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+    if (link != null && !link.isEmpty()) {
+      intent.putExtra("d4_open_path", link);
+    }
     PendingIntent pi = PendingIntent.getActivity(
         this, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
@@ -203,6 +334,7 @@ public class D4FirebaseMessagingService extends FirebaseMessagingService {
         .setSmallIcon(appIcon())
         .setContentTitle(title)
         .setContentText(body)
+        .setStyle(new NotificationCompat.BigTextStyle().bigText(body))
         .setAutoCancel(true)
         .setContentIntent(pi)
         .setPriority(NotificationCompat.PRIORITY_HIGH);
@@ -210,6 +342,16 @@ public class D4FirebaseMessagingService extends FirebaseMessagingService {
     try {
       nm.notify((int) (System.currentTimeMillis() % Integer.MAX_VALUE), b.build());
     } catch (SecurityException ignored) {}
+  }
+
+  private void ensureMsgChannel(NotificationManager nm) {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+      NotificationChannel ch = new NotificationChannel(
+          MSG_CHANNEL_ID, "D4EXAM Messages", NotificationManager.IMPORTANCE_HIGH);
+      ch.enableVibration(true);
+      ch.setDescription("Chat and system notifications");
+      nm.createNotificationChannel(ch);
+    }
   }
 
   private void createCallChannel(NotificationManager nm) {

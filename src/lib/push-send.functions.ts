@@ -128,8 +128,10 @@ async function sendFcmV1(
   const action = (actionLabel || "").trim();
 
   const isCall = extra?.type === "incoming_call";
-  // Data-only for incoming_call so D4FirebaseMessagingService.onMessageReceived always runs
-  // even when the app is backgrounded / killed (notification+data is tray-only when backgrounded).
+  const isChat = extra?.type === "chat_message" || extra?.type === "message";
+  // Data-only for calls + chat so D4FirebaseMessagingService.onMessageReceived always runs
+  // when the app is backgrounded / killed (notification+data is tray-only when backgrounded).
+  const dataOnly = isCall || isChat;
   const messagePayload: Record<string, unknown> = {
     token,
     data: {
@@ -140,7 +142,11 @@ async function sendFcmV1(
       url: absoluteLink,
       icon: String(icon),
       badge: String(icon),
-      tag: isCall ? "d4exam-incoming-call" : "d4exam-notification",
+      tag: isCall
+        ? "d4exam-incoming-call"
+        : isChat
+          ? `d4exam-chat-${String(extra?.conversationId || "default")}`
+          : "d4exam-notification",
       actionLabel: action,
       action_label: action,
       actionLink: link || "/",
@@ -157,7 +163,7 @@ async function sendFcmV1(
     android: {
       priority: "HIGH",
       ttl: isCall ? "60s" : "86400s",
-      ...(isCall
+      ...(dataOnly
         ? {}
         : {
             notification: {
@@ -284,6 +290,9 @@ export const dispatchPushToUser = createServerFn({ method: "POST" })
       callType: o.callType != null ? String(o.callType) : undefined,
       callerName: o.callerName != null ? String(o.callerName) : undefined,
       callerMatric: o.callerMatric != null ? String(o.callerMatric) : undefined,
+      fromUserId: o.fromUserId != null ? String(o.fromUserId) : undefined,
+      callerId: o.callerId != null ? String(o.callerId) : undefined,
+      conversationId: o.conversationId != null ? String(o.conversationId) : undefined,
     } satisfies PushInput;
   })
   .handler(async ({ data }) => {
