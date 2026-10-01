@@ -760,6 +760,22 @@ export async function fetchSessionUser(): Promise<SessionUser | null> {
     }
     if (primaryRoleFast) clearPendingLoginRole();
     seedSchoolBrandFromSession(schoolId, schoolName, schoolLogoUrl);
+    // Ensure profile photo is loaded (RPC path often omits it)
+    let photoFast =
+      (profile as { profile_photo_url?: string | null } | null)?.profile_photo_url || null;
+    if (!photoFast) {
+      try {
+        const pid = (rpcCtx?.profile_id as string | undefined) || profile?.id || user.id;
+        const { data: ph } = await supabase
+          .from("profiles")
+          .select("profile_photo_url")
+          .or(`auth_user_id.eq.${user.id},id.eq.${pid}`)
+          .not("profile_photo_url", "is", null)
+          .limit(1)
+          .maybeSingle();
+        photoFast = (ph as { profile_photo_url?: string } | null)?.profile_photo_url || null;
+      } catch { /* ignore */ }
+    }
     return {
       userId: user.id,
       profileId: (rpcCtx?.profile_id as string | undefined) || profile?.id || user.id,
@@ -770,7 +786,7 @@ export async function fetchSessionUser(): Promise<SessionUser | null> {
       schoolName,
       schoolCode,
       schoolLogoUrl,
-      avatarUrl: (profile as { profile_photo_url?: string | null } | null)?.profile_photo_url || null,
+      avatarUrl: photoFast,
       roles: primaryRoleFast && !roles.includes(primaryRoleFast) ? [...roles, primaryRoleFast] : roles,
       role: primaryRoleFast,
       identifier: rpcCtx?.officer_id || rpcCtx?.staff_id || rpcCtx?.matric || (profile?.email as string | undefined) || user.email || null,
@@ -964,6 +980,20 @@ export async function fetchSessionUser(): Promise<SessionUser | null> {
   }
 
   seedSchoolBrandFromSession(schoolId, schoolName, schoolLogoUrl);
+  // Final photo resolve
+  let photoFinal =
+    (profile as { profile_photo_url?: string | null } | null)?.profile_photo_url || null;
+  if (!photoFinal) {
+    try {
+      const { data: ph } = await supabase
+        .from("profiles")
+        .select("profile_photo_url")
+        .eq("auth_user_id", user.id)
+        .maybeSingle();
+      photoFinal = (ph as { profile_photo_url?: string } | null)?.profile_photo_url || null;
+    } catch { /* ignore */ }
+  }
+
   return {
     userId: user.id,
     profileId: resolvedProfileId || (rpcCtx?.profile_id as string | undefined) || profile?.id || user.id,
@@ -1037,8 +1067,7 @@ export function useSessionUser() {
           // Last attempt: server repair
           try {
             const { repairMySessionSchool } = await import("@/lib/repair-session-school.functions");
-            const fixed = await withTimeout(repairMySessionSchool(), 4000, "repair");
-            if (fixed?.schoolId) {
+            const avatarUrl: photoFinal,lId) {
               seedLoginSchoolContext(fixed.schoolId, fixed.schoolCode);
               u = {
                 ...u,

@@ -706,30 +706,48 @@ export async function listMessages(
   conversationId: string,
   limit = 80,
 ): Promise<CampusMessage[]> {
-  // Prefer SECURITY DEFINER list (works even when direct SELECT is blocked)
+  const byId = new Map<string, CampusMessage>();
+
+  // 1) SECURITY DEFINER RPC
   try {
     const { data: rpcData, error: rpcErr } = await supabase.rpc("list_campus_messages", {
       p_conversation_id: conversationId,
       p_limit: limit,
     } as never);
-    if (!rpcErr && Array.isArray(rpcData)) {
-      return rpcData as CampusMessage[];
-    }
     if (rpcErr) console.warn("[listMessages] rpc", rpcErr.message);
+    const rows = Array.isArray(rpcData)
+      ? rpcData
+      : rpcData && typeof rpcData === "object"
+        ? [rpcData]
+        : [];
+    for (const r of rows as CampusMessage[]) {
+      if (r?.id) byId.set(String(r.id), r);
+    }
   } catch (e) {
     console.warn("[listMessages] rpc exception", e);
   }
 
-  const { data, error } = await supabase
-    .from("campus_messages")
-    .select("*")
-    .eq("conversation_id", conversationId)
-    .is("deleted_at", null)
-    .order("created_at", { ascending: true })
-    .limit(limit);
+  // 2) Direct table SELECT (merge so we never lose rows)
+  try {
+    const { data, error } = await supabase
+      .from("campus_messages")
+      .select("*")
+      .eq("conversation_id", conversationId)
+      .is("deleted_at", null)
+      .order("created_at", { ascending: true })
+      .limit(limit);
+    if (error) console.warn("[listMessages] select", error.message);
+    for (const r of (data || []) as CampusMessage[]) {
+      if (r?.id) byId.set(String(r.id), r);
+    }
+  } catch (e) {
+    console.warn("[listMessages] select exception", e);
+  }
 
-  if (error) throw new Error(error.message);
-  return (data || []) as CampusMessage[];
+  const all = [...byId.values()].sort(
+    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+  );
+  return all;
 }
 
 /** Discover students in the same school (name / matric / department / level). */

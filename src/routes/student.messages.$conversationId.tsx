@@ -413,7 +413,9 @@ export function ConversationChat({
   const msgQuery = useQuery({
     queryKey: ["campus-messages", conversationId],
     enabled: Boolean(conversationId),
-    staleTime: 5_000,
+    staleTime: 0,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
     queryFn: () => listMessages(conversationId, 120),
   });
 
@@ -890,7 +892,7 @@ export function ConversationChat({
         toast.message("Waiting for connection — queued");
         return;
       }
-      await sendCampusMessage({
+      const sent = await sendCampusMessage({
         conversationId,
         senderId: userId,
         body: t,
@@ -898,6 +900,23 @@ export function ConversationChat({
         replyToId: replyId,
       });
       removeOutbox(clientId);
+      // Drop optimistic row and inject server row so ticks flip immediately
+      setOptimistic((prev) => prev.filter((m) => m.client_id !== clientId));
+      qc.setQueryData<CampusMessage[]>(
+        ["campus-messages", conversationId],
+        (old) => {
+          const list = Array.isArray(old) ? old.slice() : [];
+          const idx = list.findIndex(
+            (m) => m.id === sent.id || m.client_id === clientId,
+          );
+          if (idx >= 0) list[idx] = sent;
+          else list.push(sent);
+          return list.sort(
+            (a, b) =>
+              new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+          );
+        },
+      );
       void qc.invalidateQueries({ queryKey: ["campus-messages", conversationId] });
       void qc.invalidateQueries({ queryKey: ["campus-conversations"] });
     } catch (e) {
