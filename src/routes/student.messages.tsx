@@ -30,6 +30,7 @@ import {
   CornerUpRight,
   Phone,
   Video,
+  Clock,
 } from "lucide-react";
 import { useSessionUser } from "@/lib/session";
 import { useStudentContext } from "@/lib/student";
@@ -45,6 +46,7 @@ import {
   type StudentDiscover,
   type GroupKind,
 } from "@/lib/messaging";
+import { listOutbox, subscribeOutbox } from "@/lib/message-outbox";
 import { toast } from "sonner";
 import { openUserProfile, D4_OPEN_PROFILE_EVENT } from "@/components/profile/ClickableUser";
 import { MessagingProfileSheet } from "@/components/profile/MessagingProfileSheet";
@@ -200,6 +202,8 @@ function MessagesHub() {
   const [deptOpen, setDeptOpen] = useState(false);
   const [fabHidden, setFabHidden] = useState(false);
   const fabTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [outboxTick, setOutboxTick] = useState(0);
+  useEffect(() => subscribeOutbox(() => setOutboxTick((n) => n + 1)), []);
 
   useEffect(() => {
     const hide = () => {
@@ -257,9 +261,40 @@ function MessagesHub() {
   });
 
   const conversations = convQuery.data || [];
-  const groups = conversations.filter((c) => c.isGroup);
+  // Overlay pending outbox previews so unsent messages still appear on the list
+  const conversationsWithPending = useMemo(() => {
+    const pending = listOutbox("student");
+    if (!pending.length) return conversations;
+    const byConv = new Map<string, (typeof pending)[0]>();
+    for (const p of pending) {
+      if (!p.conversationId) continue;
+      const prev = byConv.get(p.conversationId);
+      if (!prev || (p.createdAt || 0) >= (prev.createdAt || 0)) byConv.set(p.conversationId, p);
+    }
+    return conversations.map((c) => {
+      const p = byConv.get(c.id);
+      if (!p) return c;
+      const pendingPreview =
+        p.kind === "campus_audio" || p.mediaType === "audio"
+          ? "🎤 Voice note"
+          : (p.text || "").trim() || c.preview;
+      // Only override if outbox is newer than listed last message
+      const pendingTs = p.createdAt || 0;
+      const listTs = c.time ? new Date(c.time).getTime() : 0;
+      if (pendingTs < listTs - 1000) return c;
+      return {
+        ...c,
+        preview: pendingPreview,
+        time: new Date(pendingTs).toISOString(),
+        // mark for UI clock if ConversationList supports it
+        pendingSend: true,
+      } as typeof c & { pendingSend?: boolean };
+    });
+  }, [conversations, outboxTick]);
+
+  const groups = conversationsWithPending.filter((c) => c.isGroup);
   // Chats tab = every conversation (students, officers, groups)
-  const allChats = conversations;
+  const allChats = conversationsWithPending;
 
   const filteredChats = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -424,10 +459,14 @@ function MessagesHub() {
                 if (userId) appNavigate(`/student/user/${encodeURIComponent(userId)}`);
                 else appNavigate("/student/user/me");
               }}
-              className="grid h-10 w-10 place-items-center rounded-full bg-white/10 text-white transition active:scale-95"
+              className="relative grid h-10 w-10 place-items-center overflow-hidden rounded-full bg-white/10 text-white ring-1 ring-white/20 transition active:scale-95"
               aria-label="My profile"
             >
-              <User className="h-5 w-5" />
+              {session?.avatarUrl ? (
+                <img src={session.avatarUrl} alt="" className="h-full w-full object-cover" />
+              ) : (
+                <User className="h-5 w-5" />
+              )}
             </button>
           </div>
         </div>
@@ -866,6 +905,9 @@ function ConversationList({
                 </span>
               </div>
               <div className="mt-0.5 flex items-center gap-1.5">
+                {(c as { pendingSend?: boolean }).pendingSend ? (
+                  <Clock className="h-3.5 w-3.5 shrink-0 text-slate-400" aria-label="Pending" />
+                ) : null}
                 {(() => {
                   const p = c.preview || "";
                   const isMissedCall = /missed\s*(voice\s*)?call|missed\s*video/i.test(p) || (p.includes("📞") && /missed/i.test(p));

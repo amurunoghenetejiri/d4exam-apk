@@ -253,6 +253,8 @@ export interface SessionUser {
   schoolName: string | null;
   schoolCode: string | null;
   schoolLogoUrl: string | null;
+  /** Public profile photo URL when set */
+  avatarUrl: string | null;
   roles: AppRole[];
   role: AppRole | null;
   identifier: string | null;
@@ -394,12 +396,12 @@ export async function fetchSessionUser(): Promise<SessionUser | null> {
       Promise.all([
         supabase
           .from("profiles")
-          .select("id, full_name, first_name, last_name, email, status, school_id, auth_user_id")
+          .select("id, full_name, first_name, last_name, email, status, school_id, auth_user_id, profile_photo_url")
           .eq("auth_user_id", user.id)
           .maybeSingle(),
         supabase
           .from("profiles")
-          .select("id, full_name, first_name, last_name, email, status, school_id, auth_user_id")
+          .select("id, full_name, first_name, last_name, email, status, school_id, auth_user_id, profile_photo_url")
           .eq("id", user.id)
           .maybeSingle(),
         supabase.from("user_roles").select("role, school_id, user_id").eq("user_id", user.id),
@@ -768,6 +770,7 @@ export async function fetchSessionUser(): Promise<SessionUser | null> {
       schoolName,
       schoolCode,
       schoolLogoUrl,
+      avatarUrl: (profile as { profile_photo_url?: string | null } | null)?.profile_photo_url || null,
       roles: primaryRoleFast && !roles.includes(primaryRoleFast) ? [...roles, primaryRoleFast] : roles,
       role: primaryRoleFast,
       identifier: rpcCtx?.officer_id || rpcCtx?.staff_id || rpcCtx?.matric || (profile?.email as string | undefined) || user.email || null,
@@ -1043,6 +1046,7 @@ export function useSessionUser() {
                 schoolName: fixed.schoolName ?? u.schoolName,
                 schoolCode: fixed.schoolCode ?? u.schoolCode,
                 schoolLogoUrl: fixed.schoolLogoUrl ?? u.schoolLogoUrl,
+    avatarUrl: (profile as { profile_photo_url?: string | null } | null)?.profile_photo_url || null,
                 roles: [...new Set([...(u.roles || []), ...(fixed.roles || [])])] as AppRole[],
               };
             }

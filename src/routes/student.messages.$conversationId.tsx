@@ -498,6 +498,37 @@ export function ConversationChat({
   }, [conversationId, userId]);
 
 
+
+  // Rehydrate pending outbox into optimistic UI (survives leave/re-enter)
+  useEffect(() => {
+    if (!userId || !conversationId) return;
+    const pending = listOutbox("student").filter(
+      (x) => x.conversationId === conversationId && (x.kind === "campus_text" || x.kind === "campus_audio"),
+    );
+    if (!pending.length) return;
+    setOptimistic((prev) => {
+      const have = new Set(prev.map((m) => m.client_id).filter(Boolean));
+      const add = pending
+        .filter((x) => x.clientId && !have.has(x.clientId))
+        .map((x) => ({
+          id: x.clientId,
+          conversation_id: conversationId,
+          sender_id: userId,
+          body: x.kind === "campus_text" ? x.text || null : null,
+          attachment_url: x.blobDataUrl || null,
+          attachment_type: x.kind === "campus_audio" ? "audio" : x.mediaType || null,
+          reply_to_id: (x as { replyToId?: string }).replyToId || null,
+          forwarded_from_id: null,
+          client_id: x.clientId,
+          duration_sec: x.durationSec ?? null,
+          created_at: new Date(x.createdAt || Date.now()).toISOString(),
+          edited_at: null,
+          deleted_at: null,
+        }));
+      return add.length ? [...prev, ...add] : prev;
+    });
+  }, [userId, conversationId]);
+
   // Flush campus outbox when back online
   useEffect(() => {
     if (!userId || !conversationId) return;
@@ -844,16 +875,18 @@ export function ConversationChat({
     setReplyTo(null);
     scrollToEnd();
     sendLock.current = true;
+    // Always persist to outbox until server confirms — survives leave/reopen
+    enqueueOutbox({
+      clientId,
+      kind: "campus_text",
+      text: t,
+      role: "student",
+      userId,
+      conversationId,
+      replyToId: replyId || undefined,
+    });
     try {
       if (!isOnlineNow()) {
-        enqueueOutbox({
-          clientId,
-          kind: "campus_text",
-          text: t,
-          role: "student",
-          userId,
-          conversationId,
-        });
         toast.message("Waiting for connection — queued");
         return;
       }
@@ -864,10 +897,13 @@ export function ConversationChat({
         clientId,
         replyToId: replyId,
       });
+      removeOutbox(clientId);
       void qc.invalidateQueries({ queryKey: ["campus-messages", conversationId] });
       void qc.invalidateQueries({ queryKey: ["campus-conversations"] });
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Send failed");
+      // Keep in outbox + optimistic; will retry on reconnect
+      markOutboxFailed(clientId, e instanceof Error ? e.message : "Send failed");
+      toast.error(e instanceof Error ? e.message : "Send failed — will retry");
     } finally {
       sendLock.current = false;
     }

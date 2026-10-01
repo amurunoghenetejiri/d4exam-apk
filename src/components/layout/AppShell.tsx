@@ -45,6 +45,7 @@ import { GlobalSearchPage } from "@/components/search/GlobalSearchPage";
 export interface AppUser {
   name: string;
   avatar: string;
+  avatarUrl?: string | null;
   subtitle: string;
 }
 
@@ -593,8 +594,12 @@ export function AppShell({
                   className="gap-2 px-1.5 text-white hover:bg-white/10 hover:text-white sm:px-2"
                   aria-label="Account menu"
                 >
-                  <span className="grid h-8 w-8 place-items-center rounded-full bg-white/15 text-[11px] font-semibold text-white ring-1 ring-white/25">
-                    {avatarLetters.slice(0, 2)}
+                  <span className="relative grid h-8 w-8 place-items-center overflow-hidden rounded-full bg-white/15 text-[11px] font-semibold text-white ring-1 ring-white/25">
+                    {user.avatarUrl ? (
+                      <img src={user.avatarUrl} alt="" className="h-full w-full object-cover" />
+                    ) : (
+                      avatarLetters.slice(0, 2)
+                    )}
                   </span>
                   <span className="hidden max-w-[9rem] truncate text-left text-[15px] font-extrabold tracking-tight text-white sm:block">
                     {shortDisplayName(user.name, 16)}
@@ -607,8 +612,12 @@ export function AppShell({
               >
                 <div className="border-b border-slate-100 bg-white px-3.5 py-3.5">
                   <div className="flex items-start gap-3">
-                    <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-slate-800 text-xs font-semibold text-white">
-                      {avatarLetters.slice(0, 2)}
+                    <span className="relative grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-full bg-slate-800 text-xs font-semibold text-white">
+                      {user.avatarUrl ? (
+                        <img src={user.avatarUrl} alt="" className="h-full w-full object-cover" />
+                      ) : (
+                        avatarLetters.slice(0, 2)
+                      )}
                     </span>
                     <div className="min-w-0 flex-1 pt-0.5">
                       <p className="truncate text-sm font-semibold leading-tight text-slate-900">
