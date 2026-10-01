@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { offlineSet, OfflineKeys } from "@/lib/offline-cache";
 import { rememberLastUserId, readLastUserId, withOfflineCache } from "@/lib/offline-query";

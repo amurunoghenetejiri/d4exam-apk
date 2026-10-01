@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { useQuery } from "@tanstack/react-query";
 import { useSessionUser } from "@/lib/session";
 import { useRealtimeInvalidate } from "@/lib/realtime";

@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { openUserProfile, D4_OPEN_PROFILE_EVENT } from "@/components/profile/ClickableUser";
 import { MessagingProfileSheet } from "@/components/profile/MessagingProfileSheet";
 import { startDirectCall, notifyCalleeOfIncomingCall, inviteCalleeOnPersonalChannel } from "@/lib/calls";

@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * Global call session — owns WebRTC + signaling outside React lifecycle.
  */

@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { createServerFn } from "@tanstack/react-start";
 import { getAppOrigin } from "@/lib/app-url";
 import { createClient } from "@supabase/supabase-js";

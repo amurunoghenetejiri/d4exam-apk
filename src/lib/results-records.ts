@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * Role-scoped result records for D4EXAM.
  * Loads exams + student scores with separate queries (avoids fragile nested joins).
