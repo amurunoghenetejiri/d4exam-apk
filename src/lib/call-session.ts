@@ -119,6 +119,21 @@ async function postSystemMessage(
       attachment_type: "call",
       attachment_url: null,
     } as never);
+    const now = new Date().toISOString();
+    let preview = body.slice(0, 140);
+    if (/missed\s*video/i.test(body)) preview = "📞 Missed video call";
+    else if (/missed/i.test(body)) preview = "📞 Missed voice call";
+    else if (/declined/i.test(body)) preview = "📞 Call declined";
+    else if (/no answer/i.test(body)) preview = "📞 No answer";
+    await supabase
+      .from("conversations")
+      .update({
+        updated_at: now,
+        last_message_at: now,
+        last_message_preview: preview,
+        last_message_sender_id: myUserId,
+      } as never)
+      .eq("id", conversationId);
   } catch {
     /* ignore */
   }
@@ -756,6 +771,14 @@ export async function endCall(
       snap.myUserId,
       snap.callType === "video" ? "Video call declined" : "Voice call declined",
     );
+  } else if (snap && snap.seconds > 0 && reason !== "missed" && reason !== "rejected") {
+    const mm = String(Math.floor(snap.seconds / 60)).padStart(2, "0");
+    const ss = String(snap.seconds % 60).padStart(2, "0");
+    const label =
+      snap.callType === "video"
+        ? `Video call · ${mm}:${ss}`
+        : `Voice call · ${mm}:${ss}`;
+    await postSystemMessage(snap.conversationId, snap.myUserId, label);
   }
   await hardTeardown();
   try {

@@ -28,6 +28,8 @@ import {
   Bell,
   Reply,
   CornerUpRight,
+  Phone,
+  Video,
 } from "lucide-react";
 import { useSessionUser } from "@/lib/session";
 import { useStudentContext } from "@/lib/student";
@@ -866,6 +868,10 @@ function ConversationList({
               <div className="mt-0.5 flex items-center gap-1.5">
                 {(() => {
                   const p = c.preview || "";
+                  const isMissedCall = /missed\s*(voice\s*)?call|missed\s*video/i.test(p) || (p.includes("📞") && /missed/i.test(p));
+                  const isCallEvent =
+                    isMissedCall ||
+                    /📞|call declined|no answer|voice call|video call/i.test(p);
                   const isVoice = /voice note/i.test(p) || p.includes("🎤");
                   const isForward = /forwarded/i.test(p) || p.includes("↗") || p.startsWith("↪");
                   const isReply =
@@ -880,6 +886,23 @@ function ConversationList({
                     .replace(/🎤\s*/g, "")
                     .replace(/^Forwarded\s*[·•\-]?\s*/i, "")
                     .trim();
+                  if (isCallEvent) {
+                    const isVideoCall = /video/i.test(p);
+                    const clean = label
+                      .replace(/📞\s*/g, "")
+                      .replace(/^Missed\s*/i, "Missed ")
+                      .trim() || (isMissedCall ? (isVideoCall ? "Missed video call" : "Missed voice call") : "Call");
+                    return (
+                      <span className={"flex min-w-0 items-center gap-1.5 truncate text-[13px] " + (isMissedCall ? "font-semibold text-rose-600" : "text-slate-500")}>
+                        {isVideoCall ? (
+                          <Video className={"h-3.5 w-3.5 shrink-0 " + (isMissedCall ? "text-rose-500" : "text-slate-500")} />
+                        ) : (
+                          <Phone className={"h-3.5 w-3.5 shrink-0 " + (isMissedCall ? "text-rose-500" : "text-slate-500")} />
+                        )}
+                        <span className="truncate">{clean}</span>
+                      </span>
+                    );
+                  }
                   if (isVoice) {
                     const clean = label.replace(/^Voice note/i, "Voice note").trim() || "Voice note";
                     return (

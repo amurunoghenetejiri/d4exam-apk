@@ -9,6 +9,7 @@ export type PublicUserProfile = {
   phone: string | null;
   schoolId: string | null;
   matricNumber: string | null;
+  bio?: string | null;
   departmentId: string | null;
   departmentName: string | null;
   levelId: string | null;
@@ -41,6 +42,14 @@ function mapRow(
     phone: (row.phone as string) || null,
     schoolId: (row.school_id as string) || null,
     matricNumber: (row.matric_number as string) || null,
+    bio: (() => {
+      const s = row.settings;
+      if (s && typeof s === "object" && typeof (s as Record<string, unknown>).bio === "string") {
+        const b = String((s as Record<string, unknown>).bio).trim();
+        return b || null;
+      }
+      return (row.bio as string) || null;
+    })(),
     departmentId: (row.department_id as string) || null,
     departmentName:
       extras?.departmentName ??
@@ -151,7 +160,7 @@ async function fetchProfileFallback(
   const byAuth = await supabase
     .from("profiles")
     .select(
-      "id, auth_user_id, full_name, first_name, last_name, profile_photo_url, phone, school_id, status",
+      "id, auth_user_id, full_name, first_name, last_name, profile_photo_url, phone, school_id, status, settings",
     )
     .eq("auth_user_id", targetUserId)
     .maybeSingle();
@@ -162,7 +171,7 @@ async function fetchProfileFallback(
     const byId = await supabase
       .from("profiles")
       .select(
-        "id, auth_user_id, full_name, first_name, last_name, profile_photo_url, phone, school_id, status",
+        "id, auth_user_id, full_name, first_name, last_name, profile_photo_url, phone, school_id, status, settings",
       )
       .eq("id", targetUserId)
       .maybeSingle();
@@ -300,7 +309,7 @@ export async function fetchPublicProfile(
       const { data: p } = await supabase
         .from("profiles")
         .select(
-          "id, auth_user_id, full_name, first_name, last_name, profile_photo_url, school_id, status, phone",
+          "id, auth_user_id, full_name, first_name, last_name, profile_photo_url, school_id, status, phone, settings",
         )
         .or(`auth_user_id.eq.${id},id.eq.${id}`)
         .limit(1)
@@ -437,7 +446,15 @@ export async function listBlockedUsers(myUserId: string) {
   return profiles;
 }
 
+const MAX_PROFILE_IMAGE_BYTES = 3 * 1024 * 1024; // 3 MB
+
 export async function updateMyProfilePhoto(profileId: string, file: File) {
+  if (!file.type.startsWith("image/")) {
+    throw new Error("Please choose an image file.");
+  }
+  if (file.size > MAX_PROFILE_IMAGE_BYTES) {
+    throw new Error("Image must be 3 MB or smaller.");
+  }
   const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
   const path = `profiles/${profileId}/${Date.now()}.${ext}`;
   const buckets = ["avatars", "profile-photos", "public", "media"];
@@ -460,4 +477,29 @@ export async function updateMyProfilePhoto(profileId: string, file: File) {
     .eq("id", profileId);
   if (updErr) throw new Error(updErr.message);
   return publicUrl;
+}
+
+/** Bio is stored in profiles.settings.bio (jsonb). */
+export async function updateMyBio(profileId: string, bio: string) {
+  const trimmed = bio.trim().slice(0, 280);
+  const { data: row, error: rErr } = await supabase
+    .from("profiles")
+    .select("settings")
+    .eq("id", profileId)
+    .maybeSingle();
+  if (rErr) throw new Error(rErr.message);
+  const settings = (row?.settings && typeof row.settings === "object" ? row.settings : {}) as Record<string, unknown>;
+  const next = { ...settings, bio: trimmed };
+  const { error } = await supabase
+    .from("profiles")
+    .update({ settings: next } as never)
+    .eq("id", profileId);
+  if (error) throw new Error(error.message);
+  return trimmed;
+}
+
+export function bioFromSettings(settings: unknown): string | null {
+  if (!settings || typeof settings !== "object") return null;
+  const b = (settings as Record<string, unknown>).bio;
+  return typeof b === "string" && b.trim() ? b.trim() : null;
 }

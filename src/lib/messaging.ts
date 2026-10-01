@@ -109,7 +109,21 @@ function previewFromMessage(m: {
   const at = (m.attachment_type || "").toLowerCase();
   const t = (m.body || "").trim();
   let core = "";
-  if (at.includes("audio") || at === "voice") {
+  if (at === "call" || /^(missed|no answer|call declined|voice call|video call)/i.test(t)) {
+    if (/missed\s*video/i.test(t)) core = "📞 Missed video call";
+    else if (/missed/i.test(t)) core = "📞 Missed voice call";
+    else if (/declined/i.test(t)) core = "📞 Call declined";
+    else if (/no answer/i.test(t)) core = "📞 No answer";
+    else if (/video/i.test(t)) {
+      const dur = t.match(/(\d{1,2}:\d{2})/);
+      core = dur ? `📞 Video call · ${dur[1]}` : "📞 Video call";
+    } else if (/voice|call/i.test(t)) {
+      const dur = t.match(/(\d{1,2}:\d{2})/);
+      core = dur ? `📞 Voice call · ${dur[1]}` : "📞 Voice call";
+    } else {
+      core = t.slice(0, 120) || "📞 Call";
+    }
+  } else if (at.includes("audio") || at === "voice") {
     const sec = m.duration_sec != null ? Math.max(0, Math.round(Number(m.duration_sec))) : null;
     const mm = sec != null ? `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}` : null;
     core = mm ? `🎤 Voice note · ${mm}` : "🎤 Voice note";

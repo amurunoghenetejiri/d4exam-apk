@@ -28,6 +28,7 @@ import {
   fetchPublicProfile,
   unblockUser,
   updateMyProfilePhoto,
+  updateMyBio,
 } from "@/lib/user-profile";
 import { getOrCreateDirectConversation, listMessages } from "@/lib/messaging";
 import { appNavigate } from "@/lib/app-navigate";
@@ -348,11 +349,19 @@ export function UserProfileView({
                 <input
                   type="file"
                   accept="image/*"
-                  capture="user"
                   className="hidden"
                   onChange={(e) => {
                     const f = e.target.files?.[0];
+                    e.target.value = "";
                     if (!f || !session.profileId) return;
+                    if (f.size > 3 * 1024 * 1024) {
+                      toast.error("Image must be 3 MB or smaller.");
+                      return;
+                    }
+                    if (!f.type.startsWith("image/")) {
+                      toast.error("Please choose an image file.");
+                      return;
+                    }
                     setBusy("photo");
                     void updateMyProfilePhoto(session.profileId, f)
                       .then(() => {
@@ -403,18 +412,42 @@ export function UserProfileView({
         </section>
 
         <section className="mt-3 rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3">
-          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-white/45">
-            <Users className="h-3.5 w-3.5" />
-            About
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-white/45">
+              <Users className="h-3.5 w-3.5" />
+              About
+            </div>
+            {p.isMe && session?.profileId ? (
+              <button
+                type="button"
+                className="text-[11px] font-bold text-[#60a5fa]"
+                onClick={() => {
+                  const next = window.prompt("Your bio (max 280 characters)", p.bio || "");
+                  if (next === null || !session.profileId) return;
+                  setBusy("bio");
+                  void updateMyBio(session.profileId, next)
+                    .then(() => {
+                      toast.success("Bio updated");
+                      void qc.invalidateQueries({ queryKey: ["public-profile", userId] });
+                    })
+                    .catch((err) => toast.error(err instanceof Error ? err.message : "Could not update bio"))
+                    .finally(() => setBusy(null));
+                }}
+              >
+                Edit
+              </button>
+            ) : null}
           </div>
           <p className="mt-1.5 text-sm leading-relaxed text-white/75">
-            {p.departmentName && p.levelName
-              ? `${p.fullName.split(" ")[0]} studies ${p.departmentName} · ${p.levelName}.`
-              : p.departmentName
-                ? `${p.fullName.split(" ")[0]} is in ${p.departmentName}.`
-                : p.matricNumber
-                  ? `Matric number ${p.matricNumber}.`
-                  : "No bio added yet."}
+            {p.bio
+              ? p.bio
+              : p.departmentName && p.levelName
+                ? `${p.fullName.split(" ")[0]} studies ${p.departmentName} · ${p.levelName}.`
+                : p.departmentName
+                  ? `${p.fullName.split(" ")[0]} is in ${p.departmentName}.`
+                  : p.isMe
+                    ? "Tap Edit to add a short bio."
+                    : "No bio added yet."}
           </p>
         </section>
 
@@ -449,6 +482,7 @@ export function UserProfileView({
           <ChevronRight className="h-4 w-4 shrink-0 text-white/35" />
         </button>
 
+        {!p.isMe ? (
         <section className="mt-3 overflow-hidden rounded-2xl border border-white/10 bg-white/[0.06]">
           <div className="flex items-center gap-2 px-4 py-3">
             <UsersRound className="h-4 w-4 text-[#60a5fa]" />
@@ -476,6 +510,7 @@ export function UserProfileView({
             ))
           )}
         </section>
+        ) : null}
 
         <section className="mt-3 overflow-hidden rounded-2xl border border-white/10 bg-white/[0.06]">
           <ListRow icon={<Phone className="h-4 w-4 text-[#60a5fa]" />} title="Call History" subtitle="Recent voice & video with this person" onClick={() => toast.message("Call history opens from the conversation menu")} />

@@ -61,6 +61,7 @@ import {
   parseMediaUrls,
 } from "@/components/messaging/MessageMedia";
 import { joinMessagingPresence } from "@/lib/messaging-presence";
+import { globalAudio } from "@/lib/global-audio";
 import {
   enqueueOutbox,
   listOutbox,
@@ -626,15 +627,37 @@ export function ConversationChat({
 
   const pauseRecording = () => {
     try {
-      mediaRec.current?.pause();
+      const rec = mediaRec.current;
+      if (rec && rec.state === "recording") {
+        try {
+          rec.requestData();
+        } catch {
+          /* ignore */
+        }
+        rec.pause();
+      }
     } catch {
       /* ignore */
     }
     stopRecTimer();
+    try {
+      if (chunks.current.length > 0) {
+        const blob = new Blob(chunks.current, { type: "audio/webm" });
+        if (previewUrl) URL.revokeObjectURL(previewUrl);
+        setPreviewUrl(URL.createObjectURL(blob));
+      }
+    } catch {
+      /* ignore */
+    }
     setRecPaused(true);
   };
 
   const continueRecording = () => {
+    try {
+      stopAllVoices();
+    } catch {
+      /* ignore */
+    }
     try {
       mediaRec.current?.resume();
     } catch {
@@ -642,6 +665,20 @@ export function ConversationChat({
     }
     setRecPaused(false);
     recTimer.current = setInterval(() => setRecSecs((s) => s + 1), 1000);
+  };
+
+  const playRecordingPreview = () => {
+    if (!previewUrl) return;
+    try {
+      globalAudio.playVoice("rec-preview", previewUrl, "Preview", 1);
+    } catch {
+      try {
+        const a = new Audio(previewUrl);
+        void a.play();
+      } catch {
+        /* ignore */
+      }
+    }
   };
 
   const finishAndSendVoice = async () => {
@@ -1453,11 +1490,11 @@ export function ConversationChat({
             recording={recording}
             paused={recPaused}
             seconds={recSecs}
-            previewUrl={null}
+            previewUrl={previewUrl}
             onCancel={cancelRecording}
             onPause={pauseRecording}
             onContinue={continueRecording}
-            onPreviewPlay={() => {}}
+            onPreviewPlay={playRecordingPreview}
             onSend={() => void finishAndSendVoice()}
           />
         ) : (
@@ -1542,12 +1579,20 @@ export function ConversationChat({
             <div className="flex min-w-0 flex-1 items-end rounded-full border border-white/20 bg-white px-3">
               <textarea
                 value={text}
-                onChange={(e) => setText(e.target.value)}
+                onChange={(e) => {
+                  setText(e.target.value);
+                  const el = e.target;
+                  el.style.height = "auto";
+                  const max = 120;
+                  el.style.height = Math.min(el.scrollHeight, max) + "px";
+                  el.style.overflowY = el.scrollHeight > max ? "auto" : "hidden";
+                }}
                 rows={1}
                 placeholder="Type your message…"
-                className="max-h-24 min-h-[36px] w-full resize-none bg-transparent py-2 text-sm text-slate-900 outline-none placeholder:text-slate-400"
+                className="max-h-[120px] min-h-[36px] w-full resize-none overflow-hidden bg-transparent py-2 text-[15px] font-medium leading-snug text-slate-900 outline-none placeholder:text-slate-400"
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
+                  // Enter inserts a new line; only the Send button sends
+                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
                     e.preventDefault();
                     void doSendText();
                   }
@@ -2032,7 +2077,7 @@ function LinkMessageBody({
   }
 
   return (
-    <p className="break-words whitespace-pre-wrap text-[15px] leading-snug">
+    <p className="break-words whitespace-pre-wrap text-[15px] font-medium leading-[1.45] tracking-[-0.01em]">
       {linkifyText(body, mine)}
     </p>
   );
