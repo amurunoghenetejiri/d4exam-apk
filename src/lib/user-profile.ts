@@ -8,6 +8,7 @@ export type PublicUserProfile = {
   avatarUrl: string | null;
   phone: string | null;
   schoolId: string | null;
+  schoolName: string | null;
   matricNumber: string | null;
   bio?: string | null;
   departmentId: string | null;
@@ -41,6 +42,7 @@ function mapRow(
       null,
     phone: (row.phone as string) || null,
     schoolId: (row.school_id as string) || null,
+    schoolName: (row.school_name as string) || null,
     matricNumber: (row.matric_number as string) || null,
     bio: (() => {
       const s = row.settings;
@@ -97,7 +99,7 @@ async function enrichDeptLevel(p: PublicUserProfile): Promise<PublicUserProfile>
     }
   }
 
-  if (departmentName && levelName && matricNumber) {
+  if (departmentName && levelName && matricNumber && p.schoolName) {
     return { ...p, departmentName, levelName, matricNumber, departmentId, levelId };
   }
 
@@ -125,7 +127,18 @@ async function enrichDeptLevel(p: PublicUserProfile): Promise<PublicUserProfile>
       /* ignore */
     }
   }
-  return { ...p, departmentName, levelName, matricNumber, departmentId, levelId };
+  let schoolName = p.schoolName;
+  if (!schoolName && p.schoolId) {
+    try {
+      const { data: sch } = await supabase
+        .from("schools")
+        .select("name")
+        .eq("id", p.schoolId)
+        .maybeSingle();
+      schoolName = (sch as { name?: string } | null)?.name || null;
+    } catch { /* ignore */ }
+  }
+  return { ...p, departmentName, levelName, matricNumber, departmentId, levelId, schoolName };
 }
 
 async function attachBlocks(

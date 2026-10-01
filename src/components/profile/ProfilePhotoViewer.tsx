@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { Download, Maximize2, MoreHorizontal, Share2, X } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { Download, Share2, X } from "lucide-react";
 
 /**
- * Full-screen dark profile photo viewer.
- * Works with image URL or initials fallback.
+ * Full-screen edge-to-edge profile photo viewer.
+ * Share + Download only. Tap image to zoom.
  */
 export function ProfilePhotoViewer({
   open,
@@ -34,16 +33,46 @@ export function ProfilePhotoViewer({
       if (e.key === "Escape") onClose();
     };
     window.addEventListener("keydown", onKey);
-    return (
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+
+  if (!open) return null;
+  if (!src && !fallbackInitials) return null;
+
+  const share = async () => {
+    try {
+      if (navigator.share && src) {
+        await navigator.share({ title: name || "Profile photo", url: src });
+      }
+    } catch {
+      /* cancelled */
+    }
+  };
+
+  const download = () => {
+    if (!src) return;
+    try {
+      const a = document.createElement("a");
+      a.href = src;
+      a.download = `${(name || "profile").replace(/\s+/g, "_")}.jpg`;
+      a.target = "_blank";
+      a.rel = "noopener";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } catch {
+      window.open(src, "_blank");
+    }
+  };
+
+  return (
     <div
       className="fixed inset-0 z-[200] flex flex-col bg-black text-white"
       role="dialog"
       aria-modal="true"
       aria-label="Profile photo"
     >
-      <div
-        className="absolute inset-x-0 top-0 z-10 flex items-center justify-between px-3 pb-2 pt-[max(0.75rem,env(safe-area-inset-top))]"
-      >
+      <div className="absolute inset-x-0 top-0 z-10 flex items-center justify-between px-3 pb-2 pt-[max(0.75rem,env(safe-area-inset-top))]">
         <button
           type="button"
           onClick={onClose}
@@ -58,9 +87,6 @@ export function ProfilePhotoViewer({
 
       <div
         className="flex min-h-0 flex-1 items-center justify-center overflow-hidden"
-        onClick={(e) => {
-          // double-tap zoom toggle
-        }}
         onTouchStart={(e) => {
           startY.current = e.touches[0]?.clientY ?? null;
         }}
@@ -94,13 +120,21 @@ export function ProfilePhotoViewer({
         {name ? <p className="text-base font-bold text-white">{name}</p> : null}
         {subtitle ? <p className="mt-0.5 text-xs text-white/55">{subtitle}</p> : null}
         <div className="mt-4 flex items-center justify-center gap-8">
-          <button type="button" onClick={share} className="flex flex-col items-center gap-1 text-white/90 active:opacity-70">
+          <button
+            type="button"
+            onClick={() => void share()}
+            className="flex flex-col items-center gap-1 text-white/90 active:opacity-70"
+          >
             <span className="grid h-12 w-12 place-items-center rounded-full bg-white/10">
               <Share2 className="h-5 w-5" />
             </span>
             <span className="text-[11px] font-medium">Share</span>
           </button>
-          <button type="button" onClick={download} className="flex flex-col items-center gap-1 text-white/90 active:opacity-70">
+          <button
+            type="button"
+            onClick={download}
+            className="flex flex-col items-center gap-1 text-white/90 active:opacity-70"
+          >
             <span className="grid h-12 w-12 place-items-center rounded-full bg-white/10">
               <Download className="h-5 w-5" />
             </span>

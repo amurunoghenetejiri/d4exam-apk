@@ -450,7 +450,7 @@ export function UserProfileView({
         <section className="mt-6 overflow-hidden rounded-2xl border border-white/10 bg-white/[0.06]">
           <InfoRow icon={<Building2 className="h-4 w-4" />} label="Department" value={p.departmentName || "Not set"} />
           <InfoRow icon={<GraduationCap className="h-4 w-4" />} label="Level" value={p.levelName || "Not set"} />
-          <InfoRow icon={<Building2 className="h-4 w-4" />} label="School" value={session?.schoolName || "Not set"} />
+          <InfoRow icon={<Building2 className="h-4 w-4" />} label="School" value={p.schoolName || session?.schoolName || "Not set"} />
           <InfoRow icon={<Hash className="h-4 w-4" />} label="Matric Number" value={p.matricNumber || "Not set"} last />
         </section>
 

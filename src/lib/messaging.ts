@@ -577,16 +577,40 @@ export async function sendCampusMessage(opts: {
     duration_sec: opts.durationSec ?? null,
   };
 
-  // Prefer plain insert (works with partial unique index on client_id)
+  // Prefer SECURITY DEFINER RPC (reliable under RLS)
+  try {
+    const { data: rpcMsg, error: rpcErr } = await supabase.rpc("send_campus_message", {
+      p_conversation_id: opts.conversationId,
+      p_body: opts.body || null,
+      p_attachment_url: opts.attachmentUrl || null,
+      p_attachment_type: opts.attachmentType || null,
+      p_client_id: opts.clientId || null,
+      p_reply_to_id: opts.replyToId || null,
+      p_forwarded_from_id: opts.forwardedFromId || null,
+      p_duration_sec: opts.durationSec ?? null,
+    } as never);
+    if (!rpcErr && rpcMsg) {
+      const msg = rpcMsg as CampusMessage;
+      const preview = previewFromMessage(row);
+      void notifyMessageRecipients({
+        conversationId: opts.conversationId,
+        senderId: opts.senderId,
+        preview,
+        attachmentType: opts.attachmentType || null,
+        messageId: msg.id,
+      });
+      return msg;
+    }
+    if (rpcErr) console.warn("[sendCampusMessage] rpc", rpcErr.message);
+  } catch (e) {
+    console.warn("[sendCampusMessage] rpc exception", e);
+  }
+
+  // Fallback: plain insert
   const ins = await supabase.from("campus_messages").insert(row).select("*").single();
   if (!ins.error && ins.data) {
     const preview = previewFromMessage(row);
-    await touchConversation(
-      opts.conversationId,
-      opts.senderId,
-      preview,
-    );
-    // Background FCM so recipients see notifications when app is closed/minimized
+    await touchConversation(opts.conversationId, opts.senderId, preview);
     void notifyMessageRecipients({
       conversationId: opts.conversationId,
       senderId: opts.senderId,
@@ -597,7 +621,6 @@ export async function sendCampusMessage(opts: {
     return ins.data as CampusMessage;
   }
 
-  // Duplicate client_id — treat as success (idempotent)
   if (ins.error && /duplicate|unique/i.test(ins.error.message)) {
     const { data: existing } = await supabase
       .from("campus_messages")
@@ -683,6 +706,20 @@ export async function listMessages(
   conversationId: string,
   limit = 80,
 ): Promise<CampusMessage[]> {
+  // Prefer SECURITY DEFINER list (works even when direct SELECT is blocked)
+  try {
+    const { data: rpcData, error: rpcErr } = await supabase.rpc("list_campus_messages", {
+      p_conversation_id: conversationId,
+      p_limit: limit,
+    } as never);
+    if (!rpcErr && Array.isArray(rpcData)) {
+      return rpcData as CampusMessage[];
+    }
+    if (rpcErr) console.warn("[listMessages] rpc", rpcErr.message);
+  } catch (e) {
+    console.warn("[listMessages] rpc exception", e);
+  }
+
   const { data, error } = await supabase
     .from("campus_messages")
     .select("*")
