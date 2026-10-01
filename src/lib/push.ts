@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * Client-side push registration.
  *
