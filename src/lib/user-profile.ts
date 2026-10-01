@@ -455,46 +455,77 @@ export async function updateMyProfilePhoto(profileId: string, file: File) {
   if (file.size > MAX_PROFILE_IMAGE_BYTES) {
     throw new Error("Image must be 3 MB or smaller.");
   }
-  const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
-  const path = `profiles/${profileId}/${Date.now()}.${ext}`;
+  const ext = (file.name.split(".").pop() || "jpg").toLowerCase().replace(/[^a-z0-9]/g, "") || "jpg";
+  const objectPath = `profiles/${profileId}/${Date.now()}.${ext}`;
   const buckets = ["avatars", "profile-photos", "public", "media"];
   let publicUrl: string | null = null;
+  let lastErr = "";
   for (const bucket of buckets) {
-    const { error } = await supabase.storage.from(bucket).upload(path, file, {
+    const { error } = await supabase.storage.from(bucket).upload(objectPath, file, {
       upsert: true,
       contentType: file.type || "image/jpeg",
     });
     if (!error) {
-      const { data } = supabase.storage.from(bucket).getPublicUrl(path);
+      const { data } = supabase.storage.from(bucket).getPublicUrl(objectPath);
       publicUrl = data.publicUrl;
       break;
     }
+    lastErr = error.message || String(error);
   }
-  if (!publicUrl) throw new Error("Upload failed");
+  if (!publicUrl) {
+    throw new Error(lastErr || "Upload failed — storage bucket not available");
+  }
+
+  // Prefer SECURITY DEFINER RPC (avoids profiles RLS recursion)
+  const { error: rpcErr } = await supabase.rpc("update_my_profile_photo", {
+    p_url: publicUrl,
+  } as never);
+  if (!rpcErr) return publicUrl;
+
+  // Fallback: direct update by auth_user_id
+  const { data: auth } = await supabase.auth.getUser();
+  const uid = auth.user?.id;
+  if (!uid) throw new Error(rpcErr.message || "Not signed in");
   const { error: updErr } = await supabase
     .from("profiles")
     .update({ profile_photo_url: publicUrl } as never)
-    .eq("id", profileId);
-  if (updErr) throw new Error(updErr.message);
+    .eq("auth_user_id", uid);
+  if (updErr) {
+    // Last try: by profile id
+    const { error: upd2 } = await supabase
+      .from("profiles")
+      .update({ profile_photo_url: publicUrl } as never)
+      .eq("id", profileId);
+    if (upd2) throw new Error(upd2.message || rpcErr.message || "Could not save photo");
+  }
   return publicUrl;
 }
 
-/** Bio is stored in profiles.settings.bio (jsonb). */
-export async function updateMyBio(profileId: string, bio: string) {
+/** Bio is stored in profiles.settings.bio (jsonb). Uses RPC to avoid RLS recursion. */
+export async function updateMyBio(_profileId: string, bio: string) {
   const trimmed = bio.trim().slice(0, 280);
+  const { data, error: rpcErr } = await supabase.rpc("update_my_bio", {
+    p_bio: trimmed,
+  } as never);
+  if (!rpcErr) return (typeof data === "string" ? data : trimmed) as string;
+
+  // Fallback if RPC not deployed yet
+  const { data: auth } = await supabase.auth.getUser();
+  const uid = auth.user?.id;
+  if (!uid) throw new Error(rpcErr.message || "Not signed in");
   const { data: row, error: rErr } = await supabase
     .from("profiles")
     .select("settings")
-    .eq("id", profileId)
+    .eq("auth_user_id", uid)
     .maybeSingle();
-  if (rErr) throw new Error(rErr.message);
+  if (rErr) throw new Error(rErr.message || rpcErr.message);
   const settings = (row?.settings && typeof row.settings === "object" ? row.settings : {}) as Record<string, unknown>;
   const next = { ...settings, bio: trimmed };
   const { error } = await supabase
     .from("profiles")
     .update({ settings: next } as never)
-    .eq("id", profileId);
-  if (error) throw new Error(error.message);
+    .eq("auth_user_id", uid);
+  if (error) throw new Error(error.message || rpcErr.message);
   return trimmed;
 }
 

@@ -73,6 +73,8 @@ export function UserProfileView({
   const qc = useQueryClient();
   const [photoOpen, setPhotoOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [bioEditOpen, setBioEditOpen] = useState(false);
+  const [bioDraft, setBioDraft] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [fav, setFav] = useState(() =>
     Boolean(myId && userId && isFavorite(myId, userId)),
@@ -290,14 +292,18 @@ export function UserProfileView({
           <ArrowLeft className="h-5 w-5" />
         </button>
         <p className="text-sm font-semibold tracking-wide text-white/90">Profile</p>
-        <button
-          type="button"
-          onClick={() => setMoreOpen((v) => !v)}
-          className="grid h-10 w-10 place-items-center rounded-full bg-white/10 active:scale-95"
-          aria-label="More"
-        >
-          <MoreVertical className="h-5 w-5" />
-        </button>
+        {p.isMe ? (
+          <span className="h-10 w-10" aria-hidden />
+        ) : (
+          <button
+            type="button"
+            onClick={() => setMoreOpen((v) => !v)}
+            className="grid h-10 w-10 place-items-center rounded-full bg-white/10 active:scale-95"
+            aria-label="More"
+          >
+            <MoreVertical className="h-5 w-5" />
+          </button>
+        )}
       </div>
 
       {moreOpen && !p.isMe ? (
@@ -422,32 +428,26 @@ export function UserProfileView({
                 type="button"
                 className="text-[11px] font-bold text-[#60a5fa]"
                 onClick={() => {
-                  const next = window.prompt("Your bio (max 280 characters)", p.bio || "");
-                  if (next === null || !session.profileId) return;
-                  setBusy("bio");
-                  void updateMyBio(session.profileId, next)
-                    .then(() => {
-                      toast.success("Bio updated");
-                      void qc.invalidateQueries({ queryKey: ["public-profile", userId] });
-                    })
-                    .catch((err) => toast.error(err instanceof Error ? err.message : "Could not update bio"))
-                    .finally(() => setBusy(null));
+                  setBioDraft(p.bio || "");
+                  setBioEditOpen(true);
                 }}
               >
                 Edit
               </button>
             ) : null}
           </div>
-          <p className="mt-1.5 text-sm leading-relaxed text-white/75">
+          <p className="mt-1.5 text-sm leading-relaxed text-white/75 whitespace-pre-wrap">
             {p.bio
               ? p.bio
               : p.departmentName && p.levelName
                 ? `${p.fullName.split(" ")[0]} studies ${p.departmentName} · ${p.levelName}.`
                 : p.departmentName
                   ? `${p.fullName.split(" ")[0]} is in ${p.departmentName}.`
-                  : p.isMe
-                    ? "Tap Edit to add a short bio."
-                    : "No bio added yet."}
+                  : p.matricNumber
+                    ? `Matric number ${p.matricNumber}.`
+                    : p.isMe
+                      ? "Add a short bio so classmates can know you better."
+                      : "No bio added yet."}
           </p>
         </section>
 
@@ -525,6 +525,59 @@ export function UserProfileView({
           </section>
         ) : null}
       </div>
+
+      {bioEditOpen ? (
+        <div className="fixed inset-0 z-[80] flex flex-col bg-[#0b1b3a]">
+          <div className="flex items-center gap-3 border-b border-white/10 px-3 py-3">
+            <button
+              type="button"
+              onClick={() => setBioEditOpen(false)}
+              className="grid h-10 w-10 place-items-center rounded-full bg-white/10 active:scale-95"
+              aria-label="Close"
+            >
+              <ArrowLeft className="h-5 w-5" />
+            </button>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-bold text-white">Edit bio</p>
+              <p className="text-[11px] text-white/45">D4EXAM · max 280 characters</p>
+            </div>
+            <button
+              type="button"
+              disabled={busy === "bio"}
+              onClick={() => {
+                if (!session?.profileId) return;
+                setBusy("bio");
+                void updateMyBio(session.profileId, bioDraft)
+                  .then(() => {
+                    toast.success("Bio updated");
+                    setBioEditOpen(false);
+                    void qc.invalidateQueries({ queryKey: ["public-profile", userId] });
+                  })
+                  .catch((err) =>
+                    toast.error(err instanceof Error ? err.message : "Could not update bio"),
+                  )
+                  .finally(() => setBusy(null));
+              }}
+              className="rounded-full bg-[#2563eb] px-4 py-2 text-xs font-bold text-white disabled:opacity-60"
+            >
+              {busy === "bio" ? "Saving…" : "Save"}
+            </button>
+          </div>
+          <div className="flex-1 px-4 py-4">
+            <textarea
+              value={bioDraft}
+              onChange={(e) => setBioDraft(e.target.value.slice(0, 280))}
+              autoFocus
+              rows={8}
+              placeholder="Write a short bio about yourself… You can use emojis 😊"
+              className="h-full min-h-[12rem] w-full resize-none rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 text-[15px] font-medium leading-relaxed text-white outline-none placeholder:text-white/35 focus:ring-2 focus:ring-[#2563eb]/40"
+            />
+            <p className="mt-2 text-right text-[11px] tabular-nums text-white/40">
+              {bioDraft.length}/280
+            </p>
+          </div>
+        </div>
+      ) : null}
 
       <ProfilePhotoViewer
         open={photoOpen}
