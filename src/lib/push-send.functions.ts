@@ -39,6 +39,8 @@ type PushInput = {
   fromUserId?: string | null;
   callerId?: string | null;
   conversationId?: string | null;
+  messageId?: string | null;
+  attachmentType?: string | null;
 };
 
 type ServiceAccount = {
@@ -128,9 +130,12 @@ async function sendFcmV1(
   const action = (actionLabel || "").trim();
 
   const isCall = extra?.type === "incoming_call";
-  const isChat = extra?.type === "chat_message" || extra?.type === "message";
-  // Data-only for calls + chat so D4FirebaseMessagingService.onMessageReceived always runs
-  // when the app is backgrounded / killed (notification+data is tray-only when backgrounded).
+  const isChat =
+    extra?.type === "chat_message" ||
+    extra?.type === "message" ||
+    extra?.type === "missed_call";
+  // CRITICAL: data-only for calls + chat. If a top-level "notification" key is present,
+  // Android shows a generic tray item when backgrounded and may NOT run onMessageReceived.
   const dataOnly = isCall || isChat;
   const messagePayload: Record<string, unknown> = {
     token,
@@ -159,6 +164,10 @@ async function sendFcmV1(
       fromUserId: String(extra?.fromUserId || extra?.callerId || ""),
       callerId: String(extra?.callerId || extra?.fromUserId || ""),
       conversationId: String(extra?.conversationId || ""),
+      senderName: String(extra?.callerName || fullTitle),
+      senderMatric: String(extra?.callerMatric || ""),
+      messageId: String((extra as { messageId?: string })?.messageId || ""),
+      attachmentType: String((extra as { attachmentType?: string })?.attachmentType || ""),
     },
     android: {
       priority: "HIGH",
@@ -180,7 +189,9 @@ async function sendFcmV1(
           }),
     },
   };
-  if (!isCall) {
+  // Only non-call/non-chat get a system notification payload (web/tray default).
+  // Calls + chat are handled exclusively by D4FirebaseMessagingService.
+  if (!dataOnly) {
     messagePayload.notification = {
       title: fullTitle,
       body: fullBody,

@@ -72,6 +72,7 @@ export function GlobalCallHost() {
         path?: string;
         conversationId?: string;
         markRead?: boolean;
+        reply?: string | null;
       }>).detail;
       if (!detail?.path) return;
       try {
@@ -89,6 +90,25 @@ export function GlobalCallHost() {
             const { markConversationRead } = await import("@/lib/messaging");
             const { data: { user } } = await (await import("@/integrations/supabase/client")).supabase.auth.getUser();
             if (user?.id) await markConversationRead(detail.conversationId!, user.id);
+          } catch {
+            /* ignore */
+          }
+        })();
+      }
+      // Inline reply from notification
+      if (detail.reply && detail.conversationId) {
+        void (async () => {
+          try {
+            const { sendCampusMessage } = await import("@/lib/messaging");
+            const { data: { user } } = await (await import("@/integrations/supabase/client")).supabase.auth.getUser();
+            if (!user?.id) return;
+            const clientId = `opt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+            await sendCampusMessage({
+              conversationId: detail.conversationId!,
+              senderId: user.id,
+              body: detail.reply!,
+              clientId,
+            });
           } catch {
             /* ignore */
           }

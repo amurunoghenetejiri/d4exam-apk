@@ -544,7 +544,9 @@ async function notifyMessageRecipients(opts: {
             fromUserId: opts.senderId,
             callerId: opts.senderId,
             actionLabel: "Reply",
-          },
+            messageId: opts.messageId || "",
+            attachmentType: opts.attachmentType || "",
+          } as never,
         }).catch(() => null),
       ),
     );

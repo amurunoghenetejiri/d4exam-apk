@@ -5,6 +5,9 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.Context;
+import android.content.SharedPreferences;
+import org.json.JSONArray;
+import org.json.JSONObject;
 import android.content.Intent;
 import android.media.AudioAttributes;
 import android.media.RingtoneManager;
@@ -204,17 +207,31 @@ public class D4FirebaseMessagingService extends FirebaseMessagingService {
     String body = data.get("message");
     if (body == null || body.isEmpty()) body = data.get("body");
     String conversationId = data.get("conversationId");
+    if (conversationId == null) conversationId = "";
     String link = data.get("link");
-    if (title == null || title.isEmpty()) title = "D4EXAM";
+    String senderName = data.get("senderName");
+    if (senderName == null || senderName.isEmpty()) senderName = data.get("callerName");
+    if (senderName == null || senderName.isEmpty()) senderName = title;
+    if (senderName == null || senderName.isEmpty()) senderName = "D4EXAM";
+    String senderMatric = data.get("senderMatric");
+    if (senderMatric == null) senderMatric = data.get("callerMatric");
+    if (senderMatric == null) senderMatric = "";
+    String attachmentType = data.get("attachmentType");
+    if (attachmentType == null) attachmentType = "";
+
+    // Pretty media previews
+    body = formatMessagePreview(body, attachmentType);
+    if (title == null || title.isEmpty()) {
+      title = senderMatric.isEmpty() ? senderName : (senderName + " · " + senderMatric);
+    }
     if (body == null || body.isEmpty()) body = "New message";
 
     String openPath = link;
     if (openPath == null || openPath.isEmpty()) {
-      openPath = (conversationId != null && !conversationId.isEmpty())
+      openPath = !conversationId.isEmpty()
           ? "/student/messages?chat=" + conversationId
           : "/student/messages";
     }
-    // Normalize absolute URLs to path for in-app navigation
     if (openPath.startsWith("http")) {
       try {
         Uri u = Uri.parse(openPath);
@@ -223,17 +240,19 @@ public class D4FirebaseMessagingService extends FirebaseMessagingService {
       } catch (Throwable ignored) {}
     }
 
+    // Persist recent lines for MessagingStyle history
+    appendChatHistory(conversationId, senderName, body);
+
     Intent openIntent = new Intent(this, MainActivity.class);
     openIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
     openIntent.putExtra("d4_open_path", openPath);
     openIntent.putExtra("d4_conversation_id", conversationId);
     PendingIntent openPending = PendingIntent.getActivity(
         this,
-        Math.abs((conversationId != null ? conversationId : "msg").hashCode()) & 0xffff,
+        Math.abs(("open_" + conversationId).hashCode()) & 0xffff,
         openIntent,
         PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
-    // Mark as read action
     Intent markIntent = new Intent(this, MainActivity.class);
     markIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
     markIntent.putExtra("d4_open_path", openPath);
@@ -241,11 +260,10 @@ public class D4FirebaseMessagingService extends FirebaseMessagingService {
     markIntent.putExtra("d4_mark_read", true);
     PendingIntent markPending = PendingIntent.getActivity(
         this,
-        (Math.abs((conversationId != null ? conversationId : "msg").hashCode()) + 1) & 0xffff,
+        Math.abs(("mark_" + conversationId).hashCode()) & 0xffff,
         markIntent,
         PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
-    // Reply (inline)
     RemoteInput remoteInput = new RemoteInput.Builder(KEY_TEXT_REPLY)
         .setLabel("Reply")
         .build();
@@ -256,7 +274,7 @@ public class D4FirebaseMessagingService extends FirebaseMessagingService {
     replyIntent.putExtra("d4_reply_action", true);
     PendingIntent replyPending = PendingIntent.getActivity(
         this,
-        (Math.abs((conversationId != null ? conversationId : "msg").hashCode()) + 2) & 0xffff,
+        Math.abs(("reply_" + conversationId).hashCode()) & 0xffff,
         replyIntent,
         PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_MUTABLE);
 
@@ -266,39 +284,157 @@ public class D4FirebaseMessagingService extends FirebaseMessagingService {
         .setAllowGeneratedReplies(true)
         .build();
 
-    String groupKey = "d4_chat_" + (conversationId != null && !conversationId.isEmpty()
-        ? conversationId
-        : "general");
+    // MessagingStyle (WhatsApp-like conversation)
+    Person sender = new Person.Builder()
+        .setName(senderName)
+        .setKey(conversationId.isEmpty() ? senderName : conversationId)
+        .setImportant(true)
+        .build();
+
+    NotificationCompat.MessagingStyle style = new NotificationCompat.MessagingStyle(
+        new Person.Builder().setName("Me").build())
+        .setConversationTitle(null)
+        .setGroupConversation(false);
+
+    JSONArray hist = loadChatHistory(conversationId);
+    long now = System.currentTimeMillis();
+    try {
+      for (int i = 0; i < hist.length(); i++) {
+        JSONObject row = hist.getJSONObject(i);
+        String n = row.optString("name", senderName);
+        String m = row.optString("text", "");
+        long ts = row.optLong("ts", now);
+        Person p = new Person.Builder().setName(n).build();
+        style.addMessage(m, ts, p);
+      }
+    } catch (Throwable ignored) {
+      style.addMessage(body, now, sender);
+    }
+
+    String groupKey = "d4exam_all_messages";
+    int notifId = Math.abs(("chat_" + (conversationId.isEmpty() ? title : conversationId)).hashCode());
 
     NotificationCompat.Builder b = new NotificationCompat.Builder(this, MSG_CHANNEL_ID)
         .setSmallIcon(appIcon())
         .setContentTitle(title)
         .setContentText(body)
-        .setStyle(new NotificationCompat.BigTextStyle().bigText(body))
+        .setStyle(style)
         .setAutoCancel(true)
         .setContentIntent(openPending)
         .setPriority(NotificationCompat.PRIORITY_HIGH)
         .setCategory(NotificationCompat.CATEGORY_MESSAGE)
         .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
         .setGroup(groupKey)
+        .setNumber(hist.length() > 0 ? hist.length() : 1)
         .addAction(replyAction)
-        .addAction(0, "Mark as read", markPending);
+        .addAction(0, "Mark as read", markPending)
+        .setShortcutId(conversationId.isEmpty() ? null : conversationId);
 
-    int notifId = Math.abs(groupKey.hashCode());
     try {
       nm.notify(notifId, b.build());
-      // Summary for grouped notifications
+      // App-level summary: "D4EXAM · N messages from M chats"
+      postMessagesSummary(nm, openPending);
+    } catch (SecurityException ignored) {}
+  }
+
+  private String formatMessagePreview(String body, String attachmentType) {
+    String at = attachmentType == null ? "" : attachmentType.toLowerCase();
+    if (at.contains("audio") || at.equals("voice")) {
+      return "🎙 Voice message";
+    }
+    if (at.contains("image") || at.equals("photo")) {
+      return "📷 Photo";
+    }
+    if (at.contains("video")) {
+      return "🎥 Video";
+    }
+    if (at.contains("file") || at.contains("document") || at.contains("pdf")) {
+      return "📎 Document";
+    }
+    if (at.equals("call") || (body != null && body.toLowerCase().contains("missed"))) {
+      if (body != null && body.toLowerCase().contains("video")) return "📹 Missed video call";
+      return "📞 Missed voice call";
+    }
+    return body;
+  }
+
+  private SharedPreferences chatPrefs() {
+    return getSharedPreferences("d4_chat_notif_hist", MODE_PRIVATE);
+  }
+
+  private void appendChatHistory(String conversationId, String name, String text) {
+    try {
+      String key = "c_" + (conversationId == null || conversationId.isEmpty() ? "general" : conversationId);
+      JSONArray arr = loadChatHistory(conversationId);
+      JSONObject row = new JSONObject();
+      row.put("name", name);
+      row.put("text", text);
+      row.put("ts", System.currentTimeMillis());
+      arr.put(row);
+      // keep last 6
+      JSONArray trimmed = new JSONArray();
+      int start = Math.max(0, arr.length() - 6);
+      for (int i = start; i < arr.length(); i++) trimmed.put(arr.get(i));
+      chatPrefs().edit().putString(key, trimmed.toString()).apply();
+      // track active conversations for summary
+      String active = chatPrefs().getString("active_convs", "[]");
+      JSONArray act = new JSONArray(active);
+      boolean found = false;
+      for (int i = 0; i < act.length(); i++) {
+        if (key.equals(act.optString(i))) { found = true; break; }
+      }
+      if (!found) act.put(key);
+      chatPrefs().edit().putString("active_convs", act.toString()).apply();
+    } catch (Throwable ignored) {}
+  }
+
+  private JSONArray loadChatHistory(String conversationId) {
+    try {
+      String key = "c_" + (conversationId == null || conversationId.isEmpty() ? "general" : conversationId);
+      String raw = chatPrefs().getString(key, "[]");
+      return new JSONArray(raw);
+    } catch (Throwable t) {
+      return new JSONArray();
+    }
+  }
+
+  private void postMessagesSummary(NotificationManager nm, PendingIntent openPending) {
+    try {
+      String active = chatPrefs().getString("active_convs", "[]");
+      JSONArray act = new JSONArray(active);
+      int chats = 0;
+      int messages = 0;
+      NotificationCompat.InboxStyle inbox = new NotificationCompat.InboxStyle();
+      inbox.setBigContentTitle("D4EXAM");
+      for (int i = 0; i < act.length(); i++) {
+        String key = act.optString(i);
+        if (key.isEmpty()) continue;
+        String raw = chatPrefs().getString(key, "[]");
+        JSONArray hist = new JSONArray(raw);
+        if (hist.length() == 0) continue;
+        chats++;
+        messages += hist.length();
+        JSONObject last = hist.getJSONObject(hist.length() - 1);
+        String line = last.optString("name", "Chat") + ": " + last.optString("text", "");
+        if (line.length() > 80) line = line.substring(0, 77) + "…";
+        inbox.addLine(line);
+      }
+      if (chats == 0) return;
+      String summaryText = messages + (messages == 1 ? " message" : " messages")
+          + " from " + chats + (chats == 1 ? " chat" : " chats");
+      inbox.setSummaryText(summaryText);
       NotificationCompat.Builder summary = new NotificationCompat.Builder(this, MSG_CHANNEL_ID)
           .setSmallIcon(appIcon())
           .setContentTitle("D4EXAM")
-          .setContentText("New messages")
-          .setStyle(new NotificationCompat.InboxStyle())
-          .setGroup(groupKey)
+          .setContentText(summaryText)
+          .setStyle(inbox)
+          .setGroup("d4exam_all_messages")
           .setGroupSummary(true)
           .setAutoCancel(true)
-          .setContentIntent(openPending);
-      nm.notify(notifId + 1, summary.build());
-    } catch (SecurityException ignored) {}
+          .setContentIntent(openPending)
+          .setPriority(NotificationCompat.PRIORITY_HIGH);
+      nm.notify(88001, summary.build());
+    } catch (Throwable ignored) {}
   }
 
   private void handleNormalNotification(RemoteMessage remoteMessage) {

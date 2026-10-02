@@ -50,15 +50,30 @@ public class MainActivity extends BridgeActivity {
 
     // Deep-link from message / missed-call notification
     String openPath = intent.getStringExtra("d4_open_path");
+    String conversationId = intent.getStringExtra("d4_conversation_id");
+    if (conversationId == null) conversationId = "";
+    if ((openPath == null || openPath.isEmpty()) && !conversationId.isEmpty()) {
+      openPath = "/student/messages?chat=" + conversationId;
+    }
     if (openPath != null && !openPath.isEmpty()) {
       boolean markRead = intent.getBooleanExtra("d4_mark_read", false);
-      String conversationId = intent.getStringExtra("d4_conversation_id");
-      if (conversationId == null) conversationId = "";
+      boolean replyAction = intent.getBooleanExtra("d4_reply_action", false);
+      String replyText = null;
+      if (replyAction) {
+        try {
+          android.os.Bundle remote = androidx.core.app.RemoteInput.getResultsFromIntent(intent);
+          if (remote != null) {
+            CharSequence cs = remote.getCharSequence("d4_reply_text");
+            if (cs != null) replyText = cs.toString();
+          }
+        } catch (Throwable ignored) {}
+      }
       final String navJs =
           "window.dispatchEvent(new CustomEvent('d4-native-nav',{detail:{"
               + "path:" + jsonStr(openPath) + ","
               + "conversationId:" + jsonStr(conversationId) + ","
-              + "markRead:" + (markRead ? "true" : "false")
+              + "markRead:" + (markRead ? "true" : "false") + ","
+              + "reply:" + (replyText != null ? jsonStr(replyText) : "null")
               + "}}));";
       evalJs(navJs);
     }
@@ -195,4 +210,6 @@ public class MainActivity extends BridgeActivity {
     } catch (Exception ignored) {
     }
   }
+
+
 }
