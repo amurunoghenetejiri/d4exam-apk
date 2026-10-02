@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { Link, useRouterState } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   Bell,
   Building2,
@@ -437,6 +437,27 @@ export function AppShell({
     seedSchoolBrand(session.schoolId, schoolName, logoUrl);
   }
   const avatarLetters = user.avatar || initials(user.name || "U");
+  const [navAvatarUrl, setNavAvatarUrl] = useState<string | null>(user.avatarUrl || null);
+  useEffect(() => {
+    setNavAvatarUrl(user.avatarUrl || null);
+  }, [user.avatarUrl]);
+  useEffect(() => {
+    const uid = session?.userId;
+    if (!uid) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const { data } = await supabase
+          .from("profiles")
+          .select("profile_photo_url")
+          .eq("auth_user_id", uid)
+          .maybeSingle();
+        const url = (data as { profile_photo_url?: string | null } | null)?.profile_photo_url || null;
+        if (!cancelled && url) setNavAvatarUrl(url);
+      } catch { /* ignore */ }
+    })();
+    return () => { cancelled = true; };
+  }, [session?.userId]);
   const role = session?.role ?? null;
 
   return (
@@ -595,8 +616,8 @@ export function AppShell({
                   aria-label="Account menu"
                 >
                   <span className="relative grid h-8 w-8 place-items-center overflow-hidden rounded-full bg-white/15 text-[11px] font-semibold text-white ring-1 ring-white/25">
-                    {user.avatarUrl ? (
-                      <img src={user.avatarUrl} alt="" className="h-full w-full object-cover" />
+                    {navAvatarUrl ? (
+                      <img src={navAvatarUrl} alt="" className="h-full w-full object-cover" />
                     ) : (
                       avatarLetters.slice(0, 2)
                     )}
@@ -613,8 +634,8 @@ export function AppShell({
                 <div className="border-b border-slate-100 bg-white px-3.5 py-3.5">
                   <div className="flex items-start gap-3">
                     <span className="relative grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-full bg-slate-800 text-xs font-semibold text-white">
-                      {user.avatarUrl ? (
-                        <img src={user.avatarUrl} alt="" className="h-full w-full object-cover" />
+                      {navAvatarUrl ? (
+                        <img src={navAvatarUrl} alt="" className="h-full w-full object-cover" />
                       ) : (
                         avatarLetters.slice(0, 2)
                       )}

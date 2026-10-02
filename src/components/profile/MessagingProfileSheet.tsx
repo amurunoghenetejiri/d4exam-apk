@@ -203,7 +203,7 @@ export function MessagingProfileSheet({
     <>
       {/* Dim overlay only — no heavy blur wash */}
       <div
-        className="fixed inset-0 z-[120] flex items-center justify-center bg-black/50 p-0 sm:p-4"
+        className="fixed inset-0 z-[120] flex h-[100dvh] w-screen items-center justify-center bg-black/55 p-4 backdrop-blur-md"
         role="dialog"
         aria-modal="true"
         aria-label="Profile preview"
@@ -211,9 +211,8 @@ export function MessagingProfileSheet({
       >
         <div
           className={cn(
-            "relative flex max-h-[100dvh] w-full max-w-none flex-col overflow-y-auto",
-            "sm:max-h-[90dvh] sm:max-w-[22rem] sm:rounded-[1.5rem]",
-            "bg-[#0b1b3a] sm:ring-1 sm:ring-white/10",
+            "relative mx-auto flex max-h-[min(92dvh,640px)] w-full max-w-[22rem] flex-col overflow-y-auto",
+            "rounded-[1.5rem] bg-[#0b1b3a] shadow-2xl ring-1 ring-white/10",
           )}
           onClick={(e) => e.stopPropagation()}
         >

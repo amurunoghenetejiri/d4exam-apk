@@ -413,10 +413,19 @@ export function ConversationChat({
   const msgQuery = useQuery({
     queryKey: ["campus-messages", conversationId],
     enabled: Boolean(conversationId),
-    staleTime: 0,
-    refetchOnMount: "always",
+    staleTime: 10_000,
+    refetchOnMount: true,
     refetchOnWindowFocus: true,
-    queryFn: () => listMessages(conversationId, 120),
+    placeholderData: (prev) => prev,
+    queryFn: async () => {
+      const rows = await listMessages(conversationId, 200);
+      // Never replace non-empty cache with empty result (network/RLS glitch)
+      if (!rows.length) {
+        const cached = qc.getQueryData<CampusMessage[]>(["campus-messages", conversationId]);
+        if (Array.isArray(cached) && cached.length) return cached;
+      }
+      return rows;
+    },
   });
 
   useEffect(() => {
@@ -438,10 +447,20 @@ export function ConversationChat({
           table: "campus_messages",
           filter: `conversation_id=eq.${conversationId}`,
         },
-        () => {
-          void qc.invalidateQueries({ queryKey: ["campus-messages", conversationId] });
+        async () => {
+          try {
+            const rows = await listMessages(conversationId, 200);
+            if (rows.length) {
+              qc.setQueryData(["campus-messages", conversationId], rows);
+            } else {
+              // keep existing cache if refetch empty
+              const cached = qc.getQueryData(["campus-messages", conversationId]);
+              if (!Array.isArray(cached) || !cached.length) {
+                qc.setQueryData(["campus-messages", conversationId], rows);
+              }
+            }
+          } catch { /* ignore */ }
           void qc.invalidateQueries({ queryKey: ["campus-conversations"] });
-          // ACK delivery for messages we received
           void markMessagesDelivered(conversationId);
         },
       );
@@ -900,14 +919,14 @@ export function ConversationChat({
         replyToId: replyId,
       });
       removeOutbox(clientId);
-      // Drop optimistic row and inject server row so ticks flip immediately
+      // Keep message visible: replace optimistic with server row (real UUID → tick)
       setOptimistic((prev) => prev.filter((m) => m.client_id !== clientId));
       qc.setQueryData<CampusMessage[]>(
         ["campus-messages", conversationId],
         (old) => {
           const list = Array.isArray(old) ? old.slice() : [];
           const idx = list.findIndex(
-            (m) => m.id === sent.id || m.client_id === clientId,
+            (m) => m.id === sent.id || m.client_id === clientId || m.id === clientId,
           );
           if (idx >= 0) list[idx] = sent;
           else list.push(sent);
@@ -917,7 +936,8 @@ export function ConversationChat({
           );
         },
       );
-      void qc.invalidateQueries({ queryKey: ["campus-messages", conversationId] });
+      // Only refresh conversation list preview — do NOT invalidate messages
+      // (a failed/empty refetch was wiping the chat after a successful send)
       void qc.invalidateQueries({ queryKey: ["campus-conversations"] });
     } catch (e) {
       // Keep in outbox + optimistic; will retry on reconnect
@@ -1271,7 +1291,13 @@ export function ConversationChat({
         className="relative z-10 min-h-0 flex-1 overflow-y-auto px-3 py-3"
       >
         <div className="mx-auto flex min-h-full max-w-2xl flex-col gap-2">
-          {merged.length === 0 ? (
+          {msgQuery.isError ? (
+            <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 py-16 text-center">
+              <p className="text-sm font-semibold text-rose-600">Could not load messages</p>
+              <p className="text-xs text-slate-500">{(msgQuery.error as Error)?.message || "Try again"}</p>
+              <button type="button" className="mt-2 rounded-full bg-[#2563eb] px-4 py-2 text-xs font-bold text-white" onClick={() => void msgQuery.refetch()}>Retry</button>
+            </div>
+          ) : merged.length === 0 ? (
             <div className="flex flex-1 flex-col items-center justify-center px-6 py-16 text-center">
               <p className="text-sm font-semibold text-slate-600">
                 No messages yet

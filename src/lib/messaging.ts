@@ -590,7 +590,10 @@ export async function sendCampusMessage(opts: {
       p_duration_sec: opts.durationSec ?? null,
     } as never);
     if (!rpcErr && rpcMsg) {
-      const msg = rpcMsg as CampusMessage;
+      const msg = (Array.isArray(rpcMsg) ? rpcMsg[0] : rpcMsg) as CampusMessage;
+      if (!msg?.id) {
+        console.warn("[sendCampusMessage] rpc returned no id", rpcMsg);
+      } else {
       const preview = previewFromMessage(row);
       void notifyMessageRecipients({
         conversationId: opts.conversationId,
@@ -600,6 +603,7 @@ export async function sendCampusMessage(opts: {
         messageId: msg.id,
       });
       return msg;
+      }
     }
     if (rpcErr) console.warn("[sendCampusMessage] rpc", rpcErr.message);
   } catch (e) {
@@ -707,6 +711,12 @@ export async function listMessages(
   limit = 80,
 ): Promise<CampusMessage[]> {
   const byId = new Map<string, CampusMessage>();
+  const put = (rows: unknown) => {
+    const arr = Array.isArray(rows) ? rows : rows && typeof rows === "object" ? [rows] : [];
+    for (const r of arr as CampusMessage[]) {
+      if (r && (r as CampusMessage).id) byId.set(String((r as CampusMessage).id), r as CampusMessage);
+    }
+  };
 
   // 1) SECURITY DEFINER RPC
   try {
@@ -715,30 +725,32 @@ export async function listMessages(
       p_limit: limit,
     } as never);
     if (rpcErr) console.warn("[listMessages] rpc", rpcErr.message);
-    const rows = Array.isArray(rpcData)
-      ? rpcData
-      : rpcData && typeof rpcData === "object"
-        ? [rpcData]
-        : [];
-    for (const r of rows as CampusMessage[]) {
-      if (r?.id) byId.set(String(r.id), r);
-    }
+    else put(rpcData);
   } catch (e) {
     console.warn("[listMessages] rpc exception", e);
   }
 
-  // 2) Direct table SELECT (merge so we never lose rows)
+  // 2) Direct table SELECT
   try {
     const { data, error } = await supabase
       .from("campus_messages")
-      .select("*")
+      .select("id, conversation_id, sender_id, body, attachment_url, attachment_type, reply_to_id, forwarded_from_id, client_id, duration_sec, created_at, edited_at, deleted_at, delivered_at")
       .eq("conversation_id", conversationId)
-      .is("deleted_at", null)
       .order("created_at", { ascending: true })
       .limit(limit);
-    if (error) console.warn("[listMessages] select", error.message);
-    for (const r of (data || []) as CampusMessage[]) {
-      if (r?.id) byId.set(String(r.id), r);
+    if (error) {
+      console.warn("[listMessages] select", error.message);
+      // Retry without delivered_at in case column missing on older clients
+      const { data: d2, error: e2 } = await supabase
+        .from("campus_messages")
+        .select("*")
+        .eq("conversation_id", conversationId)
+        .order("created_at", { ascending: true })
+        .limit(limit);
+      if (e2) console.warn("[listMessages] select*", e2.message);
+      else put((d2 || []).filter((m: CampusMessage) => !m.deleted_at));
+    } else {
+      put((data || []).filter((m: CampusMessage) => !m.deleted_at));
     }
   } catch (e) {
     console.warn("[listMessages] select exception", e);

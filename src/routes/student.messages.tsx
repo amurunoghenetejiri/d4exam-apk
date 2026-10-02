@@ -33,6 +33,7 @@ import {
   Clock,
 } from "lucide-react";
 import { useSessionUser } from "@/lib/session";
+import { supabase } from "@/integrations/supabase/client";
 import { useStudentContext } from "@/lib/student";
 import { cn } from "@/lib/utils";
 import {
@@ -166,6 +167,27 @@ function MessagesHub() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { data: session } = useSessionUser();
+  const [myNavPhoto, setMyNavPhoto] = useState<string | null>(session?.avatarUrl || null);
+  useEffect(() => {
+    setMyNavPhoto(session?.avatarUrl || null);
+  }, [session?.avatarUrl]);
+  useEffect(() => {
+    const uid = session?.userId;
+    if (!uid) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const { data } = await supabase
+          .from("profiles")
+          .select("profile_photo_url")
+          .eq("auth_user_id", uid)
+          .maybeSingle();
+        const url = (data as { profile_photo_url?: string | null } | null)?.profile_photo_url || null;
+        if (!cancelled && url) setMyNavPhoto(url);
+      } catch { /* ignore */ }
+    })();
+    return () => { cancelled = true; };
+  }, [session?.userId]);
   const { data: student } = useStudentContext();
   const userId = session?.userId || "";
   const [profileSheetUserId, setProfileSheetUserId] = useState<string | null>(null);
@@ -462,8 +484,8 @@ function MessagesHub() {
               className="relative grid h-10 w-10 place-items-center overflow-hidden rounded-full bg-white/10 text-white ring-1 ring-white/20 transition active:scale-95"
               aria-label="My profile"
             >
-              {session?.avatarUrl ? (
-                <img src={session.avatarUrl} alt="" className="h-full w-full object-cover" />
+              {myNavPhoto ? (
+                <img src={myNavPhoto} alt="" className="h-full w-full object-cover" />
               ) : (
                 <User className="h-5 w-5" />
               )}
