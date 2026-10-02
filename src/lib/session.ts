@@ -1128,6 +1128,18 @@ export function initials(name: string) {
 }
 
 export async function signOut() {
+  try {
+    const { data: auth } = await supabase.auth.getUser();
+    const uid = auth.user?.id;
+    if (uid) {
+      await supabase
+        .from("push_devices")
+        .update({ enabled: false, updated_at: new Date().toISOString() } as never)
+        .eq("user_id", uid);
+    }
+  } catch {
+    /* ignore */
+  }
   await supabase.auth.signOut();
   clearPendingLoginRole();
   if (typeof window !== "undefined") window.location.href = "/login";

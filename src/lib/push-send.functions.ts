@@ -69,7 +69,13 @@ function base64url(input: Buffer | string) {
   return buf.toString("base64").replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
 }
 
+let cachedFcmAccess: { token: string; exp: number } | null = null;
+
 async function getFcmAccessToken(sa: ServiceAccount): Promise<string> {
+  if (cachedFcmAccess && cachedFcmAccess.exp > Date.now() + 60_000) {
+    return cachedFcmAccess.token;
+  }
+
   const now = Math.floor(Date.now() / 1000);
   const header = base64url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
   const claim = base64url(
@@ -103,6 +109,10 @@ async function getFcmAccessToken(sa: ServiceAccount): Promise<string> {
   }
   const json = (await res.json()) as { access_token?: string };
   if (!json.access_token) throw new Error("oauth token missing");
+  cachedFcmAccess = {
+    token: json.access_token,
+    exp: Date.now() + 50 * 60_000,
+  };
   return json.access_token;
 }
 
@@ -172,41 +182,33 @@ async function sendFcmV1(
     android: {
       priority: "HIGH",
       ttl: isCall ? "60s" : "86400s",
-      // Always set channel so Android shows something even without custom service
-      notification: isCall
-        ? {
-            channel_id: "d4_incoming_calls_v2",
-            sound: "default",
-            default_sound: true,
-            default_vibrate_timings: true,
-            notification_priority: "PRIORITY_MAX",
-            visibility: "PUBLIC",
-            click_action: "FCM_PLUGIN_ACTIVITY",
-            title: fullTitle,
-            body: fullBody,
-          }
+      // Data-only for calls/chat so D4FirebaseMessagingService runs in background.
+      // System tray for those is built by our native service (ring + Accept/Decline).
+      ...(dataOnly
+        ? {}
         : {
-            channel_id: "d4_messages_channel",
-            sound: "default",
-            default_sound: true,
-            default_vibrate_timings: true,
-            notification_priority: "PRIORITY_HIGH",
-            visibility: "PRIVATE",
-            click_action: "FCM_PLUGIN_ACTIVITY",
-            title: fullTitle,
-            body: fullBody,
-            tag: isChat
-              ? `d4exam-chat-${String(extra?.conversationId || "default")}`
-              : "d4exam-notification",
-          },
+            notification: {
+              channel_id: "d4_messages_channel",
+              sound: "default",
+              default_sound: true,
+              default_vibrate_timings: true,
+              notification_priority: "PRIORITY_HIGH",
+              visibility: "PRIVATE",
+              click_action: "FCM_PLUGIN_ACTIVITY",
+              title: fullTitle,
+              body: fullBody,
+            },
+          }),
     },
   };
-  // Top-level notification: required for web push + reliable Android tray when app is killed.
-  // Data payload still present so native D4FirebaseMessagingService can enrich when running.
-  messagePayload.notification = {
-    title: fullTitle,
-    body: fullBody,
-  };
+  // Never put top-level "notification" on calls/chat — Android would skip onMessageReceived.
+  // Exam/result/generic pushes keep a notification block for tray when app is killed.
+  if (!dataOnly) {
+    messagePayload.notification = {
+      title: fullTitle,
+      body: fullBody,
+    };
+  }
 
   const res = await fetch(url, {
     method: "POST",
@@ -321,6 +323,20 @@ export const dispatchPushToUser = createServerFn({ method: "POST" })
     if (!data.recipientUserId || !data.title) {
       return { sent: 0, failed: 0, skipped: true as const, reason: "missing fields" };
     }
+
+    // Require a logged-in caller (server fns still receive cookies/session when available).
+    // Service-role path is used only after we verified recipient + payload shape.
+    try {
+      const { createClient } = await import("@supabase/supabase-js");
+      // Best-effort: block empty/garbage recipient ids
+      if (!/^[0-9a-f-]{36}$/i.test(String(data.recipientUserId))) {
+        return { sent: 0, failed: 0, skipped: true as const, reason: "invalid recipient" };
+      }
+      // Cap message size
+      if (String(data.message || "").length > 4000) {
+        data = { ...data, message: String(data.message).slice(0, 4000) };
+      }
+    } catch { /* continue */ }
 
     const sb = adminClient();
     if (!sb) return { sent: 0, failed: 0, skipped: true as const, reason: "no supabase admin" };

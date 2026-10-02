@@ -311,6 +311,31 @@ export async function notifyCalleeOfIncomingCall(opts: {
 }
 
 
+/** Stop ringing on callee device when caller cancels / hangs up before answer. */
+export async function notifyCalleeCallCancelled(opts: {
+  calleeId: string;
+  callId: string;
+  conversationId?: string | null;
+}) {
+  try {
+    const { dispatchPushToUser } = await import("@/lib/push-send.functions");
+    await dispatchPushToUser({
+      data: {
+        recipientUserId: opts.calleeId,
+        title: "Call ended",
+        message: "The caller ended the call",
+        link: opts.conversationId
+          ? `/student/messages?chat=${encodeURIComponent(opts.conversationId)}`
+          : "/student/messages",
+        type: "cancel_call",
+        callId: opts.callId,
+      },
+    });
+  } catch {
+    /* best-effort */
+  }
+}
+
 /** Notify callee in realtime (works when their app is open). */
 export async function inviteCalleeOnPersonalChannel(opts: {
   calleeId: string;

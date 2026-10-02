@@ -741,22 +741,21 @@ export async function listMessages(
     console.warn("[listMessages] rpc exception", e);
   }
 
-  // 2) Direct table SELECT
+  // 2) Direct table SELECT — latest N messages (not oldest)
   try {
     const { data, error } = await supabase
       .from("campus_messages")
       .select("id, conversation_id, sender_id, body, attachment_url, attachment_type, reply_to_id, forwarded_from_id, client_id, duration_sec, created_at, edited_at, deleted_at, delivered_at")
       .eq("conversation_id", conversationId)
-      .order("created_at", { ascending: true })
+      .order("created_at", { ascending: false })
       .limit(limit);
     if (error) {
       console.warn("[listMessages] select", error.message);
-      // Retry without delivered_at in case column missing on older clients
       const { data: d2, error: e2 } = await supabase
         .from("campus_messages")
         .select("*")
         .eq("conversation_id", conversationId)
-        .order("created_at", { ascending: true })
+        .order("created_at", { ascending: false })
         .limit(limit);
       if (e2) console.warn("[listMessages] select*", e2.message);
       else put((d2 || []).filter((m: CampusMessage) => !m.deleted_at));

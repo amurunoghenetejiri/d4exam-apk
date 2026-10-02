@@ -14,6 +14,7 @@ import {
   updateParticipantStatus,
   inviteCalleeOnPersonalChannel,
   notifyCalleeOfIncomingCall,
+  notifyCalleeCallCancelled,
   type SignalEvent,
 } from "@/lib/calls";
 import {
@@ -350,7 +351,7 @@ export async function startOutgoingCall(opts: {
     };
     pulseInvite();
     if (inviteInterval) clearInterval(inviteInterval);
-    inviteInterval = setInterval(pulseInvite, 1500);
+    inviteInterval = setInterval(pulseInvite, 8000);
 
     // 30s no-answer
     ringTimeout = setTimeout(() => {
@@ -801,6 +802,18 @@ export async function endCall(
         reason === "missed" ? "missed" : "ended";
       await updateCallStatus(snap.callId, status as "ended");
       await updateParticipantStatus(snap.callId, snap.myUserId, "left");
+      // Caller cancelled / hung up before answer — stop callee ringtone via FCM
+      if (
+        snap.isCaller &&
+        (reason === "cancelled" || reason === "ended" || reason === "local") &&
+        (snap.phase === "calling" || snap.phase === "ringing" || snap.phase === "connecting")
+      ) {
+        void notifyCalleeCallCancelled({
+          calleeId: snap.peerId,
+          callId: snap.callId,
+          conversationId: snap.conversationId,
+        });
+      }
     }
   } catch {
     /* ignore */

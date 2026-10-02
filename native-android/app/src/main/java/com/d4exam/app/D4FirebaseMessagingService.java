@@ -35,6 +35,18 @@ public class D4FirebaseMessagingService extends FirebaseMessagingService {
   public static final String KEY_TEXT_REPLY = "d4_reply_text";
 
   @Override
+  public void onCreate() {
+    super.onCreate();
+    try {
+      NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+      if (nm != null) {
+        createCallChannel(nm);
+        createMsgChannel(nm);
+      }
+    } catch (Throwable ignored) {}
+  }
+
+  @Override
   public void onNewToken(@NonNull String token) {
     super.onNewToken(token);
     Log.d(TAG, "New FCM Token: " + token);
@@ -50,6 +62,10 @@ public class D4FirebaseMessagingService extends FirebaseMessagingService {
 
     if ("incoming_call".equalsIgnoreCase(type)) {
       handleIncomingCall(data);
+    } else if ("cancel_call".equalsIgnoreCase(type)
+        || "end_call".equalsIgnoreCase(type)
+        || "call_cancelled".equalsIgnoreCase(type)) {
+      handleCancelCall(data);
     } else if ("missed_call".equalsIgnoreCase(type)) {
       handleMissedCall(data);
     } else if ("chat_message".equalsIgnoreCase(type) || "message".equalsIgnoreCase(type)) {
@@ -157,6 +173,17 @@ public class D4FirebaseMessagingService extends FirebaseMessagingService {
     } catch (SecurityException se) {
       Log.w(TAG, "notify failed", se);
     }
+  }
+
+  private void handleCancelCall(Map<String, String> data) {
+    try {
+      D4CallPlugin.stopIncomingRingStatic(getApplicationContext());
+    } catch (Throwable ignored) {}
+    try {
+      NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+      if (nm != null) nm.cancel(CALL_NOTIF_ID);
+    } catch (Throwable ignored) {}
+    Log.d(TAG, "cancel_call handled");
   }
 
   private void handleMissedCall(Map<String, String> data) {
@@ -504,6 +531,17 @@ public class D4FirebaseMessagingService extends FirebaseMessagingService {
       channel.setSound(ringtoneUri, audioAttributes);
       channel.enableVibration(true);
       channel.setVibrationPattern(new long[]{0, 500, 300, 500, 300, 500});
+      nm.createNotificationChannel(channel);
+    }
+  }
+
+  private void createMsgChannel(NotificationManager nm) {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+      NotificationChannel channel = new NotificationChannel(
+          MSG_CHANNEL_ID, "Messages", NotificationManager.IMPORTANCE_HIGH);
+      channel.setDescription("Chat messages and alerts");
+      channel.setLockscreenVisibility(Notification.VISIBILITY_PRIVATE);
+      channel.enableVibration(true);
       nm.createNotificationChannel(channel);
     }
   }

@@ -557,6 +557,17 @@ async function saveDeviceToken(
   if (!token || /^native-/i.test(token) || token.length < 32) {
     return { ok: false, error: "invalid fcm token" };
   }
+  // Device can only belong to one account — reassign on login/switch
+  try {
+    await supabase
+      .from("push_devices")
+      .update({ enabled: false, updated_at: new Date().toISOString() } as never)
+      .eq("token", token)
+      .neq("user_id", userId);
+  } catch {
+    /* ignore */
+  }
+
 
   const ua =
     typeof navigator !== "undefined"
