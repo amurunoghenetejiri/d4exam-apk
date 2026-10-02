@@ -1004,6 +1004,7 @@ export async function fetchSessionUser(): Promise<SessionUser | null> {
     schoolName,
     schoolCode,
     schoolLogoUrl,
+    avatarUrl: photoFinal,
     roles,
     role: primaryRole,
     identifier: identifier ?? profile?.email ?? user.email ?? null,
@@ -1067,7 +1068,8 @@ export function useSessionUser() {
           // Last attempt: server repair
           try {
             const { repairMySessionSchool } = await import("@/lib/repair-session-school.functions");
-            const avatarUrl: photoFinal,lId) {
+            const fixed = await repairMySessionSchool();
+            if (fixed?.schoolId) {
               seedLoginSchoolContext(fixed.schoolId, fixed.schoolCode);
               u = {
                 ...u,
@@ -1075,7 +1077,6 @@ export function useSessionUser() {
                 schoolName: fixed.schoolName ?? u.schoolName,
                 schoolCode: fixed.schoolCode ?? u.schoolCode,
                 schoolLogoUrl: fixed.schoolLogoUrl ?? u.schoolLogoUrl,
-    avatarUrl: (profile as { profile_photo_url?: string | null } | null)?.profile_photo_url || null,
                 roles: [...new Set([...(u.roles || []), ...(fixed.roles || [])])] as AppRole[],
               };
             }
