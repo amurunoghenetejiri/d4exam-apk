@@ -422,8 +422,7 @@ export function ResultsRecordsPage({
     for (const r of rows) {
       lines.push(cols.map((k) => `"${cellValue(r, k).replace(/"/g, '""')}"`).join(","));
     }
-    downloadBlob(lines.join("
-"), `${record.header.courseCode || "result"}-view.csv`, "text/csv;charset=utf-8");
+    downloadBlob(lines.join("\n"), `${record.header.courseCode || "result"}-view.csv`, "text/csv;charset=utf-8");
   }
 
   function exportXlsxLike() {
@@ -771,7 +770,7 @@ export function ResultsRecordsPage({
                     <Columns3 className="mr-1.5 h-3.5 w-3.5" />
                     Edit table
                   </Button>
-                  {(role === "school_admin" || role === "examination_officer" || role === "super_admin") ? (
+                  {(role === "school_admin" || role === "examination_officer" || role === "super_admin" || role === "teacher") ? (
                     <Button
                       type="button"
                       size="sm"
