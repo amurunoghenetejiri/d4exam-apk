@@ -6,7 +6,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { appNavigate } from "@/lib/app-navigate";
 import { ConversationChat } from "./student.messages.$conversationId";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Search,
@@ -52,6 +52,7 @@ import { useRealtimeInvalidate } from "@/lib/realtime";
 import { toast } from "sonner";
 import { openUserProfile, D4_OPEN_PROFILE_EVENT } from "@/components/profile/ClickableUser";
 import { MessagingProfileSheet } from "@/components/profile/MessagingProfileSheet";
+import { SplitHandle } from "@/components/dashboard/SplitHandle";
 import { CallOverlay, MinimizedCallBubble, type ActiveCall } from "@/components/calls/CallOverlay";
 
 export const Route = createFileRoute("/student/messages")({
@@ -218,7 +219,46 @@ function MessagesHub() {
   const schoolId = schoolQ.data || schoolIdHint || "";
 
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
+  const [isWide, setIsWide] = useState(false);
+  const [leftPct, setLeftPct] = useState(38);
+  const splitRef = useRef<HTMLDivElement | null>(null);
+  const splitDragging = useRef(false);
   const [tab, setTab] = useState<TabKey>("chats");
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(min-width: 900px)");
+    const apply = () => setIsWide(mq.matches);
+    apply();
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
+  }, []);
+
+  const onSplitPointerDown = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    splitDragging.current = true;
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+  const onSplitPointerMove = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
+    if (!splitDragging.current || !splitRef.current) return;
+    e.preventDefault();
+    const rect = splitRef.current.getBoundingClientRect();
+    if (rect.width < 80) return;
+    const pct = ((e.clientX - rect.left) / rect.width) * 100;
+    setLeftPct(Math.max(24, Math.min(62, pct)));
+  }, []);
+  const onSplitPointerUp = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
+    splitDragging.current = false;
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   // Deep-link: /student/messages?chat=<conversationId> and native notification taps
   useEffect(() => {
@@ -461,7 +501,8 @@ function MessagesHub() {
     );
   }
 
-  if (activeChatId) {
+  // Phone / narrow: full-screen chat. Desktop: split list + chat below.
+  if (activeChatId && !isWide) {
     return (
       <ConversationChat
         conversationId={activeChatId}
@@ -477,8 +518,8 @@ function MessagesHub() {
     );
   }
 
-  return (
-    <div className="relative flex h-dvh min-h-0 flex-col"
+  const listPane = (
+    <div className="relative flex h-full min-h-0 min-w-0 flex-col"
       style={{ background: "linear-gradient(180deg, #e0f2fe 0%, #f0f9ff 45%, #e0f2fe 100%)" }}>
       {/* Brand watermark — centered, same motion as officer chat */}
       <div aria-hidden className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
@@ -696,6 +737,7 @@ function MessagesHub() {
                 tab === "groups" ? "Create a group" : "Message a student"
               }
               onRetry={() => void convQuery.refetch()}
+              selectedId={activeChatId}
             />
           )}
 
@@ -840,6 +882,43 @@ function MessagesHub() {
       <MinimizedCallBubble />
     </div>
   );
+
+  // Desktop / tablet: list + chat side by side with officer-style animated split handle
+  if (activeChatId && isWide) {
+    return (
+      <div
+        ref={splitRef}
+        className="flex h-dvh min-h-0 w-full flex-row overflow-hidden bg-slate-100"
+      >
+        <div
+          className="flex h-full min-h-0 min-w-0 flex-col border-r border-slate-200/80"
+          style={{ width: `${leftPct}%`, maxWidth: "100%" }}
+        >
+          {listPane}
+        </div>
+        <SplitHandle
+          onPointerDown={onSplitPointerDown}
+          onPointerMove={onSplitPointerMove}
+          onPointerUp={onSplitPointerUp}
+        />
+        <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col bg-white">
+          <ConversationChat
+            conversationId={activeChatId}
+            onBack={() => {
+              setActiveChatId(null);
+              try {
+                appNavigate("/student/messages");
+              } catch {
+                /* ignore */
+              }
+            }}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  return listPane;
 }
 
 function QuickCard({
@@ -882,6 +961,7 @@ function ConversationList({
   onEmptyAction,
   emptyActionLabel,
   onRetry,
+  selectedId,
 }: {
   items: ConversationListItem[];
   loading: boolean;
@@ -891,6 +971,7 @@ function ConversationList({
   onEmptyAction?: () => void;
   emptyActionLabel?: string;
   onRetry?: () => void;
+  selectedId?: string | null;
 }) {
   const { data: session } = useSessionUser();
   const myId = session?.userId || "";
@@ -958,7 +1039,12 @@ function ConversationList({
           <button
             type="button"
             onClick={() => onOpen(c.id)}
-            className="flex w-full items-center gap-3 rounded-2xl border border-blue-100 bg-gradient-to-r from-[#eff6ff] to-white px-3 py-3 text-left shadow-sm transition active:scale-[0.99] hover:border-[#2563eb]/40"
+            className={cn(
+              "flex w-full items-center gap-3 rounded-2xl border px-3 py-3 text-left shadow-sm transition active:scale-[0.99]",
+              selectedId && selectedId === c.id
+                ? "border-[#2563eb] bg-[#dbeafe] ring-1 ring-[#2563eb]/30"
+                : "border-blue-100 bg-gradient-to-r from-[#eff6ff] to-white hover:border-[#2563eb]/40",
+            )}
           >
             <div className="relative">
               <Avatar
