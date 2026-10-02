@@ -455,8 +455,8 @@ function LoginPage() {
       const looksEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(ident);
 
       try {
-        // Native APK: client Supabase login first (bundled shell has no SSR server fns)
-        if (isNativeShell()) {
+        // Always try client Supabase login first (APK has no reliable SSR; website benefits too)
+        {
           const nativeResult = await clientSignInWithSchoolCode({
             schoolCode: schoolCode || "",
             identifier: ident,
@@ -475,7 +475,7 @@ function LoginPage() {
                   await seedSchoolFromCode(schoolCode);
                 }
               } catch { /* ignore */ }
-              await seedSchoolFromCode(schoolCode); if (await resolveRoleAndGoHome()) {
+              if (await resolveRoleAndGoHome()) {
                 navigated = true;
                 return;
               }
@@ -486,6 +486,18 @@ function LoginPage() {
             }
           } else if (nativeResult && "error" in nativeResult && nativeResult.error) {
             lastServerMsg = String(nativeResult.error);
+            // Fatal client errors (wrong school / invalid key) — do not mask with server path
+            const fatal = String(nativeResult.error).toLowerCase();
+            if (
+              fatal.includes("school code not found") ||
+              fatal.includes("invalid api key") ||
+              fatal.includes("invalid email") ||
+              fatal.includes("invalid credentials") ||
+              fatal.includes("invalid password")
+            ) {
+              setError(String(nativeResult.error));
+              return;
+            }
           }
         }
 

@@ -62,23 +62,61 @@ export async function clientSignInWithSchoolCode(
     return { error: "Enter your school code." };
   }
 
-  // Resolve school via public RPC
+  // Resolve school via public RPC (with direct-table fallback)
   let schoolId: string | null = null;
+  let schoolResolveError: string | null = null;
   try {
     const { data: rpcSchool, error: schoolErr } = await supabase.rpc(
       "resolve_school_for_login",
       { _school_code: schoolCode },
     );
-    if (schoolErr) console.warn("[client-login] resolve_school", schoolErr.message);
+    if (schoolErr) {
+      schoolResolveError = schoolErr.message || String(schoolErr);
+      console.warn("[client-login] resolve_school", schoolResolveError);
+    }
     const row = Array.isArray(rpcSchool) ? rpcSchool[0] : rpcSchool;
     if (row && typeof row === "object" && (row as { id?: string }).id) {
       schoolId = String((row as { id: string }).id);
     }
   } catch (e) {
+    schoolResolveError = e instanceof Error ? e.message : String(e);
     console.warn("[client-login] school rpc", e);
   }
 
+  // Fallback: direct schools lookup (RPC may fail if apikey was wrong mid-session)
   if (!schoolId) {
+    try {
+      const { data: schoolRow, error: sErr } = await supabase
+        .from("schools")
+        .select("id, school_code, status")
+        .ilike("school_code", schoolCode)
+        .limit(1)
+        .maybeSingle();
+      if (sErr) {
+        schoolResolveError = schoolResolveError || sErr.message;
+      } else if (schoolRow?.id) {
+        const st = String(schoolRow.status || "active").toLowerCase();
+        if (["active", "approved", "live"].includes(st)) {
+          schoolId = String(schoolRow.id);
+        }
+      }
+    } catch (e) {
+      schoolResolveError =
+        schoolResolveError || (e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  if (!schoolId) {
+    const msg = (schoolResolveError || "").toLowerCase();
+    if (msg.includes("invalid api key") || msg.includes("jwt") || msg.includes("apikey")) {
+      return {
+        error:
+          "Connection error (Invalid API key). Force-close the app, clear cache, and try again.",
+      };
+    }
+    if (schoolResolveError && !msg.includes("permission") && !msg.includes("rls")) {
+      return { error: `Could not verify school code: ${schoolResolveError}` };
+    }
     return { error: "School code not found. Check and try again." };
   }
 
