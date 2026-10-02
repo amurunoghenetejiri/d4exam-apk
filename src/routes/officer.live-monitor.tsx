@@ -249,6 +249,51 @@ export function LiveMonitorPage({ courseIds = null, pageTitle }: LiveMonitorPage
   const [view, setView] = useState<"grid" | "list">("grid");
   const [desktopView, setDesktopView] = useState(false);
   const [feedMode, setFeedMode] = useState<"camera" | "screen" | "both">("both");
+  // Resizable focus-mode feed cards (height in px). Limits follow viewport.
+  const [camH, setCamH] = useState(280);
+  const [scrH, setScrH] = useState(280);
+  const resizeDragRef = useRef<{ which: "cam" | "scr"; startY: number; startH: number } | null>(null);
+
+  useEffect(() => {
+    const onMove = (e: PointerEvent) => {
+      const d = resizeDragRef.current;
+      if (!d) return;
+      const maxH = Math.max(180, Math.floor((typeof window !== "undefined" ? window.innerHeight : 800) * 0.72));
+      const minH = 120;
+      const next = Math.min(maxH, Math.max(minH, d.startH + (e.clientY - d.startY)));
+      if (d.which === "cam") setCamH(next);
+      else setScrH(next);
+    };
+    const onUp = () => {
+      resizeDragRef.current = null;
+      try {
+        document.body.style.userSelect = "";
+        document.body.style.cursor = "";
+      } catch { /* ignore */ }
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    };
+  }, []);
+
+  const beginResize = (which: "cam" | "scr", e: { clientY: number; preventDefault: () => void; stopPropagation: () => void }) => {
+    e.preventDefault();
+    e.stopPropagation();
+    resizeDragRef.current = {
+      which,
+      startY: e.clientY,
+      startH: which === "cam" ? camH : scrH,
+    };
+    try {
+      document.body.style.userSelect = "none";
+      document.body.style.cursor = "ns-resize";
+    } catch { /* ignore */ }
+  };
 
   // Desktop mode on phone: sidebar + multi-column layout, fit width (no sideways scroll)
   useEffect(() => {
@@ -1766,97 +1811,104 @@ export function LiveMonitorPage({ courseIds = null, pageTitle }: LiveMonitorPage
                 <div
                   className={cn(
                     "shrink-0 bg-slate-100 p-1.5 sm:p-2",
-                    // Only mount visible panes — no reserved empty column
                     dual
-                      ? "grid grid-cols-2 items-stretch gap-1.5 sm:gap-3"
-                      : "flex flex-col gap-1.5",
+                      ? "grid grid-cols-1 items-start gap-2 sm:grid-cols-2 sm:gap-3"
+                      : "flex flex-col gap-2",
                   )}
                 >
                   {showCam && (
-                    <div
-                      className={cn(
-                        "relative w-full overflow-hidden rounded-xl bg-slate-900 shadow-inner ring-1 ring-black/10",
-                        dual
-                          ? "h-[13.5rem] sm:h-[18rem] lg:h-[min(42vh,28rem)] xl:h-[min(48vh,34rem)]"
-                          : "mx-auto aspect-square w-full max-w-[min(100%,22rem)] sm:max-w-[min(100%,26rem)] lg:max-w-[min(100%,28rem)]",
-                      )}
-                    >
-                      {showCamFrame ? (
-                        <img
-                          src={camF!.src}
-                          alt={`${selected.name} camera`}
-                          className="h-full w-full object-cover"
-                        />
-                      ) : (
-                        <div className="flex h-full flex-col items-center justify-center gap-1.5 px-3 text-center text-white/70">
-                          {selected.isDone ? (
-                            <CheckCircle2 className="h-10 w-10 text-emerald-400/80" />
-                          ) : (
-                            <CameraOff className="h-10 w-10 opacity-40" />
-                          )}
-                          <p className="text-xs font-semibold text-white/90">
-                            {selected.isDone
-                              ? doneStatusLabel(selected.a.status)
-                              : camF && isLiveCamFrameUsable(camF.ts)
-                                ? "Camera reconnecting…"
-                                : "Camera offline"}
-                          </p>
+                    <div className={cn("relative flex w-full flex-col", !dual && "mx-auto max-w-[min(100%,36rem)]")}>
+                      <div
+                        className="relative w-full overflow-hidden rounded-xl bg-slate-900 shadow-inner ring-1 ring-black/10"
+                        style={{ height: camH, minHeight: 120, maxHeight: "72vh" }}
+                      >
+                        {showCamFrame ? (
+                          <img
+                            src={camF!.src}
+                            alt={`${selected.name} camera`}
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          <div className="flex h-full flex-col items-center justify-center gap-1.5 px-3 text-center text-white/70">
+                            {selected.isDone ? (
+                              <CheckCircle2 className="h-10 w-10 text-emerald-400/80" />
+                            ) : (
+                              <CameraOff className="h-10 w-10 opacity-40" />
+                            )}
+                            <p className="text-xs font-semibold text-white/90">
+                              {selected.isDone
+                                ? doneStatusLabel(selected.a.status)
+                                : camF && isLiveCamFrameUsable(camF.ts)
+                                  ? "Camera reconnecting…"
+                                  : "Camera offline"}
+                            </p>
+                          </div>
+                        )}
+                        <div className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-black/55 px-2 py-0.5 text-[10px] font-bold text-white backdrop-blur-sm">
+                          <span
+                            className={cn(
+                              "h-1.5 w-1.5 rounded-full",
+                              camLive ? "animate-pulse bg-emerald-400" : showCamFrame ? "bg-amber-400" : "bg-slate-400",
+                            )}
+                          />
+                          Camera {camLive ? "· Live" : showCamFrame ? "· Delayed" : ""}
                         </div>
-                      )}
-                      <div className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-black/55 px-2 py-0.5 text-[10px] font-bold text-white backdrop-blur-sm">
-                        <span
-                          className={cn(
-                            "h-1.5 w-1.5 rounded-full",
-                            camLive ? "animate-pulse bg-emerald-400" : showCamFrame ? "bg-amber-400" : "bg-slate-400",
-                          )}
-                        />
-                        Camera {camLive ? "· Live" : showCamFrame ? "· Delayed" : ""}
+                        <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-2.5 pb-2 pt-8">
+                          <p className="truncate text-[11px] font-bold text-white">{selected.name}</p>
+                          <p className="truncate text-[10px] text-white/80">{selected.matric}</p>
+                        </div>
                       </div>
-                      <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-2.5 pb-2 pt-8">
-                        <p className="truncate text-[11px] font-bold text-white">{selected.name}</p>
-                        <p className="truncate text-[10px] text-white/80">{selected.matric}</p>
-                      </div>
+                      <button
+                        type="button"
+                        aria-label="Resize camera"
+                        onPointerDown={(e) => beginResize("cam", e)}
+                        className="mt-1 flex h-5 w-full cursor-ns-resize items-center justify-center rounded-md border border-slate-200 bg-white text-[10px] font-semibold text-slate-500 shadow-sm hover:bg-slate-50 active:bg-slate-100"
+                      >
+                        <span className="h-1 w-10 rounded-full bg-slate-300" />
+                        <span className="sr-only">Drag to resize camera</span>
+                      </button>
                     </div>
                   )}
                   {showScr && (
-                    <div
-                      className={cn(
-                        "relative w-full overflow-hidden rounded-xl bg-slate-950 shadow-inner ring-1 ring-black/10",
-                        // Match camera card height exactly in dual mode
-                        dual
-                          ? "h-[13.5rem] sm:h-[18rem] lg:h-[min(42vh,28rem)] xl:h-[min(48vh,34rem)]"
-                          : "mx-auto aspect-square w-full max-w-[min(100%,22rem)] sm:max-w-[min(100%,26rem)] lg:max-w-[min(100%,28rem)]",
-                      )}
-                    >
-                      {showScrFrame ? (
-                        <div className="h-full w-full overflow-y-auto overflow-x-hidden overscroll-contain">
-                          <img
-                            src={sf!.src}
-                            alt={`${selected.name} screen`}
-                            className="mx-auto block min-h-full w-full bg-black object-contain object-top"
+                    <div className={cn("relative flex w-full flex-col", !dual && "mx-auto max-w-[min(100%,42rem)]")}>
+                      <div
+                        className="relative w-full overflow-hidden rounded-xl bg-slate-950 shadow-inner ring-1 ring-black/10"
+                        style={{ height: scrH, minHeight: 120, maxHeight: "72vh" }}
+                      >
+                        {showScrFrame ? (
+                          <div className="h-full w-full overflow-y-auto overflow-x-hidden overscroll-contain">
+                            <img
+                              src={sf!.src}
+                              alt={`${selected.name} screen`}
+                              className="mx-auto block min-h-full w-full bg-black object-contain object-top"
+                            />
+                          </div>
+                        ) : (
+                          <div className="flex h-full min-h-[8rem] flex-col items-center justify-center gap-1.5 px-4 text-center text-white/60">
+                            <Monitor className="h-10 w-10 opacity-30" />
+                            <p className="text-xs font-semibold text-white/80">Screen not shared</p>
+                            <p className="text-[10px] text-white/50">Appears when the student shares their screen</p>
+                          </div>
+                        )}
+                        <div className="absolute left-2 top-2 z-[1] inline-flex items-center gap-1 rounded-full bg-black/55 px-2 py-0.5 text-[10px] font-bold text-white backdrop-blur-sm">
+                          <span
+                            className={cn(
+                              "h-1.5 w-1.5 rounded-full",
+                              scrLive ? "animate-pulse bg-emerald-400" : showScrFrame ? "bg-amber-400" : "bg-slate-400",
+                            )}
                           />
+                          Screen {scrLive ? "· Live" : showScrFrame ? "· Delayed" : ""}
                         </div>
-                      ) : (
-                        <div
-                          className={cn(
-                            "flex flex-col items-center justify-center gap-1.5 px-4 text-center text-white/60",
-                            dual ? "h-[13.5rem] sm:h-[18rem] lg:h-[min(42vh,28rem)] xl:h-[min(48vh,34rem)]" : "h-full min-h-[12rem]",
-                          )}
-                        >
-                          <Monitor className="h-10 w-10 opacity-30" />
-                          <p className="text-xs font-semibold text-white/80">Screen not shared</p>
-                          <p className="text-[10px] text-white/50">Appears when the student shares their screen</p>
-                        </div>
-                      )}
-                      <div className="sticky left-2 top-2 z-[1] inline-flex items-center gap-1 rounded-full bg-black/55 px-2 py-0.5 text-[10px] font-bold text-white backdrop-blur-sm">
-                        <span
-                          className={cn(
-                            "h-1.5 w-1.5 rounded-full",
-                            scrLive ? "animate-pulse bg-emerald-400" : showScrFrame ? "bg-amber-400" : "bg-slate-400",
-                          )}
-                        />
-                        Screen {scrLive ? "· Live" : showScrFrame ? "· Delayed" : ""}
                       </div>
+                      <button
+                        type="button"
+                        aria-label="Resize screen share"
+                        onPointerDown={(e) => beginResize("scr", e)}
+                        className="mt-1 flex h-5 w-full cursor-ns-resize items-center justify-center rounded-md border border-slate-200 bg-white text-[10px] font-semibold text-slate-500 shadow-sm hover:bg-slate-50 active:bg-slate-100"
+                      >
+                        <span className="h-1 w-10 rounded-full bg-slate-300" />
+                        <span className="sr-only">Drag to resize screen share</span>
+                      </button>
                     </div>
                   )}
                 </div>

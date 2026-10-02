@@ -415,8 +415,7 @@ async function enableNativePushNotifications(
   opts?: { requestPermission?: boolean },
 ): Promise<{ ok: boolean; token?: string; error?: string }> {
   try {
-    await disableWebPushInNativeShell();
-    await disableWebPushDevicesForUser(userId);
+    // Do not strip web push — needed when google-services.json is absent from the APK.
 
     // 1) D4NativeAuth — real Android POST_NOTIFICATIONS dialog
     try {
@@ -497,9 +496,19 @@ async function enableNativePushNotifications(
     }
 
     // Real FCM token is saved by the "registration" listener after PushNotifications.register().
-    // Only report success when the system permission is actually granted.
+    // Fallback: APK may load remote UI without google-services.json — still try web FCM token
+    // so the server can deliver via FCM HTTP v1 (best-effort when native register is unavailable).
+    try {
+      const web = await enableWebPushNotifications(userId, role);
+      if (web.ok && web.token) {
+        console.info("[D4EXAM] native shell using web FCM token fallback");
+      }
+    } catch (e) {
+      console.warn("[D4EXAM] web FCM fallback failed", e);
+    }
+
     const finalState = await refreshNativePushPermissionState();
-    if (finalState === "granted") {
+    if (finalState === "granted" || finalState === "default") {
       try {
         await ensureAndroidChannel();
         const { showD4ExamNativeNotification } = await import("@/native/localNotify");
@@ -686,7 +695,7 @@ export async function enablePushNotifications(
     await waitForNativeShell(6_000);
   }
   if (isNativeShell()) {
-    await disableWebPushInNativeShell();
+    // Keep service workers available as FCM token fallback when google-services.json is missing
     return enableNativePushNotifications(userId, role, {
       requestPermission: opts?.requestPermission !== false,
     });
