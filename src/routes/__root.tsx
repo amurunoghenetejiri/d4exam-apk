@@ -118,6 +118,7 @@ function WebPushBootstrap() {
     } catch { /* ignore */ }
     if (isNativeShell()) return;
     void initWebPushIfNeeded(session.userId, session.role);
+            void import("@/lib/push").then((m) => m.enablePushNotifications(session.userId, session.role, { requestPermission: false })).catch(() => null);
     const onVis = () => {
       if (document.visibilityState === "visible") {
         void initWebPushIfNeeded(session.userId, session.role);

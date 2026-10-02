@@ -529,7 +529,7 @@ async function notifyMessageRecipients(opts: {
     const title = senderMatric ? `${senderName} · ${senderMatric}` : senderName;
     const link = `/student/messages?chat=${encodeURIComponent(opts.conversationId)}`;
     const { dispatchPushToUser } = await import("@/lib/push-send.functions");
-    await Promise.all(
+    const results = await Promise.all(
       recipients.map((recipientUserId) =>
         dispatchPushToUser({
           data: {
@@ -547,11 +547,20 @@ async function notifyMessageRecipients(opts: {
             messageId: opts.messageId || "",
             attachmentType: opts.attachmentType || "",
           } as never,
-        }).catch(() => null),
+        }).catch((e) => {
+          console.warn("[notifyMessageRecipients] push error", e);
+          return null;
+        }),
       ),
     );
-  } catch {
-    /* best-effort — Realtime still delivers when app is open */
+    console.info(
+      "[notifyMessageRecipients]",
+      recipients.length,
+      "recipients",
+      results.map((r) => (r && typeof r === "object" ? r : null)),
+    );
+  } catch (e) {
+    console.warn("[notifyMessageRecipients] failed", e);
   }
 }
 
