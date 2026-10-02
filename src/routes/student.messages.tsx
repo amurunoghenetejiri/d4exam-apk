@@ -225,7 +225,12 @@ function MessagesHub() {
   const [fabHidden, setFabHidden] = useState(false);
   const fabTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [outboxTick, setOutboxTick] = useState(0);
-  useEffect(() => subscribeOutbox(() => setOutboxTick((n) => n + 1)), []);
+  useEffect(() => {
+    const unsub = subscribeOutbox(() => setOutboxTick((n) => n + 1));
+    return () => {
+      unsub();
+    };
+  }, []);
 
   useEffect(() => {
     const hide = () => {
