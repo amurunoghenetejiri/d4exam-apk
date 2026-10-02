@@ -74,29 +74,26 @@ export function GlobalCallHost() {
         markRead?: boolean;
         reply?: string | null;
       }>).detail;
-      if (!detail?.path) return;
-      try {
-        void import("@/lib/app-navigate").then((m) => m.appNavigate(detail.path!));
-      } catch {
-        try {
-          window.location.assign(detail.path);
-        } catch {
-          /* ignore */
-        }
-      }
-      if (detail.markRead && detail.conversationId) {
+      const hasReply = Boolean(detail.reply && detail.conversationId);
+      const hasMark = Boolean(detail.markRead && detail.conversationId);
+      // Silent actions first (Reply / Mark as read) so they work without needing chat UI mounted
+      if (hasMark) {
         void (async () => {
           try {
             const { markConversationRead } = await import("@/lib/messaging");
             const { data: { user } } = await (await import("@/integrations/supabase/client")).supabase.auth.getUser();
-            if (user?.id) await markConversationRead(detail.conversationId!, user.id);
+            if (user?.id) {
+              await markConversationRead(detail.conversationId!, user.id);
+              try {
+                window.dispatchEvent(new CustomEvent("d4-conversations-refresh"));
+              } catch { /* optional */ }
+            }
           } catch {
             /* ignore */
           }
         })();
       }
-      // Inline reply from notification
-      if (detail.reply && detail.conversationId) {
+      if (hasReply) {
         void (async () => {
           try {
             const { sendCampusMessage } = await import("@/lib/messaging");
@@ -106,13 +103,31 @@ export function GlobalCallHost() {
             await sendCampusMessage({
               conversationId: detail.conversationId!,
               senderId: user.id,
-              body: detail.reply!,
+              body: String(detail.reply),
               clientId,
             });
+            // Mark read after quick-reply
+            try {
+              const { markConversationRead } = await import("@/lib/messaging");
+              await markConversationRead(detail.conversationId!, user.id);
+            } catch { /* ignore */ }
           } catch {
             /* ignore */
           }
         })();
+        // Reply stays silent — do not force-navigate into chat
+        if (!detail.path || detail.path === "/student/messages") return;
+      }
+      if (!detail?.path) return;
+      // Open exact chat when user taps notification body
+      try {
+        void import("@/lib/app-navigate").then((m) => m.appNavigate(detail.path!));
+      } catch {
+        try {
+          window.location.assign(detail.path);
+        } catch {
+          /* ignore */
+        }
       }
     };
     window.addEventListener("d4-native-nav", onNav);

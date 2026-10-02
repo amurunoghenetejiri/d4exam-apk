@@ -490,10 +490,11 @@ async function notifyMessageRecipients(opts: {
   try {
     const { data: members } = await supabase
       .from("conversation_members")
-      .select("user_id")
+      .select("user_id, muted")
       .eq("conversation_id", opts.conversationId)
       .is("left_at", null);
     const recipients = (members || [])
+      .filter((m) => !(m as { muted?: boolean }).muted)
       .map((m) => String((m as { user_id?: string }).user_id || ""))
       .filter((id) => id && id !== opts.senderId);
     if (!recipients.length) return;

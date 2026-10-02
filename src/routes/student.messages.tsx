@@ -48,6 +48,7 @@ import {
   type GroupKind,
 } from "@/lib/messaging";
 import { listOutbox, subscribeOutbox } from "@/lib/message-outbox";
+import { useRealtimeInvalidate } from "@/lib/realtime";
 import { toast } from "sonner";
 import { openUserProfile, D4_OPEN_PROFILE_EVENT } from "@/components/profile/ClickableUser";
 import { MessagingProfileSheet } from "@/components/profile/MessagingProfileSheet";
@@ -218,6 +219,50 @@ function MessagesHub() {
 
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [tab, setTab] = useState<TabKey>("chats");
+
+  // Deep-link: /student/messages?chat=<conversationId> and native notification taps
+  useEffect(() => {
+    const openFromQuery = () => {
+      try {
+        const href = typeof window !== "undefined" ? window.location.href : "";
+        const u = new URL(href, "https://d4exam.local");
+        // Support path query and hash query (#/student/messages?chat=)
+        let chat = u.searchParams.get("chat") || u.searchParams.get("conversationId");
+        if (!chat && u.hash.includes("?")) {
+          const hq = u.hash.split("?")[1] || "";
+          const sp = new URLSearchParams(hq);
+          chat = sp.get("chat") || sp.get("conversationId");
+        }
+        if (chat && chat.length > 8) setActiveChatId(chat);
+      } catch {
+        /* ignore */
+      }
+    };
+    openFromQuery();
+    const onHash = () => openFromQuery();
+    window.addEventListener("hashchange", onHash);
+    const onNav = (ev: Event) => {
+      const d = (ev as CustomEvent<{ conversationId?: string; path?: string }>).detail;
+      if (d?.conversationId) {
+        setActiveChatId(String(d.conversationId));
+        return;
+      }
+      if (d?.path && d.path.includes("chat=")) {
+        try {
+          const q = d.path.split("?")[1] || "";
+          const id = new URLSearchParams(q).get("chat");
+          if (id) setActiveChatId(id);
+        } catch {
+          /* ignore */
+        }
+      }
+    };
+    window.addEventListener("d4-native-nav", onNav);
+    return () => {
+      window.removeEventListener("hashchange", onHash);
+      window.removeEventListener("d4-native-nav", onNav);
+    };
+  }, []);
   const [search, setSearch] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
   const [findOpen, setFindOpen] = useState(false);
@@ -259,6 +304,27 @@ function MessagesHub() {
     staleTime: 15_000,
     queryFn: () => listMyConversations(userId),
   });
+
+  // Live chat list (new messages / membership changes)
+  useRealtimeInvalidate(
+    `campus-conv-list-${userId || "anon"}`,
+    [
+      { table: "campus_messages" },
+      { table: "conversation_members" },
+      { table: "conversations" },
+    ],
+    [["campus-conversations", userId]],
+    Boolean(userId),
+    800,
+  );
+
+  useEffect(() => {
+    const onRefresh = () => {
+      void qc.invalidateQueries({ queryKey: ["campus-conversations", userId] });
+    };
+    window.addEventListener("d4-conversations-refresh", onRefresh);
+    return () => window.removeEventListener("d4-conversations-refresh", onRefresh);
+  }, [qc, userId]);
 
   const studentsQuery = useQuery({
     queryKey: [
