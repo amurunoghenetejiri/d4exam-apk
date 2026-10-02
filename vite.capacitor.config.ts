@@ -73,6 +73,14 @@ export default defineConfig({
   define: {
     "process.env.NODE_ENV": JSON.stringify("production"),
     "import.meta.env.SSR": "false",
+    "import.meta.env.VITE_SUPABASE_URL": JSON.stringify("https://rqjchjytqcqjmljahcdr.supabase.co"),
+    "import.meta.env.VITE_SUPABASE_ANON_KEY": JSON.stringify(
+      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJxamNoanl0cWNxam1samFoY2RyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcwMjAwMzMsImV4cCI6MjEwMjU5NjAzM30.JWffmq5TIUnizWR-DIhwLylmHPmuuks2kUuEDEidlE8",
+    ),
+    "import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY": JSON.stringify(
+      "sb_publishable_VQOWXfgqJsrehi2sJGkdig_Gr8Zilr2",
+    ),
+    "import.meta.env.VITE_SUPABASE_PROJECT_ID": JSON.stringify("rqjchjytqcqjmljahcdr"),
   },
   build: {
     outDir: "dist-capacitor",
