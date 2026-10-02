@@ -34,14 +34,12 @@ type TeacherRow = {
 /**
  * Resolve the teachers row for the signed-in user.
  * Tries profile_id + school_id, then profile_id only, then auth_user_id → profiles → teachers.
- * No schema changes; pure lookup resilience.
  */
 async function resolveTeacherRow(
   profileId: string,
   schoolId: string | null,
   authUserId: string,
 ): Promise<TeacherRow | null> {
-  // 1) Exact match (preferred)
   if (profileId && schoolId) {
     const { data, error } = await supabase
       .from("teachers")
@@ -52,7 +50,6 @@ async function resolveTeacherRow(
     if (!error && data) return data as TeacherRow;
   }
 
-  // 2) By profile_id only (school may have been missing on session)
   if (profileId) {
     const { data, error } = await supabase
       .from("teachers")
@@ -62,7 +59,6 @@ async function resolveTeacherRow(
     if (!error && data) return data as TeacherRow;
   }
 
-  // 3) Session profileId may be auth uid — resolve real profiles.id via auth_user_id
   if (authUserId) {
     const { data: prof } = await supabase
       .from("profiles")
@@ -77,7 +73,6 @@ async function resolveTeacherRow(
       if (schoolId) q = q.eq("school_id", schoolId);
       const { data, error } = await q.maybeSingle();
       if (!error && data) return data as TeacherRow;
-      // last resort: any school for this profile
       if (schoolId) {
         const { data: anySchool } = await supabase
           .from("teachers")
@@ -92,9 +87,56 @@ async function resolveTeacherRow(
   return null;
 }
 
+function mapRpcContext(raw: unknown, sessionFallback: {
+  fullName?: string;
+  email?: string;
+  schoolName?: string | null;
+  profileId?: string;
+}): TeacherContext | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const teacherId = o.teacherId != null ? String(o.teacherId) : "";
+  const schoolId = o.schoolId != null ? String(o.schoolId) : "";
+  if (!teacherId || !schoolId) return null;
+
+  const coursesRaw = Array.isArray(o.courses) ? o.courses : [];
+  const courses: TeacherCourse[] = coursesRaw
+    .map((c) => {
+      const x = c as Record<string, unknown>;
+      if (!x?.id) return null;
+      return {
+        id: String(x.id),
+        code: String(x.code || ""),
+        name: String(x.name || ""),
+        credit_units: Number(x.credit_units ?? 0),
+        status: String(x.status || "active"),
+      };
+    })
+    .filter(Boolean) as TeacherCourse[];
+
+  const courseIds = Array.isArray(o.courseIds)
+    ? o.courseIds.map((id) => String(id))
+    : courses.map((c) => c.id);
+
+  return {
+    teacherId,
+    staffId: String(o.staffId || ""),
+    schoolId,
+    profileId: String(o.profileId || sessionFallback.profileId || ""),
+    fullName: String(o.fullName || sessionFallback.fullName || ""),
+    email: String(o.email || sessionFallback.email || ""),
+    schoolName:
+      o.schoolName != null
+        ? String(o.schoolName)
+        : sessionFallback.schoolName ?? null,
+    courses,
+    courseIds,
+  };
+}
+
 /**
  * Loads the signed-in teacher record and only courses assigned by admin
- * via teacher_courses. Local-first offline reads.
+ * via teacher_courses. Prefers SECURITY DEFINER RPC (bypasses RLS edge cases).
  */
 export function useTeacherContext() {
   const { data: session } = useSessionUser();
@@ -105,23 +147,44 @@ export function useTeacherContext() {
 
   return useQuery({
     queryKey: ["teacher-context", session?.profileId, session?.schoolId, session?.userId],
-    // Allow load when we have a user + teacher role even if schoolId is still resolving
-    enabled: Boolean(session?.userId && session?.profileId && isTeacher),
+    // Load when signed-in teacher; schoolId may still be hydrating
+    enabled: Boolean(session?.userId && (session?.profileId || isTeacher)),
     staleTime: 10 * 60_000,
     gcTime: 30 * 60_000,
     refetchOnWindowFocus: true,
     networkMode: "offlineFirst",
     retry: 1,
     queryFn: async (): Promise<TeacherContext | null> => {
-      if (!session?.profileId || !session.userId) return null;
+      if (!session?.userId) return null;
       const uid = session.userId;
-      const profileId: string = session.profileId;
+      const profileId: string = session.profileId || uid;
       const schoolId: string | null = session.schoolId;
 
       return withOfflineCache(
         uid,
         OfflineKeys.teacherContext,
         async () => {
+          // 1) Preferred: SECURITY DEFINER RPC (works even when RLS/school helpers lag)
+          try {
+            const { data: rpcData, error: rpcErr } = await supabase.rpc(
+              "get_my_teacher_context" as never,
+            );
+            if (!rpcErr && rpcData) {
+              const mapped = mapRpcContext(rpcData, {
+                fullName: session.fullName,
+                email: session.email,
+                schoolName: session.schoolName,
+                profileId: session.profileId,
+              });
+              if (mapped) return mapped;
+            } else if (rpcErr) {
+              console.warn("[teacher-context] rpc", rpcErr.message);
+            }
+          } catch (e) {
+            console.warn("[teacher-context] rpc failed", e);
+          }
+
+          // 2) Fallback: direct table reads
           const teacher = await resolveTeacherRow(profileId, schoolId, uid);
           if (!teacher) return null;
 
@@ -134,7 +197,9 @@ export function useTeacherContext() {
             .eq("teacher_id", teacher.id)
             .eq("school_id", effectiveSchoolId);
 
-          if (lErr) throw lErr;
+          if (lErr) {
+            console.warn("[teacher-context] courses", lErr.message);
+          }
 
           const courses: TeacherCourse[] = [];
           for (const row of links ?? []) {
@@ -159,7 +224,7 @@ export function useTeacherContext() {
             teacherId: teacher.id,
             staffId: teacher.staff_id,
             schoolId: effectiveSchoolId,
-            profileId: teacher.profile_id ?? session.profileId,
+            profileId: teacher.profile_id ?? session.profileId ?? profileId,
             fullName: session.fullName,
             email: session.email,
             schoolName: session.schoolName,

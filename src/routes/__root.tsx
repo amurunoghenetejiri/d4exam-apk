@@ -116,9 +116,26 @@ function WebPushBootstrap() {
         }
       }
     } catch { /* ignore */ }
-    if (isNativeShell()) return;
+    // Native APK: register FCM (must not skip — early return used to block all push)
+    if (isNativeShell()) {
+      void import("@/lib/push")
+        .then((m) =>
+          m.enablePushNotifications(session.userId, session.role, {
+            requestPermission: true,
+          }),
+        )
+        .catch(() => null);
+      return;
+    }
+    // Web / PWA
     void initWebPushIfNeeded(session.userId, session.role);
-            void import("@/lib/push").then((m) => m.enablePushNotifications(session.userId, session.role, { requestPermission: false })).catch(() => null);
+    void import("@/lib/push")
+      .then((m) =>
+        m.enablePushNotifications(session.userId, session.role, {
+          requestPermission: false,
+        }),
+      )
+      .catch(() => null);
     const onVis = () => {
       if (document.visibilityState === "visible") {
         void initWebPushIfNeeded(session.userId, session.role);
