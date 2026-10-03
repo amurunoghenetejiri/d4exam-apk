@@ -903,8 +903,8 @@ export function toggleCam() {
 export async function toggleSpeaker() {
   if (!state) return;
   state.speakerOn = !state.speakerOn;
-  await nativeSetSpeaker(state.speakerOn);
-  // WebView audio element routing best-effort
+  emit(); // immediate UI
+  void nativeSetSpeaker(state.speakerOn);
   try {
     if (remoteVideoEl) {
       // @ts-expect-error setSinkId not in all typings
@@ -913,7 +913,6 @@ export async function toggleSpeaker() {
       }
     }
   } catch { /* ignore */ }
-  emit();
 }
 
 /** Upgrade an active voice call to video (local camera + renegotiate). */
