@@ -1,8 +1,9 @@
 /**
  * Keep notification inbox counts fresh when a row is inserted.
- * On native APK: also show a system LocalNotification when the app is open/backgrounded
- * (FCM requires google-services.json — LocalNotifications work without it).
- * CBT integrity alerts stay in their own flows.
+ * When the app process is alive:
+ * - Native APK: LocalNotifications system tray
+ * - Web/PWA: Notification API / service-worker showNotification (with Open action)
+ * Background delivery still requires FCM + registered push_devices token.
  */
 import { useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -22,6 +23,15 @@ function isCountdownSpam(row: {
   if (title.includes("starts in") || msg.includes("starts in")) return true;
   if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(msg.trim())) return true;
   return false;
+}
+
+function absIcon(path: string): string {
+  if (typeof window === "undefined") return path;
+  try {
+    return new URL(path, window.location.origin).href;
+  } catch {
+    return path;
+  }
 }
 
 async function showNativeLocalTray(title: string, body: string, link?: string | null) {
@@ -44,11 +54,75 @@ async function showNativeLocalTray(title: string, body: string, link?: string | 
           extra: { link: link || "/" },
           smallIcon: "ic_stat_d4exam",
           iconColor: "#2563eb",
+          actionTypeId: "D4_OPEN",
         },
       ],
     });
   } catch (e) {
     console.warn("[notif] local tray failed", e);
+  }
+}
+
+async function showWebTray(title: string, body: string, link?: string | null) {
+  if (isNativeShell()) return;
+  if (typeof window === "undefined" || !("Notification" in window)) return;
+  if (Notification.permission !== "granted") return;
+
+  let path = String(link || "/");
+  if (path.startsWith("http")) {
+    try {
+      const u = new URL(path);
+      path = u.pathname + (u.search || "");
+    } catch {
+      /* keep */
+    }
+  }
+  if (!path.startsWith("/")) path = `/${path}`;
+
+  const icon = absIcon("/icon-192.png");
+  const options: NotificationOptions & { actions?: { action: string; title: string }[] } = {
+    body: body || "",
+    icon,
+    badge: icon,
+    tag: `d4exam-${path}`,
+    renotify: true,
+    data: { link: path, title },
+    // Chromium supports actions on service-worker notifications
+  };
+
+  try {
+    if ("serviceWorker" in navigator) {
+      const reg =
+        (await navigator.serviceWorker.getRegistration()) ||
+        (await navigator.serviceWorker.ready.catch(() => null));
+      if (reg?.showNotification) {
+        await reg.showNotification(title || "D4EXAM", {
+          ...options,
+          actions: [
+            { action: "open", title: "Open" },
+            { action: "dismiss", title: "Dismiss" },
+          ],
+        } as NotificationOptions);
+        return;
+      }
+    }
+  } catch {
+    /* fall through */
+  }
+
+  try {
+    const n = new Notification(title || "D4EXAM", options);
+    n.onclick = () => {
+      try {
+        window.focus();
+        window.location.assign(path);
+      } catch {
+        /* ignore */
+      }
+      n.close();
+    };
+  } catch (e) {
+    console.warn("[notif] web tray failed", e);
   }
 }
 
@@ -104,12 +178,10 @@ export function NotificationLiveListener() {
             });
             void queryClient.invalidateQueries({ queryKey: ["rows", "notifications"] });
 
-            // Native APK: system tray via LocalNotifications (works without FCM when app process alive)
-            void showNativeLocalTray(
-              String(row.title || "D4EXAM"),
-              String(row.message || ""),
-              row.link,
-            );
+            const title = String(row.title || "D4EXAM");
+            const body = String(row.message || "");
+            void showNativeLocalTray(title, body, row.link);
+            void showWebTray(title, body, row.link);
           } catch {
             /* ignore */
           }
