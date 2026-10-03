@@ -24,7 +24,7 @@ export async function uploadMessageMedia(
     : isAudio
       ? "webm"
       : "bin";
-  const path = `${pathPrefix.replace(/\/+$/, "")}/${Date.now()}.${ext}`;
+  const path = `${pathPrefix.replace(/\/+$/, "")}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
 
   for (const bucket of BUCKETS) {
     try {
@@ -46,7 +46,7 @@ export async function uploadMessageMedia(
     return { url: dataUrl, type, inline: true };
   }
   throw new Error(
-    "Could not upload file. Create a public Storage bucket named “message-media” (or use a smaller image).",
+    "Could not upload file. Use a smaller photo/video, or ensure the “message-media” Storage bucket exists and is public.",
   );
 }
 

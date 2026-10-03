@@ -797,7 +797,7 @@ export function ConversationChat({
         cleanupStream();
         void (async () => {
           const localUrl = URL.createObjectURL(blob);
-          const clientId = `opt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+          const clientId = `opt-${Date.now()}-${Math.random().toString(36).slice(2, 10)}-${Math.random().toString(36).slice(2, 6)}`;
           setOptimistic((p) => [
             ...p,
             {
@@ -1009,6 +1009,37 @@ export function ConversationChat({
       void qc.invalidateQueries({ queryKey: ["campus-messages", conversationId] });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Upload failed");
+    }
+  };
+
+  const onImagesBatch = async (files: File[]) => {
+    // Send each image as its own message (order preserved)
+    for (let i = 0; i < files.length; i++) {
+      try {
+        await onFile(files[i]!);
+      } catch (e) {
+        toast.error(
+          e instanceof Error
+            ? e.message
+            : `Could not send image ${i + 1} of ${files.length}`,
+        );
+      }
+    }
+  };
+
+  const onFilesBatch = async (files: File[]) => {
+    // Sequential so large videos/images do not race the same clientId/timestamp
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i]!;
+      try {
+        await onFile(f);
+      } catch (e) {
+        toast.error(
+          e instanceof Error
+            ? e.message
+            : `Could not send file ${i + 1} of ${files.length}`,
+        );
+      }
     }
   };
 
@@ -1740,16 +1771,8 @@ export function ConversationChat({
               onChange={(e) => {
                 const files = e.target.files ? Array.from(e.target.files) : [];
                 if (!files.length) return;
-                const images = files.filter((f) => f.type.startsWith("image/"));
-                const rest = files.filter((f) => !f.type.startsWith("image/"));
-                void (async () => {
-                  if (images.length > 1) {
-                    await onImagesBatch(images);
-                  } else if (images.length === 1) {
-                    await onFile(images[0]);
-                  }
-                  for (const f of rest) await onFile(f);
-                })();
+                // Multiple photos/videos/files — send each as its own message
+                void onFilesBatch(files);
                 e.target.value = "";
               }}
             />
