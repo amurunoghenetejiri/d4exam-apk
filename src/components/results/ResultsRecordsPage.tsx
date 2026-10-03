@@ -338,8 +338,8 @@ export function ResultsRecordsPage({
   .hdr{display:flex;align-items:flex-start;gap:16px;border-bottom:1px solid #e2e8f0;padding-bottom:16px;margin-bottom:16px}
   .hdr .logo{height:72px;width:72px;object-fit:contain;border:1px solid #e2e8f0;border-radius:12px;padding:4px;background:#f8fafc}
   .hdr .titles{flex:1;text-align:center;padding-right:72px}
-  .hdr h1{margin:0;font-size:20px;font-weight:800;letter-spacing:0.02em}
-  .hdr .school{margin:6px 0 0;font-size:13px;font-weight:600;color:#475569}
+  .hdr .school{margin:0;font-size:18px;font-weight:800;color:#0f172a;line-height:1.25}
+  .hdr h1{margin:8px 0 0;font-size:14px;font-weight:700;letter-spacing:0.04em;color:#334155;text-transform:uppercase}
   .meta{display:grid;grid-template-columns:1fr 1fr;gap:8px 20px;font-size:12px;margin-bottom:18px}
   .meta .lab{color:#64748b;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em}
   .meta .val{color:#0f172a;font-weight:600;margin-top:2px}
@@ -354,8 +354,8 @@ export function ResultsRecordsPage({
 </style></head><body>
 <div class="hdr">${logo}
   <div class="titles">
+    <p class="school">${escapeHtml(h.schoolName || "School")}</p>
     <h1>${resultTitle}</h1>
-    ${h.schoolName ? `<p class="school">${escapeHtml(h.schoolName)}</p>` : ""}
   </div>
 </div>
 <div class="meta">
@@ -895,12 +895,14 @@ export function ResultsRecordsPage({
                   )}
                 </div>
                 <div className="min-w-0 flex-1 text-center sm:pr-16">
-                  <h1 className="text-lg font-extrabold text-slate-900 sm:text-xl">
+                  {record.header.schoolName ? (
+                    <p className="text-lg font-extrabold text-slate-900 sm:text-xl">
+                      {record.header.schoolName}
+                    </p>
+                  ) : null}
+                  <h1 className="mt-1 text-sm font-bold uppercase tracking-wide text-slate-600 sm:text-base">
                     {isTest ? "TEST RESULT" : "EXAMINATION RESULT"}
                   </h1>
-                  {record.header.schoolName ? (
-                    <p className="mt-1 text-sm font-semibold text-slate-600">{record.header.schoolName}</p>
-                  ) : null}
                 </div>
               </div>
 

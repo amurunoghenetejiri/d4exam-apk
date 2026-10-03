@@ -144,9 +144,10 @@ async function sendFcmV1(
     extra?.type === "chat_message" ||
     extra?.type === "message" ||
     extra?.type === "missed_call";
-  // CRITICAL: data-only for calls + chat. If a top-level "notification" key is present,
-  // Android shows a generic tray item when backgrounded and may NOT run onMessageReceived.
-  const dataOnly = isCall || isChat;
+  // Data-only ONLY for incoming calls so native service can show CallStyle + ringtone.
+  // Chat / exam / result / missed_call MUST include a notification block so the tray
+  // shows even when the native service is not handling the message (web tokens, older APKs).
+  const dataOnly = isCall;
   const messagePayload: Record<string, unknown> = {
     token,
     data: {
@@ -201,8 +202,7 @@ async function sendFcmV1(
           }),
     },
   };
-  // Never put top-level "notification" on calls/chat — Android would skip onMessageReceived.
-  // Exam/result/generic pushes keep a notification block for tray when app is killed.
+  // Data-only for incoming_call only (CallStyle). Chat/exam/result include notification so tray shows.
   if (!dataOnly) {
     messagePayload.notification = {
       title: fullTitle,

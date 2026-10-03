@@ -53,6 +53,7 @@ async function firePush(
   message: string,
   link: string | null,
   actionLabel?: string | null,
+  type?: string | null,
 ): Promise<void> {
   if (!recipientUserId) return;
   try {
@@ -64,6 +65,7 @@ async function firePush(
         message,
         link: link || "/",
         actionLabel: actionLabel || undefined,
+        type: type || undefined,
       },
     });
     const r = result as { sent?: number; skipped?: boolean; reason?: string };
@@ -167,7 +169,7 @@ export async function notifyUser(p: NotifyPayload): Promise<string | null> {
     } as never);
 
     if (!rpcErr && rpcId) {
-      await firePush(p.recipientUserId, p.title, p.message, p.link ?? null, p.actionLabel);
+      await firePush(p.recipientUserId, p.title, p.message, p.link ?? null, p.actionLabel, p.type);
       return String(rpcId);
     }
 
@@ -190,7 +192,7 @@ export async function notifyUser(p: NotifyPayload): Promise<string | null> {
       console.warn("[notify] insert failed", error.message);
       return null;
     }
-    if (data?.id) await firePush(p.recipientUserId, p.title, p.message, p.link ?? null, p.actionLabel);
+    if (data?.id) await firePush(p.recipientUserId, p.title, p.message, p.link ?? null, p.actionLabel, p.type);
     return (data?.id as string) ?? null;
   } catch (e) {
     console.warn("[notify] error:", e);
