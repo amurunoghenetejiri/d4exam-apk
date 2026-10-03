@@ -22,6 +22,7 @@ import { appNavigate } from "@/lib/app-navigate";
 import { startDirectCall } from "@/lib/calls";
 import { isOnlineNow } from "@/lib/offline-guard";
 import { ProfilePhotoViewer } from "@/components/profile/ProfilePhotoViewer";
+import { createPortal } from "react-dom";
 import { isFavorite, toggleFavorite } from "@/lib/profile-favorites";
 
 function initials(name: string) {
@@ -199,11 +200,20 @@ export function MessagingProfileSheet({
   // Synthetic data URL for initials avatar viewer
   const photoSrc = displayAvatar;
 
-  return (
+  const sheet = (
     <>
-      {/* Dim overlay only — no heavy blur wash */}
+      {/* Full-screen dim + blur; card centered on device */}
       <div
-        className="fixed inset-0 z-[120] flex h-[100dvh] w-screen items-center justify-center bg-black/55 p-4 backdrop-blur-md"
+        className="fixed inset-0 z-[120] flex h-[100dvh] w-screen items-center justify-center p-4"
+        style={{
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: "rgba(0,0,0,0.55)",
+          backdropFilter: "blur(14px)",
+          WebkitBackdropFilter: "blur(14px)",
+        }}
         role="dialog"
         aria-modal="true"
         aria-label="Profile preview"
@@ -211,9 +221,10 @@ export function MessagingProfileSheet({
       >
         <div
           className={cn(
-            "relative mx-auto flex max-h-[min(92dvh,640px)] w-full max-w-[22rem] flex-col overflow-y-auto",
+            "relative mx-auto flex max-h-[min(88dvh,640px)] w-full max-w-[22rem] flex-col overflow-y-auto",
             "rounded-[1.5rem] bg-[#0b1b3a] shadow-2xl ring-1 ring-white/10",
           )}
+          style={{ margin: "auto" }}
           onClick={(e) => e.stopPropagation()}
         >
           <div className="relative flex items-center justify-between px-3 pt-3">
@@ -348,6 +359,9 @@ export function MessagingProfileSheet({
       />
     </>
   );
+
+  if (typeof document === "undefined") return null;
+  return createPortal(sheet, document.body);
 }
 
 function QuickAction({

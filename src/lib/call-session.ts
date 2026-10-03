@@ -766,43 +766,44 @@ export async function endCall(
   reason: "ended" | "cancelled" | "rejected" | "missed" | "busy" | "local" | string = "ended",
 ) {
   const snap = state;
-  // Stop ring immediately so user hears hangup
-  await stopCallRingtone();
-  if (channel && snap) {
+  const ch = channel;
+  // Instant local hangup — do not wait on network / DB
+  state = null;
+  emit();
+  void stopCallRingtone();
+  void stopScreenShare();
+  if (ch && snap) {
+    void broadcastSignal(ch, {
+      type: reason === "rejected" ? "reject" : "hangup",
+      from: snap.myUserId,
+    }).catch(() => {});
+  }
+  void hardTeardown();
+  // Background bookkeeping
+  void (async () => {
     try {
-      await broadcastSignal(channel, {
-        type: reason === "rejected" ? "reject" : "hangup",
-        from: snap.myUserId,
-      });
-    } catch {
-      /* ignore */
-    }
-  }
-  if (snap && reason === "rejected") {
-    await postSystemMessage(
-      snap.conversationId,
-      snap.myUserId,
-      snap.callType === "video" ? "Video call declined" : "Voice call declined",
-    );
-  } else if (snap && snap.seconds > 0 && reason !== "missed" && reason !== "rejected") {
-    const mm = String(Math.floor(snap.seconds / 60)).padStart(2, "0");
-    const ss = String(snap.seconds % 60).padStart(2, "0");
-    const label =
-      snap.callType === "video"
-        ? `Video call · ${mm}:${ss}`
-        : `Voice call · ${mm}:${ss}`;
-    await postSystemMessage(snap.conversationId, snap.myUserId, label);
-  }
-  await hardTeardown();
-  try {
-    if (snap) {
+      if (!snap) return;
+      if (reason === "rejected") {
+        await postSystemMessage(
+          snap.conversationId,
+          snap.myUserId,
+          snap.callType === "video" ? "Video call declined" : "Voice call declined",
+        );
+      } else if (snap.seconds > 0 && reason !== "missed" && reason !== "rejected") {
+        const mm = String(Math.floor(snap.seconds / 60)).padStart(2, "0");
+        const ss = String(snap.seconds % 60).padStart(2, "0");
+        const label =
+          snap.callType === "video"
+            ? `Video call · ${mm}:${ss}`
+            : `Voice call · ${mm}:${ss}`;
+        await postSystemMessage(snap.conversationId, snap.myUserId, label);
+      }
       const status =
         reason === "cancelled" ? "cancelled" :
         reason === "rejected" ? "rejected" :
         reason === "missed" ? "missed" : "ended";
       await updateCallStatus(snap.callId, status as "ended");
       await updateParticipantStatus(snap.callId, snap.myUserId, "left");
-      // Caller cancelled / hung up before answer — stop callee ringtone via FCM
       if (
         snap.isCaller &&
         (reason === "cancelled" || reason === "ended" || reason === "local") &&
@@ -814,12 +815,10 @@ export async function endCall(
           conversationId: snap.conversationId,
         });
       }
+    } catch {
+      /* ignore */
     }
-  } catch {
-    /* ignore */
-  }
-  state = null;
-  emit();
+  })();
 }
 
 export function dismissCallUi() {
@@ -976,29 +975,94 @@ export async function flipCamera() {
   }
 }
 
+let callScreenCanvasTimer: ReturnType<typeof setInterval> | null = null;
+let callScreenDisplayStream: MediaStream | null = null;
+
+async function acquireCallScreenTrack(): Promise<MediaStreamTrack | null> {
+  // 1) Browser getDisplayMedia (desktop / some WebViews)
+  try {
+    const md = navigator.mediaDevices as MediaDevices & {
+      getDisplayMedia?: (c: MediaStreamConstraints) => Promise<MediaStream>;
+    };
+    if (typeof md.getDisplayMedia === "function") {
+      const display = await md.getDisplayMedia({ video: true, audio: false });
+      const track = display.getVideoTracks()[0] || null;
+      if (track) {
+        callScreenDisplayStream = display;
+        return track;
+      }
+    }
+  } catch (e) {
+    console.warn("[calls] getDisplayMedia", e);
+  }
+
+  // 2) Native Android MediaProjection (same path as exam monitoring)
+  try {
+    const ss = await import("@/lib/screen-share");
+    if (ss.isNativeAndroid() || (await ss.waitNativeAndroid(8_000))) {
+      const res = await ss.startScreenShareStream();
+      if (!res.ok) {
+        console.warn("[calls] native screen share", res.message);
+        return null;
+      }
+      if (res.stream) {
+        const t = res.stream.getVideoTracks()[0];
+        if (t) return t;
+      }
+      // JPEG frames → canvas captureStream for WebRTC
+      const canvas = document.createElement("canvas");
+      canvas.width = 720;
+      canvas.height = 1280;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return null;
+      const stream = canvas.captureStream(5);
+      callScreenDisplayStream = stream;
+      if (callScreenCanvasTimer) clearInterval(callScreenCanvasTimer);
+      callScreenCanvasTimer = setInterval(() => {
+        try {
+          const jpeg = ss.getLatestNativeScreenJpeg();
+          if (!jpeg || !ctx) return;
+          const img = new Image();
+          img.onload = () => {
+            try {
+              if (img.width && img.height) {
+                canvas.width = img.width;
+                canvas.height = img.height;
+              }
+              ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            } catch {
+              /* ignore */
+            }
+          };
+          img.src = jpeg.startsWith("data:") ? jpeg : `data:image/jpeg;base64,${jpeg}`;
+        } catch {
+          /* ignore */
+        }
+      }, 200);
+      return stream.getVideoTracks()[0] || null;
+    }
+  } catch (e) {
+    console.warn("[calls] native screen share path", e);
+  }
+  return null;
+}
+
 export async function startScreenShare() {
   if (!state || !pc) {
     return;
   }
   try {
-    const md = navigator.mediaDevices as MediaDevices & {
-      getDisplayMedia?: (c: MediaStreamConstraints) => Promise<MediaStream>;
-    };
-    if (typeof md.getDisplayMedia !== "function") {
+    const track = await acquireCallScreenTrack();
+    if (!track) {
       if (state) {
-        state.error = "Screen share is not supported on this device";
+        state.error = "Screen share is not available. Allow screen capture when prompted.";
         emit();
         window.setTimeout(() => {
           if (state) { state.error = null; emit(); }
-        }, 2500);
+        }, 3000);
       }
       return;
     }
-    const display = await md.getDisplayMedia({ video: true, audio: false });
-    if (!display) return;
-    const track = display.getVideoTracks()[0];
-    if (!track) return;
-    // Ensure we have a video sender (voice calls may not)
     let sender = pc.getSenders().find((s) => s.track?.kind === "video");
     if (sender) {
       await sender.replaceTrack(track);
@@ -1006,7 +1070,6 @@ export async function startScreenShare() {
       if (!localStream) localStream = new MediaStream();
       localStream.addTrack(track);
       pc.addTrack(track, localStream);
-      // Renegotiate
       try {
         const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
         await pc.setLocalDescription(offer);
@@ -1022,6 +1085,7 @@ export async function startScreenShare() {
     };
     state.sharingScreen = true;
     state.callType = "video";
+    state.error = null;
     emit();
   } catch (e) {
     console.warn("[calls] startScreenShare", e);
@@ -1036,10 +1100,26 @@ export async function startScreenShare() {
 }
 
 export async function stopScreenShare() {
-  if (!state || !pc || !localStream) return;
-  const cam = localStream.getVideoTracks()[0];
-  const sender = pc.getSenders().find((s) => s.track?.kind === "video");
-  if (sender && cam) await sender.replaceTrack(cam);
-  state.sharingScreen = false;
-  emit();
+  if (callScreenCanvasTimer) {
+    clearInterval(callScreenCanvasTimer);
+    callScreenCanvasTimer = null;
+  }
+  try {
+    callScreenDisplayStream?.getTracks().forEach((tr) => tr.stop());
+  } catch { /* ignore */ }
+  callScreenDisplayStream = null;
+  try {
+    const ss = await import("@/lib/screen-share");
+    if (ss.isNativeAndroid()) ss.stopScreenShareStream(null);
+  } catch { /* ignore */ }
+  if (!state || !pc) return;
+  try {
+    const cam = localStream?.getVideoTracks().find((tr) => tr.readyState === "live");
+    const sender = pc.getSenders().find((s) => s.track?.kind === "video" || s.track == null);
+    if (sender && cam) await sender.replaceTrack(cam);
+  } catch { /* ignore */ }
+  if (state) {
+    state.sharingScreen = false;
+    emit();
+  }
 }

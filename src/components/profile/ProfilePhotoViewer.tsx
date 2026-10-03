@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Download, Share2, X } from "lucide-react";
 
 /**
- * Full-screen edge-to-edge profile photo viewer.
- * Share + Download only. Tap image to zoom.
+ * Full-screen edge-to-edge profile photo viewer (portal to body).
+ * Covers the entire device viewport — not a cutout card.
  */
 export function ProfilePhotoViewer({
   open,
@@ -29,15 +30,21 @@ export function ProfilePhotoViewer({
 
   useEffect(() => {
     if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = prev;
+      window.removeEventListener("keydown", onKey);
+    };
   }, [open, onClose]);
 
   if (!open) return null;
   if (!src && !fallbackInitials) return null;
+  if (typeof document === "undefined") return null;
 
   const share = async () => {
     try {
@@ -65,18 +72,20 @@ export function ProfilePhotoViewer({
     }
   };
 
-  return (
+  return createPortal(
     <div
-      className="fixed inset-0 z-[200] flex flex-col bg-black text-white"
+      className="fixed inset-0 z-[300] flex h-[100dvh] w-screen flex-col bg-black text-white"
+      style={{ top: 0, left: 0, right: 0, bottom: 0 }}
       role="dialog"
       aria-modal="true"
       aria-label="Profile photo"
     >
-      <div className="absolute inset-x-0 top-0 z-10 flex items-center justify-between px-3 pb-2 pt-[max(0.75rem,env(safe-area-inset-top))]">
+      <div className="pointer-events-none absolute inset-0 z-0 bg-black" />
+      <div className="absolute inset-x-0 top-0 z-20 flex items-center justify-between px-3 pb-2 pt-[max(0.75rem,env(safe-area-inset-top))]">
         <button
           type="button"
           onClick={onClose}
-          className="grid h-10 w-10 place-items-center rounded-full bg-black/50 text-white"
+          className="pointer-events-auto grid h-10 w-10 place-items-center rounded-full bg-black/50 text-white"
           aria-label="Close"
         >
           <X className="h-5 w-5" />
@@ -86,7 +95,7 @@ export function ProfilePhotoViewer({
       </div>
 
       <div
-        className="flex min-h-0 flex-1 items-center justify-center overflow-hidden"
+        className="relative z-10 flex min-h-0 flex-1 items-center justify-center overflow-hidden"
         onTouchStart={(e) => {
           startY.current = e.touches[0]?.clientY ?? null;
         }}
@@ -101,8 +110,14 @@ export function ProfilePhotoViewer({
           <img
             src={src}
             alt={name || "Profile"}
-            className="h-full w-full object-contain"
-            style={{ transform: `scale(${scale})`, transition: "transform 0.15s ease" }}
+            className="max-h-full max-w-full object-contain"
+            style={{
+              width: "100vw",
+              height: "100dvh",
+              objectFit: "contain",
+              transform: `scale(${scale})`,
+              transition: "transform 0.15s ease",
+            }}
             onClick={(e) => {
               e.stopPropagation();
               setScale((s) => (s > 1 ? 1 : 2.2));
@@ -116,7 +131,7 @@ export function ProfilePhotoViewer({
         )}
       </div>
 
-      <div className="shrink-0 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-2 text-center">
+      <div className="relative z-20 shrink-0 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-2 text-center">
         {name ? <p className="text-base font-bold text-white">{name}</p> : null}
         {subtitle ? <p className="mt-0.5 text-xs text-white/55">{subtitle}</p> : null}
         <div className="mt-4 flex items-center justify-center gap-8">
@@ -142,6 +157,7 @@ export function ProfilePhotoViewer({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
