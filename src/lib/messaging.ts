@@ -488,17 +488,6 @@ async function notifyMessageRecipients(opts: {
   messageId?: string;
 }) {
   try {
-    const { data: members } = await supabase
-      .from("conversation_members")
-      .select("user_id, muted")
-      .eq("conversation_id", opts.conversationId)
-      .is("left_at", null);
-    const recipients = (members || [])
-      .filter((m) => !(m as { muted?: boolean }).muted)
-      .map((m) => String((m as { user_id?: string }).user_id || ""))
-      .filter((id) => id && id !== opts.senderId);
-    if (!recipients.length) return;
-
     // Resolve sender display name for notification title
     let senderName = "D4EXAM";
     let senderMatric = "";
@@ -529,8 +518,44 @@ async function notifyMessageRecipients(opts: {
 
     const title = senderMatric ? `${senderName} · ${senderMatric}` : senderName;
     const link = `/student/messages?chat=${encodeURIComponent(opts.conversationId)}`;
+
+    // Prefer server-side member lookup (service role) — client RLS often cannot see peers
+    try {
+      const { dispatchChatMessagePush } = await import("@/lib/push-send.functions");
+      const r = await dispatchChatMessagePush({
+        data: {
+          conversationId: opts.conversationId,
+          senderId: opts.senderId,
+          title,
+          message: opts.preview || "New message",
+          link,
+          messageId: opts.messageId || "",
+          attachmentType: opts.attachmentType || "",
+          callerName: senderName,
+          callerMatric: senderMatric,
+        },
+      });
+      console.info("[notifyMessageRecipients] server", r);
+      const sent = (r as { sent?: number })?.sent ?? 0;
+      if (sent > 0) return;
+    } catch (e) {
+      console.warn("[notifyMessageRecipients] server path failed", e);
+    }
+
+    // Fallback: client member list + per-user push
+    const { data: members } = await supabase
+      .from("conversation_members")
+      .select("user_id, muted")
+      .eq("conversation_id", opts.conversationId)
+      .is("left_at", null);
+    const recipients = (members || [])
+      .filter((m) => !(m as { muted?: boolean }).muted)
+      .map((m) => String((m as { user_id?: string }).user_id || ""))
+      .filter((id) => id && id !== opts.senderId);
+    if (!recipients.length) return;
+
     const { dispatchPushToUser } = await import("@/lib/push-send.functions");
-    const results = await Promise.all(
+    await Promise.all(
       recipients.map((recipientUserId) =>
         dispatchPushToUser({
           data: {
@@ -548,17 +573,8 @@ async function notifyMessageRecipients(opts: {
             messageId: opts.messageId || "",
             attachmentType: opts.attachmentType || "",
           } as never,
-        }).catch((e) => {
-          console.warn("[notifyMessageRecipients] push error", e);
-          return null;
-        }),
+        }).catch(() => null),
       ),
-    );
-    console.info(
-      "[notifyMessageRecipients]",
-      recipients.length,
-      "recipients",
-      results.map((r) => (r && typeof r === "object" ? r : null)),
     );
   } catch (e) {
     console.warn("[notifyMessageRecipients] failed", e);

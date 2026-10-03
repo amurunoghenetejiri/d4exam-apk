@@ -1366,7 +1366,9 @@ export function ConversationChat({
                 )}
                 style={{
                   transform: `translateX(${swipeDx[m.id] || 0}px)`,
-                  transition: swipeRef.current?.key === m.id ? "none" : "transform 0.2s ease",
+                  transition: swipeRef.current?.key === m.id ? "none" : "transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1)",
+                  willChange: "transform",
+                  touchAction: "pan-y",
                 }}
                 onTouchStart={(e) => {
                   swipeRef.current = {
@@ -1378,13 +1380,15 @@ export function ConversationChat({
                   };
                   if (lpTimer.current) clearTimeout(lpTimer.current);
                   lpTimer.current = setTimeout(() => {
-                    setLongPressMsg(m);
-                    setSwipeDx((prev) => {
-                      const n = { ...prev };
-                      delete n[m.id];
-                      return n;
-                    });
-                  }, 480);
+                    if (swipeRef.current?.key === m.id && swipeRef.current.axis !== "h") {
+                      setLongPressMsg(m);
+                      setSwipeDx((prev) => {
+                        const n = { ...prev };
+                        delete n[m.id];
+                        return n;
+                      });
+                    }
+                  }, 520);
                 }}
                 onTouchMove={(e) => {
                   const s = swipeRef.current;
@@ -1394,8 +1398,8 @@ export function ConversationChat({
                   const rawX = x - s.x;
                   const rawY = y - s.y;
                   if (s.axis === "none") {
-                    if (Math.abs(rawX) < 12 && Math.abs(rawY) < 12) return;
-                    s.axis = Math.abs(rawX) > Math.abs(rawY) * 1.15 ? "h" : "v";
+                    if (Math.abs(rawX) < 10 && Math.abs(rawY) < 10) return;
+                    s.axis = Math.abs(rawX) > Math.abs(rawY) * 1.25 ? "h" : "v";
                     if (s.axis === "h" && lpTimer.current) {
                       clearTimeout(lpTimer.current);
                       lpTimer.current = null;
@@ -1408,8 +1412,15 @@ export function ConversationChat({
                     }
                     return;
                   }
-                  const next = Math.max(-72, Math.min(72, rawX));
+                  // Lock horizontal swipe — prevent scroll jank
+                  try {
+                    e.preventDefault();
+                  } catch {
+                    /* ignore */
+                  }
+                  const next = Math.max(-80, Math.min(80, rawX));
                   s.dx = next;
+                  // Direct style update path via state (throttled by equality)
                   setSwipeDx((prev) =>
                     prev[m.id] === next ? prev : { ...prev, [m.id]: next },
                   );
@@ -1421,13 +1432,26 @@ export function ConversationChat({
                   }
                   const s = swipeRef.current;
                   const dx = s?.key === m.id ? s.dx : 0;
+                  const wasH = s?.axis === "h";
                   swipeRef.current = null;
                   setSwipeDx((prev) => {
                     const n = { ...prev };
                     delete n[m.id];
                     return n;
                   });
-                  if (Math.abs(dx) > 40) setReplyTo(m);
+                  if (wasH && Math.abs(dx) > 36) setReplyTo(m);
+                }}
+                onTouchCancel={() => {
+                  if (lpTimer.current) {
+                    clearTimeout(lpTimer.current);
+                    lpTimer.current = null;
+                  }
+                  swipeRef.current = null;
+                  setSwipeDx((prev) => {
+                    const n = { ...prev };
+                    delete n[m.id];
+                    return n;
+                  });
                 }}
                 onContextMenu={(e) => {
                   e.preventDefault();

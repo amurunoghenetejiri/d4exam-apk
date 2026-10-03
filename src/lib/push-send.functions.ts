@@ -485,6 +485,81 @@ export const dispatchPushToUser = createServerFn({ method: "POST" })
   });
 
 /** Test notification for the current user only (in-app + optional push). */
+
+/** Server-side chat push — loads members with service role (client RLS often hides peers). */
+export const dispatchChatMessagePush = createServerFn({ method: "POST" })
+  .inputValidator((data: unknown) => {
+    const raw =
+      data && typeof data === "object" && "data" in (data as object)
+        ? (data as { data: unknown }).data
+        : data;
+    const o = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+    return {
+      conversationId: String(o.conversationId || ""),
+      senderId: String(o.senderId || ""),
+      title: String(o.title || "D4EXAM"),
+      message: String(o.message || "New message"),
+      link: o.link != null ? String(o.link) : "/",
+      messageId: o.messageId != null ? String(o.messageId) : "",
+      attachmentType: o.attachmentType != null ? String(o.attachmentType) : "",
+      callerName: o.callerName != null ? String(o.callerName) : undefined,
+      callerMatric: o.callerMatric != null ? String(o.callerMatric) : undefined,
+    };
+  })
+  .handler(async ({ data }) => {
+    if (!data.conversationId || !data.senderId) {
+      return { sent: 0, failed: 0, skipped: true as const, reason: "missing fields" };
+    }
+    const sb = adminClient();
+    if (!sb) {
+      return { sent: 0, failed: 0, skipped: true as const, reason: "no supabase admin" };
+    }
+    const { data: members, error } = await sb
+      .from("conversation_members")
+      .select("user_id, muted")
+      .eq("conversation_id", data.conversationId)
+      .is("left_at", null);
+    if (error) {
+      return { sent: 0, failed: 0, skipped: true as const, reason: error.message };
+    }
+    const recipients = (members || [])
+      .filter((m) => !(m as { muted?: boolean }).muted)
+      .map((m) => String((m as { user_id?: string }).user_id || ""))
+      .filter((id) => id && id !== data.senderId);
+    if (!recipients.length) {
+      return { sent: 0, failed: 0, skipped: true as const, reason: "no recipients" };
+    }
+    let sent = 0;
+    let failed = 0;
+    for (const recipientUserId of recipients) {
+      try {
+        const r = await dispatchPushToUser({
+          data: {
+            recipientUserId,
+            title: data.title,
+            message: data.message,
+            link: data.link || `/student/messages?chat=${encodeURIComponent(data.conversationId)}`,
+            type: "chat_message",
+            conversationId: data.conversationId,
+            callerName: data.callerName || data.title,
+            callerMatric: data.callerMatric || "",
+            fromUserId: data.senderId,
+            callerId: data.senderId,
+            actionLabel: "Reply",
+            messageId: data.messageId || "",
+            attachmentType: data.attachmentType || "",
+          },
+        });
+        const row = r as { sent?: number; skipped?: boolean };
+        if ((row?.sent ?? 0) > 0) sent += row.sent || 0;
+        else failed += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+    return { sent, failed, skipped: false as const, recipients: recipients.length };
+  });
+
 export const sendTestNotificationToSelf = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => {
     const raw =

@@ -318,11 +318,21 @@ function MessagesHub() {
   }, []);
 
   useEffect(() => {
-    const hide = () => {
+    const isFabTarget = (t: EventTarget | null) => {
+      try {
+        const el = t as HTMLElement | null;
+        return Boolean(el?.closest?.('[data-d4-fab="compose"]'));
+      } catch {
+        return false;
+      }
+    };
+    const hide = (e?: Event) => {
+      if (e && isFabTarget(e.target)) return;
       setFabHidden(true);
       if (fabTimer.current) clearTimeout(fabTimer.current);
     };
-    const showLater = () => {
+    const showLater = (e?: Event) => {
+      if (e && isFabTarget(e.target)) return;
       if (fabTimer.current) clearTimeout(fabTimer.current);
       fabTimer.current = setTimeout(() => setFabHidden(false), 700);
     };
@@ -831,21 +841,27 @@ function MessagesHub() {
       {/* Floating compose pen — writing motion; fades while scrolling */}
       <button
         type="button"
+        data-d4-fab="compose"
+        onPointerDown={(e) => {
+          e.stopPropagation();
+          setFabHidden(false);
+        }}
         onClick={(e) => {
           e.preventDefault();
           e.stopPropagation();
           setFabHidden(false);
           setTab("students");
           setFindOpen(true);
-          // scroll to students list area
+          setDeptOpen(false);
+          setSearch("");
           window.setTimeout(() => {
             const el = document.getElementById("msg-global-search");
             el?.scrollIntoView({ behavior: "smooth", block: "center" });
             el?.focus();
-          }, 50);
+          }, 80);
         }}
         className={cn(
-          "fixed bottom-6 right-5 z-[60] grid h-[3.25rem] w-[3.25rem] place-items-center rounded-full bg-[#2563eb] text-white shadow-xl shadow-blue-500/35 sm:bottom-8 sm:right-8 sm:h-14 sm:w-14",
+          "fixed bottom-6 right-5 z-[80] grid h-[3.25rem] w-[3.25rem] place-items-center rounded-full bg-[#2563eb] text-white shadow-xl shadow-blue-500/35 sm:bottom-8 sm:right-8 sm:h-14 sm:w-14",
           "ring-4 ring-blue-400/30 transition-all duration-300 ease-out d4-fab-float cursor-pointer",
           fabHidden
             ? "pointer-events-none translate-y-4 scale-90 opacity-0"
