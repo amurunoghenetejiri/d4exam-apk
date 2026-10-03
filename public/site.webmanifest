@@ -1,13 +1,13 @@
 {
   "name": "D4EXAM",
   "short_name": "D4EXAM",
-  "description": "Secure online examination platform for schools — CBT, results, and integrity monitoring.",
+  "description": "Secure CBT for schools: live camera & screen share, randomized questions, leave-exam logging, auto-marking and results — smart, secure, seamless.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "any",
-  "background_color": "#ffffff",
-  "theme_color": "#ffffff",
+  "background_color": "#0b1b3a",
+  "theme_color": "#0b1b3a",
   "lang": "en",
   "categories": ["education", "productivity"],
   "icons": [
