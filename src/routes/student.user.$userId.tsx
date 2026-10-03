@@ -13,28 +13,37 @@ export const Route = createFileRoute("/student/user/$userId")({
   component: UserProfilePage,
 });
 
-function extractUserId(param?: string): string {
-  if (param && param.length > 8 && param !== "undefined") {
+function extractUserId(param: string | undefined, sessionUserId: string | undefined): string {
+  const raw = (param || "").trim();
+  if (raw && raw !== "undefined" && raw !== "null") {
+    let decoded = raw;
     try {
-      return decodeURIComponent(param);
+      decoded = decodeURIComponent(raw);
     } catch {
-      return param;
+      /* keep raw */
     }
+    if (decoded === "me" || decoded === "self") {
+      return sessionUserId || "";
+    }
+    if (decoded.length > 8) return decoded;
   }
-  if (typeof window === "undefined") return "";
+  if (typeof window === "undefined") return sessionUserId || "";
   const hash = (window.location.hash || "").replace(/^#/, "");
   const path = window.location.pathname || "";
-  const raw = hash.startsWith("/") ? hash : hash ? `/${hash}` : path;
-  const parts = raw.split("/").filter(Boolean);
+  const pathPart = hash.startsWith("/") ? hash : hash ? `/${hash}` : path;
+  const parts = pathPart.split("/").filter(Boolean);
   const idx = parts.findIndex((p) => p === "user");
   if (idx >= 0 && parts[idx + 1]) {
+    let seg = parts[idx + 1];
     try {
-      return decodeURIComponent(parts[idx + 1]);
+      seg = decodeURIComponent(seg);
     } catch {
-      return parts[idx + 1];
+      /* keep */
     }
+    if (seg === "me" || seg === "self") return sessionUserId || "";
+    return seg;
   }
-  return "";
+  return sessionUserId || "";
 }
 
 function UserProfilePage() {
@@ -42,13 +51,30 @@ function UserProfilePage() {
   const { data: session } = useSessionUser();
   const [activeCall, setActiveCall] = useState<ActiveCall | null>(null);
 
-  const userId = useMemo(() => extractUserId(params.userId), [params.userId]);
+  const userId = useMemo(
+    () => extractUserId(params.userId, session?.userId),
+    [params.userId, session?.userId],
+  );
+
+  if (!userId) {
+    return (
+      <div className="flex min-h-[40vh] flex-col items-center justify-center gap-3 px-6 text-center">
+        <p className="text-sm font-medium text-slate-600">Loading profile…</p>
+      </div>
+    );
+  }
 
   return (
     <>
       <UserProfileView
         userId={userId}
-        onBack={() => appNavigate("/student/messages")}
+        onBack={() => {
+          if (typeof window !== "undefined" && window.history.length > 1) {
+            window.history.back();
+          } else {
+            appNavigate("/student");
+          }
+        }}
         onStartCall={(opts) => setActiveCall(opts)}
       />
       {activeCall && session?.userId ? (

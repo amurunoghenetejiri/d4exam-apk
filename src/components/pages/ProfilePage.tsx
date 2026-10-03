@@ -210,61 +210,76 @@ export function ProfilePage() {
               aria-hidden
             />
             <div className="relative flex flex-col items-center text-center">
-              <div className="relative">
-                {logoUrl ? (
-                  <SchoolLogo
-                    logoUrl={logoUrl}
-                    schoolName={schoolName}
-                    size="xl"
-                    className="ring-2 ring-white shadow-md shadow-slate-200/80"
-                  />
-                ) : (
-                  <span className="grid h-16 w-16 place-items-center rounded-full bg-gradient-to-br from-primary to-primary/80 font-display text-xl font-bold text-white shadow-md shadow-primary/25 ring-2 ring-white sm:h-20 sm:w-20 sm:text-2xl">
-                    {avatar}
-                  </span>
-                )}
-                {isSuperAdmin ? (
-                  <label className="mt-2 inline-flex cursor-pointer items-center justify-center rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] font-bold text-slate-700 shadow-sm hover:bg-slate-50">
-                    {photoBusy ? "Uploading..." : "Upload photo"}
-                    <input
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      disabled={photoBusy}
-                      onChange={async (e) => {
-                        const file = e.target.files?.[0];
-                        if (!file || !user.profileId) return;
-                        setPhotoBusy(true);
-                        try {
-                          const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
-                          const path = `profiles/${user.profileId}/avatar-${Date.now()}.${ext}`;
-                          const buckets = ["avatars", "public", "school-logos"];
-                          let publicUrl: string | null = null;
-                          for (const bucket of buckets) {
-                            const { error } = await supabase.storage.from(bucket).upload(path, file, { upsert: true });
-                            if (!error) {
-                              const { data } = supabase.storage.from(bucket).getPublicUrl(path);
-                              publicUrl = data.publicUrl;
-                              break;
-                            }
+              <div className="relative flex flex-col items-center">
+                <div className="relative">
+                  {user.avatarUrl ? (
+                    <img
+                      src={user.avatarUrl}
+                      alt=""
+                      className="h-20 w-20 rounded-full object-cover shadow-md ring-2 ring-white sm:h-24 sm:w-24"
+                    />
+                  ) : (
+                    <span className="grid h-20 w-20 place-items-center rounded-full bg-gradient-to-br from-primary to-primary/80 font-display text-xl font-bold text-white shadow-md shadow-primary/25 ring-2 ring-white sm:h-24 sm:w-24 sm:text-2xl">
+                      {avatar}
+                    </span>
+                  )}
+                </div>
+                <label className="mt-2 inline-flex cursor-pointer items-center justify-center rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] font-bold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-60">
+                  {photoBusy ? "Uploading…" : user.avatarUrl ? "Change photo" : "Upload photo"}
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/gif"
+                    className="hidden"
+                    disabled={photoBusy}
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      e.target.value = "";
+                      if (!file || !user.profileId) return;
+                      if (file.size > 3 * 1024 * 1024) {
+                        toast.error("Image must be 3 MB or smaller.");
+                        return;
+                      }
+                      setPhotoBusy(true);
+                      try {
+                        const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
+                        const path = `profiles/${user.profileId}/avatar-${Date.now()}.${ext}`;
+                        const buckets = ["avatars", "public"];
+                        let publicUrl: string | null = null;
+                        let lastErr = "";
+                        for (const bucket of buckets) {
+                          const { error } = await supabase.storage
+                            .from(bucket)
+                            .upload(path, file, { upsert: true, contentType: file.type || "image/jpeg" });
+                          if (!error) {
+                            const { data } = supabase.storage.from(bucket).getPublicUrl(path);
+                            publicUrl = data.publicUrl;
+                            break;
                           }
-                          if (!publicUrl) throw new Error("Upload failed");
-                          const { error: updErr } = await supabase
+                          lastErr = error.message || "upload failed";
+                        }
+                        if (!publicUrl) throw new Error(lastErr || "Upload failed");
+                        const { error: updErr } = await supabase
+                          .from("profiles")
+                          .update({ profile_photo_url: publicUrl } as never)
+                          .eq("id", user.profileId);
+                        if (updErr) {
+                          const { error: upd2 } = await supabase
                             .from("profiles")
                             .update({ profile_photo_url: publicUrl } as never)
-                            .eq("id", user.profileId);
-                          if (updErr) throw updErr;
-                          toast.success("Profile photo updated");
-                          void qc.invalidateQueries({ queryKey: ["session-user"] });
-                        } catch (err) {
-                          toast.error((err as Error).message || "Could not upload photo");
-                        } finally {
-                          setPhotoBusy(false);
+                            .eq("auth_user_id", user.userId);
+                          if (upd2) throw upd2;
                         }
-                      }}
-                    />
-                  </label>
-                ) : null}
+                        toast.success("Profile photo updated");
+                        void qc.invalidateQueries({ queryKey: ["session-user"] });
+                        void qc.invalidateQueries({ queryKey: ["public-profile"] });
+                      } catch (err) {
+                        toast.error((err as Error).message || "Could not upload photo");
+                      } finally {
+                        setPhotoBusy(false);
+                      }
+                    }}
+                  />
+                </label>
               </div>
 
               <h2 className="mt-3 max-w-full break-words text-base font-extrabold leading-snug text-slate-900 sm:mt-3.5 sm:text-lg [overflow-wrap:anywhere]">
