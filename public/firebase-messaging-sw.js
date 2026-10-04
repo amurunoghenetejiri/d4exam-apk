@@ -15,8 +15,8 @@ firebase.initializeApp({
 
 var messaging = firebase.messaging();
 
-var SHELL_CACHE = "d4exam-shell-v7";
-var RUNTIME_CACHE = "d4exam-runtime-v7";
+var SHELL_CACHE = "d4exam-shell-v8";
+var RUNTIME_CACHE = "d4exam-runtime-v8";
 var SHELL_URLS = ["/", "/index.html", "/offline.html", "/icon-192.png", "/icon-512.png", "/logo.png", "/favicon.png", "/apple-touch-icon.png", "/site.webmanifest"];
 
 self.addEventListener("install", function (event) {
