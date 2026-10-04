@@ -15,11 +15,11 @@ import {
   ShieldCheck,
   UserRound,
 } from "lucide-react";
-import { SchoolLogo } from "@/components/brand/SchoolLogo";
 import { useSchoolIdentity } from "@/lib/school-identity";
 import { useQueryClient } from "@tanstack/react-query";
 import { useStudentContext } from "@/lib/student";
 import { friendlyError } from "@/lib/friendly-error";
+import { ProfilePhotoButton } from "@/components/profile/ProfilePhotoButton";
 import { cn } from "@/lib/utils";
 
 const roleLabel: Record<string, string> = {
@@ -101,14 +101,14 @@ export function ProfilePage() {
   const { data: school } = useSchoolIdentity(user?.schoolId);
   const { data: student } = useStudentContext();
   const qc = useQueryClient();
-  const [photoBusy, setPhotoBusy] = useState(false);
   const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!user) return;
-    const roleLike = /^(school\s*admin|examination\s*officer|departmental\s*officer|teacher|student|super\s*admin|user)$/i;
+    const roleLike =
+      /^(school\s*admin|examination\s*officer|departmental\s*officer|teacher|student|super\s*admin|user)$/i;
     const seed = (user.fullName || student?.fullName || "").trim();
     setFullName(seed && !roleLike.test(seed) ? seed : "");
     void (async () => {
@@ -120,7 +120,10 @@ export function ProfilePage() {
           .eq("auth_user_id", user.userId)
           .maybeSingle();
         data = byAuth.data;
-        if ((!data?.full_name || roleLike.test(String(data.full_name || "").trim())) && user.profileId) {
+        if (
+          (!data?.full_name || roleLike.test(String(data.full_name || "").trim())) &&
+          user.profileId
+        ) {
           const byId = await supabase
             .from("profiles")
             .select("phone, full_name")
@@ -155,8 +158,6 @@ export function ProfilePage() {
           .eq("auth_user_id", user.userId);
         if (up2) throw up2;
       }
-      // Production students table has no full_name — name stays on profiles only
-
       await qc.invalidateQueries({ queryKey: ["session-user"] });
       await qc.invalidateQueries({ queryKey: ["student-context"] });
       toast.success("Profile saved");
@@ -193,14 +194,20 @@ export function ProfilePage() {
   const avatar = initials(user.fullName || user.email || "U");
   const roleKey = user.role || "user";
   const isSuperAdmin = roleKey === "super_admin";
-  const logoUrl = isSuperAdmin ? null : (school?.logoUrl ?? user.schoolLogoUrl);
   const schoolName = isSuperAdmin ? null : (school?.name ?? user.schoolName);
   const displayName = fullName || user.fullName || "—";
   const statusLabel = (user.status || "active").replace(/_/g, " ");
 
   return (
     <div className="mx-auto w-full max-w-3xl">
-      <PageHeader title="Profile" description={isSuperAdmin ? "Your platform administrator account" : "Your account details for this school portal"} />
+      <PageHeader
+        title="Profile"
+        description={
+          isSuperAdmin
+            ? "Your platform administrator account"
+            : "Your account details for this school portal"
+        }
+      />
 
       <div className="grid gap-3 sm:gap-4 lg:grid-cols-[minmax(0,300px)_minmax(0,1fr)]">
         <SectionCard className="overflow-hidden p-0">
@@ -224,62 +231,11 @@ export function ProfilePage() {
                     </span>
                   )}
                 </div>
-                <label className="mt-2 inline-flex cursor-pointer items-center justify-center rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] font-bold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-60">
-                  {photoBusy ? "Uploading…" : user.avatarUrl ? "Change photo" : "Upload photo"}
-                  <input
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp,image/gif"
-                    className="hidden"
-                    disabled={photoBusy}
-                    onChange={async (e) => {
-                      const file = e.target.files?.[0];
-                      e.target.value = "";
-                      if (!file || !user.profileId) return;
-                      if (file.size > 3 * 1024 * 1024) {
-                        toast.error("Image must be 3 MB or smaller.");
-                        return;
-                      }
-                      setPhotoBusy(true);
-                      try {
-                        const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
-                        const path = `profiles/${user.profileId}/avatar-${Date.now()}.${ext}`;
-                        const buckets = ["avatars", "public"];
-                        let publicUrl: string | null = null;
-                        let lastErr = "";
-                        for (const bucket of buckets) {
-                          const { error } = await supabase.storage
-                            .from(bucket)
-                            .upload(path, file, { upsert: true, contentType: file.type || "image/jpeg" });
-                          if (!error) {
-                            const { data } = supabase.storage.from(bucket).getPublicUrl(path);
-                            publicUrl = data.publicUrl;
-                            break;
-                          }
-                          lastErr = error.message || "upload failed";
-                        }
-                        if (!publicUrl) throw new Error(lastErr || "Upload failed");
-                        const { error: updErr } = await supabase
-                          .from("profiles")
-                          .update({ profile_photo_url: publicUrl } as never)
-                          .eq("id", user.profileId);
-                        if (updErr) {
-                          const { error: upd2 } = await supabase
-                            .from("profiles")
-                            .update({ profile_photo_url: publicUrl } as never)
-                            .eq("auth_user_id", user.userId);
-                          if (upd2) throw upd2;
-                        }
-                        toast.success("Profile photo updated");
-                        void qc.invalidateQueries({ queryKey: ["session-user"] });
-                        void qc.invalidateQueries({ queryKey: ["public-profile"] });
-                      } catch (err) {
-                        toast.error((err as Error).message || "Could not upload photo");
-                      } finally {
-                        setPhotoBusy(false);
-                      }
-                    }}
-                  />
-                </label>
+                <ProfilePhotoButton
+                  userId={user.userId}
+                  profileId={user.profileId}
+                  hasPhoto={Boolean(user.avatarUrl)}
+                />
               </div>
 
               <h2 className="mt-3 max-w-full break-words text-base font-extrabold leading-snug text-slate-900 sm:mt-3.5 sm:text-lg [overflow-wrap:anywhere]">
@@ -319,7 +275,9 @@ export function ProfilePage() {
                 </span>
               }
             />
-            {user.schoolCode && !isSuperAdmin ? <ProfileField label="School code" value={user.schoolCode} /> : null}
+            {user.schoolCode && !isSuperAdmin ? (
+              <ProfileField label="School code" value={user.schoolCode} />
+            ) : null}
             {student?.departmentName ? (
               <ProfileField label="Department" value={student.departmentName} />
             ) : null}
@@ -342,7 +300,7 @@ export function ProfilePage() {
         >
           <form className="grid gap-3 sm:grid-cols-2 sm:gap-4" onSubmit={save}>
             <div className="space-y-1.5 sm:col-span-2">
-              <Label htmlFor="fullname">Full name</Label>
+              <Label htmlFor="fn">Full name</Label>
               <Input
                 id="fn"
                 value={fullName}
@@ -382,11 +340,7 @@ export function ProfilePage() {
               />
             </div>
             <div className="sm:col-span-2">
-              <Button
-                type="submit"
-                disabled={saving}
-                className={cn("w-full font-semibold sm:w-auto")}
-              >
+              <Button type="submit" disabled={saving} className={cn("w-full font-semibold sm:w-auto")}>
                 {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Save profile
               </Button>
