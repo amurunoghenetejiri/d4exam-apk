@@ -33,6 +33,9 @@ export function ProfilePhotoButton({
             await uploadProfilePhoto({ file, userId, profileId });
             toast.success("Profile photo updated");
             void qc.invalidateQueries({ queryKey: ["session-user"] });
+            try {
+              window.dispatchEvent(new CustomEvent("d4-avatar-updated"));
+            } catch { /* ignore */ }
             void qc.invalidateQueries({ queryKey: ["public-profile"] });
             void qc.invalidateQueries({ queryKey: ["student-context"] });
           } catch (err) {
