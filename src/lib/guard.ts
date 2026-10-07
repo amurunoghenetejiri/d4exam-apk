@@ -41,9 +41,44 @@ export async function requireRole(role: AppRole | AppRole[], queryClient?: Query
   async function readOfflineSession(): Promise<SessionUser | null> {
     try {
       const last = readLastUserId();
-      if (!last) return null;
-      const env = await offlineGet<SessionUser>(last, OfflineKeys.sessionUser);
-      if (env?.data && !isIncomplete(env.data)) return env.data;
+      if (last) {
+        const env = await offlineGet<SessionUser>(last, OfflineKeys.sessionUser);
+        if (env?.data && !isIncomplete(env.data)) return env.data;
+      }
+    } catch {
+      /* ignore */
+    }
+    // SQLite local_session fallback (full offline APK)
+    try {
+      const { getMostRecentLocalSession } = await import(
+        "@/lib/local-db/repositories/sessionRepo"
+      );
+      const row = await getMostRecentLocalSession();
+      if (row?.user_id) {
+        let role = (row.primary_role as string) || null;
+        if (!role && row.roles_json) {
+          try {
+            const roles = JSON.parse(String(row.roles_json)) as string[];
+            role = roles[0] || null;
+          } catch { /* ignore */ }
+        }
+        return {
+          userId: String(row.user_id),
+          profileId: String(row.profile_id || row.user_id),
+          email: String(row.email || ""),
+          fullName: String(row.full_name || ""),
+          status: String(row.status || "active"),
+          schoolId: row.school_id ? String(row.school_id) : null,
+          schoolName: row.school_name ? String(row.school_name) : null,
+          schoolCode: null,
+          schoolLogoUrl: null,
+          avatarUrl: null,
+          roles: role ? [role as AppRole] : [],
+          role: (role as AppRole) || null,
+          identifier: String(row.email || ""),
+          identifierLabel: "Email",
+        };
+      }
     } catch {
       /* ignore */
     }

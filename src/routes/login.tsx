@@ -101,12 +101,12 @@ function friendlyLoginError(err: unknown): string {
   const cleaned = raw.replace(/\s+/g, " ").trim();
   const lower = cleaned.toLowerCase();
 
-  // Offline / network
+  // Offline / network — never surface raw "Failed to fetch"
   if (
     typeof navigator !== "undefined" &&
     navigator.onLine === false
   ) {
-    return "No network. Check your connection and try again.";
+    return "You're offline. Open the app online once, then you can use it offline.";
   }
   if (
     lower.includes("failed to fetch") ||
@@ -117,9 +117,11 @@ function friendlyLoginError(err: unknown): string {
     lower.includes("offline") ||
     lower.includes("unable to connect") ||
     lower.includes("net::err_") ||
-    lower.includes("network error")
+    lower.includes("network error") ||
+    lower.includes("timeout") ||
+    lower.includes("timed out")
   ) {
-    return "No network. Check your connection and try again.";
+    return "You're offline or the connection timed out. Try again when you have signal, or use a saved account offline.";
   }
 
   // Wrong credentials (Supabase + generic)
@@ -434,35 +436,42 @@ function LoginPage() {
     let lastServerMsg = "";
     const offlineNow =
       typeof navigator !== "undefined" && navigator.onLine === false;
+    const nativeShell = isNativeShell();
 
-    // Offline APK: resume from saved session — no Vercel / no network required
-    if (offlineNow) {
+    /** Resume from local SQLite / auth session — no Vercel, no network. */
+    async function tryOfflineResume(): Promise<boolean> {
+      // 1) Live Supabase session still in WebView storage
       try {
-        const { data: sess } = await supabase.auth.getSession();
+        const { data: sess } = await Promise.race([
+          supabase.auth.getSession(),
+          new Promise<{ data: { session: null } }>((resolve) =>
+            setTimeout(() => resolve({ data: { session: null } }), 600),
+          ),
+        ]);
         if (sess?.session?.user) {
-          if (await resolveRoleAndGoHome()) {
-            navigated = true;
-            setLoading(false);
-            inFlight.current = false;
-            return;
-          }
+          if (await resolveRoleAndGoHome()) return true;
           const pref = readPreferredRole() || readPendingLoginRole() || "student";
           if (pref in roleHome) {
-            navigated = true;
             await goToRoleHome(pref as AppRole, remember);
-            setLoading(false);
-            inFlight.current = false;
-            return;
+            return true;
           }
         }
       } catch { /* ignore */ }
+
+      // 2) Local SQLite session (saved after a previous online login)
       try {
         const { getLocalSessionByEmail, getMostRecentLocalSession } = await import(
           "@/lib/local-db/repositories/sessionRepo"
         );
         const ident = identifier.trim().toLowerCase();
         let row = ident.includes("@") ? await getLocalSessionByEmail(ident) : null;
-        if (!row) row = await getMostRecentLocalSession();
+        if (!row && ident) {
+          // Also try matching full_name loosely / most recent on device
+          row = await getMostRecentLocalSession();
+          if (row?.email && ident.includes("@") && String(row.email).toLowerCase() !== ident) {
+            row = null; // wrong account
+          }
+        }
         if (row) {
           let role = (row.primary_role as string) || "";
           if (!role && row.roles_json) {
@@ -471,18 +480,52 @@ function LoginPage() {
               role = roles[0] || "";
             } catch { /* ignore */ }
           }
+          if (!role) role = readPreferredRole() || readPendingLoginRole() || "student";
           if (role && role in roleHome) {
             try {
               seedPendingLoginRole(role);
               setPreferredRole(role as AppRole);
               if (row.school_id) seedLoginSchoolContext(String(row.school_id), null);
+              // Warm React Query session cache so shell does not freeze on empty user
+              try {
+                const { offlineSet, OfflineKeys } = await import("@/lib/offline-cache");
+                const snap = {
+                  userId: String(row.user_id),
+                  profileId: String(row.profile_id || row.user_id),
+                  email: String(row.email || ""),
+                  fullName: String(row.full_name || ""),
+                  status: String(row.status || "active"),
+                  schoolId: row.school_id ? String(row.school_id) : null,
+                  schoolName: row.school_name ? String(row.school_name) : null,
+                  schoolCode: null,
+                  schoolLogoUrl: null,
+                  avatarUrl: null,
+                  roles: role ? [role as AppRole] : [],
+                  role: role as AppRole,
+                  identifier: String(row.email || ""),
+                  identifierLabel: "Email",
+                };
+                await offlineSet(String(row.user_id), OfflineKeys.sessionUser, snap, {
+                  schoolId: row.school_id ? String(row.school_id) : null,
+                });
+              } catch { /* ignore */ }
             } catch { /* ignore */ }
-            navigated = true;
             await goToRoleHome(role as AppRole, remember);
-            setLoading(false);
-            inFlight.current = false;
-            return;
+            return true;
           }
+        }
+      } catch { /* ignore */ }
+      return false;
+    }
+
+    // Offline APK: resume from saved session — no Vercel / no network required
+    if (offlineNow) {
+      try {
+        if (await tryOfflineResume()) {
+          navigated = true;
+          setLoading(false);
+          inFlight.current = false;
+          return;
         }
       } catch { /* ignore */ }
       setLoading(false);
@@ -493,13 +536,19 @@ function LoginPage() {
       return;
     }
 
-    // Hard ceiling so the Sign in button never stays stuck
+    // Hard ceiling — native must never freeze (max 6s)
+    const hardCeilingMs = nativeShell ? 6_000 : 10_000;
     const loginTimeout = window.setTimeout(() => {
       if (navigated) return;
       setLoading(false);
       inFlight.current = false;
-      setError("Sign-in is taking longer than usual. Please try again.");
-    }, 12_000);
+      // Soft message only — never "Failed to fetch"
+      setError(
+        offlineNow || (typeof navigator !== "undefined" && navigator.onLine === false)
+          ? "You're offline. Open the app online once, then you can use it offline."
+          : "Sign-in is taking longer than usual. Please try again.",
+      );
+    }, hardCeilingMs);
 
     try {
       const schoolCode = code.trim().toUpperCase();
@@ -516,7 +565,9 @@ function LoginPage() {
               identifier: ident,
               password: pass,
             }),
-            new Promise<null>((resolve) => setTimeout(() => resolve(null), 12_000)),
+            new Promise<null>((resolve) =>
+              setTimeout(() => resolve(null), nativeShell ? 4_500 : 8_000),
+            ),
           ]);
           if (nativeResult && "ok" in nativeResult && nativeResult.ok && nativeResult.accessToken) {
             const { error: sessErr } = await supabase.auth.setSession({
@@ -568,7 +619,7 @@ function LoginPage() {
                   password: pass,
                 },
               }),
-              new Promise<null>((resolve) => setTimeout(() => resolve(null), 8_000)),
+              new Promise<null>((resolve) => setTimeout(() => resolve(null), 5_000)),
             ]);
 
         if (result && "session" in result && result.session?.access_token) {
@@ -711,7 +762,14 @@ function LoginPage() {
         }
       }
 
-      // Offline: never show raw Failed / network spam after a soft resume attempt
+      // Soft offline resume before any error (network may have dropped mid-login)
+      try {
+        if (await tryOfflineResume()) {
+          navigated = true;
+          return;
+        }
+      } catch { /* ignore */ }
+      // Never show raw Failed / network spam
       if (typeof navigator !== "undefined" && navigator.onLine === false) {
         setError(
           "You're offline. Sign in once while online, then the app works offline.",

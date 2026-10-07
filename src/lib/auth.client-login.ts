@@ -6,7 +6,7 @@
 import { supabase } from "@/integrations/supabase/client";
 
 
-async function withLoginTimeout<T>(p: Promise<T>, ms = 12_000): Promise<T> {
+async function withLoginTimeout<T>(p: Promise<T>, ms = 4_500): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
@@ -51,6 +51,11 @@ export async function clientSignInWithSchoolCode(
     return { error: "Enter your email / matric / staff ID and password." };
   }
 
+  // Fully offline: do not hang on network — caller resumes from local session
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    return { error: "offline" };
+  }
+
   const isSuperCode =
     schoolCode === "" || schoolCode === "SUPER" || schoolCode === "PLATFORM";
 
@@ -64,7 +69,7 @@ export async function clientSignInWithSchoolCode(
           email: ident.toLowerCase(),
           password,
         }),
-        12_000,
+        4_500,
       );
       signIn = res.data;
       error = res.error;
@@ -72,8 +77,8 @@ export async function clientSignInWithSchoolCode(
       return {
         error:
           e instanceof Error && e.message === "timeout"
-            ? "Sign-in timed out. Check your connection and try again."
-            : "Sign-in failed. Please try again.",
+            ? "Connection timed out. Try again when you have signal, or use a saved account offline."
+            : "Unable to sign in right now. Please try again.",
       };
     }
     if (error || !signIn?.session || !signIn?.user) {
