@@ -314,6 +314,14 @@ export function AppShell({
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (open) return;
+    // Release any scroll/pointer lock Radix may leave behind after rapid taps.
+    const id = window.setTimeout(() => {
+      if (document.body.style.pointerEvents === "none") document.body.style.pointerEvents = "";
+    }, 350);
+    return () => window.clearTimeout(id);
+  }, [open]);
   const [searchOpen, setSearchOpen] = useState(false);
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const immersiveMessaging =
