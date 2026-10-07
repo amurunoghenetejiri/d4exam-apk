@@ -518,6 +518,9 @@ export function AppShell({
               <SheetContent
                 side="left"
                 hideClose
+                onPointerDownOutside={() => setOpen(false)}
+                onInteractOutside={() => setOpen(false)}
+                onEscapeKeyDown={() => setOpen(false)}
                 className={cn(
                   "flex flex-col gap-0 border-r-0 bg-[#0b1b3a] p-0 text-white",
                   "!inset-y-0 !top-0 !bottom-0",

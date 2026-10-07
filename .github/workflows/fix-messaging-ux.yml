@@ -1,36 +1,11 @@
-name: Fix messaging UX
-
+# Auto-disabled: was a one-shot repair workflow that failed on every push.
+# Re-enable manually via Actions → Run workflow if needed.
+name: Disabled — fix-messaging-ux.yml
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - "scripts/fix_messaging_ux.py"
-      - ".github/workflows/fix-messaging-ux.yml"
-
-permissions:
-  contents: write
-
-concurrency:
-  group: fix-messaging-ux
-  cancel-in-progress: true
 
 jobs:
-  apply:
+  noop:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Apply fixes
-        run: python3 scripts/fix_messaging_ux.py
-
-      - name: Commit
-        run: |
-          git config user.name "d4exam-bot"
-          git config user.email "bot@d4exam.name.ng"
-          git add src/components/messaging/MessageMedia.tsx src/routes/student.contact-officer.tsx || true
-          if git diff --staged --quiet; then
-            echo "No code changes"
-          else
-            git commit -m "fix(messaging): smaller mic, drag-to-reply, centered scroll, voice timer"
-            git push
-          fi
+      - run: echo "Legacy workflow disabled (manual dispatch only)."

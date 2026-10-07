@@ -1,20 +1,11 @@
-name: fix-voice-lock
+# Auto-disabled: was a one-shot repair workflow that failed on every push.
+# Re-enable manually via Actions → Run workflow if needed.
+name: Disabled — fix-voice-lock.yml
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - scripts/fix-voice-lock.py
-      - .github/workflows/fix-voice-lock.yml
-permissions:
-  contents: write
+
 jobs:
-  apply:
+  noop:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - run: python3 scripts/fix-voice-lock.py
-      - run: |
-          git config user.name "d4exam-bot"
-          git config user.email "bot@d4exam.local"
-          git add -A
-          if git diff --staged --quiet; then echo No changes; else git commit -m "fix: voice notes send (remove sendLock race) + mic to Send" && git push; fi
+      - run: echo "Legacy workflow disabled (manual dispatch only)."

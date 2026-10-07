@@ -1,24 +1,11 @@
-name: Messaging polish
+# Auto-disabled: was a one-shot repair workflow that failed on every push.
+# Re-enable manually via Actions → Run workflow if needed.
+name: Disabled — msg-polish.yml
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - "scripts/msg-polish.py"
-      - ".github/workflows/msg-polish.yml"
+
 jobs:
-  polish:
+  noop:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
-      - uses: actions/checkout@v4
-      - name: Run polish
-        run: |
-          set -euo pipefail
-          python3 scripts/msg-polish.py
-          git config user.name d4exam-bot
-          git config user.email bot@d4exam.local
-          git add src/components/messaging/MessageMedia.tsx src/routes/student.contact-officer.tsx src/routes/officer.reports.tsx || true
-          if git diff --cached --quiet; then echo "No changes"; exit 0; fi
-          git commit -m "fix(messaging): seek within waves, header ring, menu z-70, navy composer, officer voice media"
-          git push
+      - run: echo "Legacy workflow disabled (manual dispatch only)."

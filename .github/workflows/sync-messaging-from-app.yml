@@ -1,38 +1,10 @@
-name: Sync messaging from d4exam-app
+# Auto-disabled: one-shot / noisy workflow (was failing CI on push).
+name: Disabled — sync-messaging-from-app.yml
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - ".github/workflows/sync-messaging-from-app.yml"
+
 jobs:
-  sync:
+  noop:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
-      - uses: actions/checkout@v4
-      - name: Pull messaging files from d4exam-app
-        run: |
-          set -euo pipefail
-          mkdir -p src/components/messaging src/routes
-          curl -sL "https://raw.githubusercontent.com/amurunoghenetejiri/d4exam-app/main/src/components/messaging/MessageMedia.tsx" \
-            -o src/components/messaging/MessageMedia.tsx
-          curl -sL "https://raw.githubusercontent.com/amurunoghenetejiri/d4exam-app/main/src/routes/student.contact-officer.tsx" \
-            -o src/routes/student.contact-officer.tsx
-          grep -q "WaveBars" src/components/messaging/MessageMedia.tsx
-          grep -q "swipeDx" src/routes/student.contact-officer.tsx
-          grep -q "scrollToMessage" src/routes/student.contact-officer.tsx
-          grep -q "schoolLogoUrl" src/routes/student.contact-officer.tsx
-          wc -c src/components/messaging/MessageMedia.tsx src/routes/student.contact-officer.tsx
-      - name: Commit if changed
-        run: |
-          set -euo pipefail
-          git config user.name "d4exam-bot"
-          git config user.email "bot@d4exam.local"
-          git add src/components/messaging/MessageMedia.tsx src/routes/student.contact-officer.tsx
-          if git diff --cached --quiet; then
-            echo "No changes"
-            exit 0
-          fi
-          git commit -m "Sync messaging from d4exam-app: wave voice, swipe-reply, scroll-to-message, watermark"
-          git push
+      - run: echo "Legacy workflow disabled. Use Build Android APK for APK builds."

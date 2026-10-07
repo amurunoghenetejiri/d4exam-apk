@@ -1,81 +1,10 @@
-name: sync-mm-from-app
+# Auto-disabled: one-shot / noisy workflow (was failing CI on push).
+name: Disabled — sync-mm-from-app.yml
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - .github/workflows/sync-mm-from-app.yml
+
 jobs:
-  sync:
+  noop:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Fetch MessageMedia from d4exam-app
-        run: |
-          curl -fsSL -o src/components/messaging/MessageMedia.tsx \
-            https://raw.githubusercontent.com/amurunoghenetejiri/d4exam-app/main/src/components/messaging/MessageMedia.tsx
-          wc -c src/components/messaging/MessageMedia.tsx
-          grep -q VideoBubble src/components/messaging/MessageMedia.tsx
-      - name: Patch routes (mic, video, file, reply You)
-        run: |
-          python3 << 'PY'
-          import pathlib, re
-          def patch_student(p):
-            t = p.read_text()
-            if "VideoBubble" not in t:
-              t = t.replace(
-                "VoiceBubble, ImageBubble, ImageLightbox, LongPressMenu, VoiceRecorderBar, lastSeenLabel, parseMediaUrls, attachmentLabel, parseOfficerReply",
-                "VoiceBubble, ImageBubble, ImageLightbox, VideoBubble, FileBubble, VideoLightbox, LongPressMenu, VoiceRecorderBar, lastSeenLabel, parseMediaUrls, attachmentLabel, parseOfficerReply",
-              )
-            t = t.replace('<Mic className="h-7 w-7 stroke-[2.5]" />', '<Mic className="h-5 w-5 stroke-[2.5]" />')
-            t = t.replace(
-              "const [replyTo, setReplyTo] = useState<{ id: string; text: string } | null>(null);",
-              "const [replyTo, setReplyTo] = useState<{ id: string; text: string; fromSelf?: boolean } | null>(null);",
-            )
-            if "videoLightboxSrc" not in t and "lightboxSrc" in t:
-              t = t.replace(
-                "const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);",
-                "const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);\n  const [videoLightboxSrc, setVideoLightboxSrc] = useState<string | null>(null);",
-              )
-            img_end = ")()\n              ) : (\n                <div\n                  id={`msg-${m.key}`}"
-            video_file = ")()\n              ) : (m.attachment_type === \"video\" || m.attachment_type === \"videos\") && m.attachment_url ? (\n                <VideoBubble id={`msg-${m.key}`} src={parseMediaUrls(m.attachment_url)[0]} mine={m.side === \"out\"} timeLabel={formatTime(m.at)} tick={m.side === \"out\" ? outTick : \"none\"} onOpen={() => setVideoLightboxSrc(parseMediaUrls(m.attachment_url)[0])} />\n              ) : m.attachment_type === \"file\" && m.attachment_url ? (\n                <FileBubble id={`msg-${m.key}`} src={m.attachment_url} mine={m.side === \"out\"} timeLabel={formatTime(m.at)} tick={m.side === \"out\" ? outTick : \"none\"} />\n              ) : (\n                <div\n                  id={`msg-${m.key}`}"
-            if img_end in t and "VideoBubble id" not in t:
-              t = t.replace(img_end, video_file, 1)
-            t = re.sub(r'\s*\{m\.attachment_type === "file" && m\.attachment_url \? \(\s*<button[^>]*>[\s\S]*?Open attachment[\s\S]*?</button>\s*\) : null\}\s*', '\n', t, count=1)
-            if "fromSelf: m.side" not in t:
-              t = t.replace(
-                'text: (m.text && m.text !== "(attachment)" ? m.text : m.attachment_type || "Attachment").slice(0, 120),',
-                'text: (m.text && m.text !== "(attachment)" ? m.text : attachmentLabel(m.attachment_type, m.attachment_url)).slice(0, 120),\n                      fromSelf: m.side === "out",',
-              )
-            if 'replyTo.fromSelf ? "You"' not in t:
-              t = t.replace(
-                '<p className="text-[11px] font-bold text-blue-800">{officerNickname}</p>',
-                '<p className="text-[11px] font-bold text-blue-800">{replyTo.fromSelf ? "You" : officerNickname}</p>',
-              )
-            if "videoLightboxSrc ?" not in t:
-              t = t.replace(
-                "{lightboxSrc ? (",
-                "{videoLightboxSrc ? (\n        <VideoLightbox src={videoLightboxSrc} onClose={() => setVideoLightboxSrc(null)} />\n      ) : null}\n      {lightboxSrc ? (",
-              )
-            p.write_text(t)
-            print("student ok")
-          def patch_officer(p):
-            if not p.exists(): return
-            t = p.read_text()
-            if "VideoBubble" not in t:
-              t = t.replace(
-                "VoiceBubble, ImageBubble, ImageLightbox, VoiceRecorderBar, lastSeenLabel, parseMediaUrls, attachmentLabel, encodeOfficerMedia, parseOfficerReply",
-                "VoiceBubble, ImageBubble, ImageLightbox, VideoBubble, FileBubble, VideoLightbox, VoiceRecorderBar, lastSeenLabel, parseMediaUrls, attachmentLabel, encodeOfficerMedia, parseOfficerReply",
-              )
-            t = t.replace('<Mic className="h-7 w-7 stroke-[2.5]" />', '<Mic className="h-5 w-5 stroke-[2.5]" />')
-            p.write_text(t)
-            print("officer ok")
-          patch_student(pathlib.Path("src/routes/student.contact-officer.tsx"))
-          patch_officer(pathlib.Path("src/routes/officer.reports.tsx"))
-          PY
-      - name: Commit
-        run: |
-          git config user.name d4exam-bot
-          git config user.email bot@d4exam.local
-          git add -A
-          git diff --cached --quiet || git commit -m "fix(messaging): sync MessageMedia + video/file/mic/reply from app"
-          git push
+      - run: echo "Legacy workflow disabled. Use Build Android APK for APK builds."

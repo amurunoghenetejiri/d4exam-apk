@@ -1,19 +1,11 @@
-name: fix-mic-icon
+# Auto-disabled: was a one-shot repair workflow that failed on every push.
+# Re-enable manually via Actions → Run workflow if needed.
+name: Disabled — fix-mic-icon.yml
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - scripts/fix-mic-icon.py
-permissions:
-  contents: write
+
 jobs:
-  apply:
+  noop:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - run: python3 scripts/fix-mic-icon.py
-      - run: |
-          git config user.name d4exam-bot
-          git config user.email bot@d4exam.local
-          git add -A
-          if git diff --staged --quiet; then echo ok; else git commit -m "fix: bold mic + Send while recording" && git push; fi
+      - run: echo "Legacy workflow disabled (manual dispatch only)."

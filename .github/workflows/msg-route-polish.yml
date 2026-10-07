@@ -1,65 +1,11 @@
-name: msg-route-polish
+# Auto-disabled: was a one-shot repair workflow that failed on every push.
+# Re-enable manually via Actions → Run workflow if needed.
+name: Disabled — msg-route-polish.yml
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - .github/workflows/msg-route-polish.yml
-permissions:
-  contents: write
+
 jobs:
-  polish:
+  noop:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Patch student + officer routes
-        run: |
-          python3 << 'PY'
-          from pathlib import Path
-          import re
-
-          p = Path('src/routes/student.contact-officer.tsx')
-          t = p.read_text()
-          t2 = t.replace(
-              'const [replyTo, setReplyTo] = useState<{ id: string; text: string } | null>(null);',
-              'const [replyTo, setReplyTo] = useState<{ id: string; text: string; fromSelf?: boolean } | null>(null);',
-          )
-          t2 = t2.replace(
-              '<Mic className="h-7 w-7 stroke-[2.5]" />',
-              '<Mic className="h-5 w-5 stroke-[2.5]" />',
-          )
-          if 'fromSelf: m.side' not in t2:
-              t2 = re.sub(
-                  r'setReplyTo\(\{\s*id: m\.reportId,\s*text: \(m\.text && m\.text !== "\(attachment\)" \? m\.text : m\.attachment_type \|\| "Attachment"\)\.slice\(0, 120\),\s*\}\);',
-                  'setReplyTo({\n                      id: m.reportId,\n                      text: (m.text && m.text !== "(attachment)" ? m.text : attachmentLabel(m.attachment_type, m.attachment_url)).slice(0, 120),\n                      fromSelf: m.side === "out",\n                    });',
-                  t2,
-                  count=1,
-              )
-          if 'replyTo.fromSelf' not in t2 and 'replyTo?.fromSelf' not in t2:
-              t2 = t2.replace(
-                  '<p className="text-[11px] font-bold text-blue-800">{officerNickname}</p>',
-                  '<p className="text-[11px] font-bold text-blue-800">{replyTo.fromSelf ? "You" : officerNickname}</p>',
-              )
-          p.write_text(t2)
-          print('student changed', t != t2)
-
-          op = Path('src/routes/officer.reports.tsx')
-          if op.exists():
-              ot = op.read_text()
-              ot2 = ot.replace(
-                  '<Mic className="h-7 w-7 stroke-[2.5]" />',
-                  '<Mic className="h-5 w-5 stroke-[2.5]" />',
-              )
-              op.write_text(ot2)
-              print('officer changed', ot != ot2)
-          PY
-      - name: Commit
-        run: |
-          git config user.name d4exam-bot
-          git config user.email bot@d4exam.local
-          git add src/routes/student.contact-officer.tsx src/routes/officer.reports.tsx || true
-          if git diff --cached --quiet; then
-            echo "No route changes"
-          else
-            git commit -m "fix(messaging): smaller mic + reply You label"
-            git push
-          fi
+      - run: echo "Legacy workflow disabled (manual dispatch only)."

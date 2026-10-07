@@ -1,24 +1,11 @@
-name: msg-ux-live-fix
+# Auto-disabled: was a one-shot repair workflow that failed on every push.
+# Re-enable manually via Actions → Run workflow if needed.
+name: Disabled — msg-ux-live-fix.yml
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - "scripts/msg-ux-live-fix.py"
+
 jobs:
-  apply:
+  noop:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Apply messaging UX fixes
-        run: python3 scripts/msg-ux-live-fix.py
-      - name: Commit if changed
-        run: |
-          git config user.name "d4exam-bot"
-          git config user.email "bot@d4exam.local"
-          git add -A
-          if git diff --staged --quiet; then
-            echo "No changes"
-          else
-            git commit -m "fix: messaging UX (blue recorder, duration, back/menu, silent offline, bigger mic)"
-            git push
-          fi
+      - run: echo "Legacy workflow disabled (manual dispatch only)."

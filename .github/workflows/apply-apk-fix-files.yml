@@ -1,15 +1,11 @@
-name: apply-apk-fix-files
+# Auto-disabled: was a one-shot repair workflow that failed on every push.
+# Re-enable manually via Actions → Run workflow if needed.
+name: Disabled — apply-apk-fix-files.yml
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - ".github/workflows/apply-apk-fix-files.yml"
+
 jobs:
-  apply:
+  noop:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
-      - uses: actions/checkout@v4
-      - name: placeholder
-        run: echo start
+      - run: echo "Legacy workflow disabled (manual dispatch only)."

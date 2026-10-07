@@ -1,61 +1,11 @@
-name: fix-contact-jsx
+# Auto-disabled: was a one-shot repair workflow that failed on every push.
+# Re-enable manually via Actions → Run workflow if needed.
+name: Disabled — fix-contact-jsx.yml
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - ".github/workflows/fix-contact-jsx.yml"
+
 jobs:
-  fix:
+  noop:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Restore contact-officer and fix JSX fragment
-        run: |
-          set -e
-          git show 25ca243b5cf08ebbf02826cb83448d7a13fdfb21:src/routes/student.contact-officer.tsx > src/routes/student.contact-officer.tsx
-          python3 << 'INNER'
-          from pathlib import Path
-          p = Path("src/routes/student.contact-officer.tsx")
-          t = p.read_text()
-          old = """        {recording || pendingAudio || pendingAudioUrl ? (
-          {(uploadPct != null && uploadPct < 100) ? (<div className=\"mx-3 mb-1 h-1 overflow-hidden rounded-full bg-slate-200\"><div className=\"h-full bg-[#1e3a5f] transition-all\" style={{ width: `${uploadPct}%` }} /></div>) : null}{failedIds.size > 0 ? (<div className=\"mx-3 mb-1 flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] text-amber-900\"><span>{failedIds.size} waiting</span><button type=\"button\" className=\"rounded-md bg-[#1e3a5f] px-2 py-0.5 font-semibold text-white\" onClick={() => { notifyOutbox(); window.dispatchEvent(new Event(\"online\")); }}>Retry</button></div>) : null}<VoiceRecorderBar"""
-          new = """        {recording || pendingAudio || pendingAudioUrl ? (
-          <>
-          {(uploadPct != null && uploadPct < 100) ? (<div className=\"mx-3 mb-1 h-1 overflow-hidden rounded-full bg-slate-200\"><div className=\"h-full bg-[#1e3a5f] transition-all\" style={{ width: `${uploadPct}%` }} /></div>) : null}
-          {failedIds.size > 0 ? (<div className=\"mx-3 mb-1 flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] text-amber-900\"><span>{failedIds.size} waiting</span><button type=\"button\" className=\"rounded-md bg-[#1e3a5f] px-2 py-0.5 font-semibold text-white\" onClick={() => { notifyOutbox(); window.dispatchEvent(new Event(\"online\")); }}>Retry</button></div>) : null}
-          <VoiceRecorderBar"""
-          if old not in t:
-              if "<>\n          {(uploadPct" in t:
-                  print("already fixed")
-              else:
-                  print("pattern not found, size", len(t))
-                  p.write_text(t)
-          else:
-              t = t.replace(old, new, 1)
-              t = t.replace(
-                  """          />
-        ) : (
-          <>
-        <input ref={fileRef}""",
-                  """          />
-          </>
-        ) : (
-          <>
-        <input ref={fileRef}""",
-                  1,
-              )
-              p.write_text(t)
-              print("patched", p.stat().st_size)
-          INNER
-      - name: Commit
-        run: |
-          git config user.name d4exam-bot
-          git config user.email bot@d4exam.local
-          git add src/routes/student.contact-officer.tsx
-          git status
-          git commit -m "fix: restore contact-officer + JSX fragment for voice recorder (Vercel build)" || echo nochange
-          git push origin main
+      - run: echo "Legacy workflow disabled (manual dispatch only)."
