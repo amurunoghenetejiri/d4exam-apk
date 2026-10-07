@@ -307,6 +307,36 @@ function RootComponent() {
       document.body.style.pointerEvents = "";
       document.documentElement.style.pointerEvents = "";
     } catch { /* ignore */ }
+
+    const clearStuckPointerEvents = () => {
+      try {
+        if (document.body.style.pointerEvents === "none") {
+          document.body.style.pointerEvents = "";
+        }
+        if (document.documentElement.style.pointerEvents === "none") {
+          document.documentElement.style.pointerEvents = "";
+        }
+      } catch { /* ignore */ }
+    };
+
+    clearStuckPointerEvents();
+
+    const observer = new MutationObserver(clearStuckPointerEvents);
+    try {
+      observer.observe(document.body, { attributes: true, attributeFilter: ["style"] });
+      observer.observe(document.documentElement, { attributes: true, attributeFilter: ["style"] });
+    } catch { /* ignore */ }
+
+    window.addEventListener("pointerdown", clearStuckPointerEvents, { passive: true });
+    window.addEventListener("click", clearStuckPointerEvents, { passive: true });
+
+    return () => {
+      try {
+        observer.disconnect();
+      } catch { /* ignore */ }
+      window.removeEventListener("pointerdown", clearStuckPointerEvents);
+      window.removeEventListener("click", clearStuckPointerEvents);
+    };
   }, []);
   return (
     <QueryClientProvider client={queryClient}>

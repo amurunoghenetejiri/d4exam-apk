@@ -1,3 +1,17 @@
+/* Fix Radix UI modal lock from freezing body pointer events */
+body[style*="pointer-events: none"],
+html[style*="pointer-events: none"] {
+  pointer-events: auto !important;
+}
+
+/* Eliminate 300ms double-tap delay and double-tap zoom freeze across mobile WebView */
+html,
+body,
+#root,
+#app {
+  touch-action: manipulation;
+}
+
 /* d4-no-text-select — disable text highlighting app-wide (native feel) */
 html,
 body,
