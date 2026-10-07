@@ -1,11 +1,11 @@
 {
-  "version": 1,
   "asset_id": "12c35c65-e122-4991-9b08-0a10e289008a",
-  "project_id": "11543735-4ab6-41ce-8fef-68d505bdee4e",
-  "url": "/__l5e/assets-v1/12c35c65-e122-4991-9b08-0a10e289008a/d4exam-logo.png",
-  "r2_key": "a/v1/11543735-4ab6-41ce-8fef-68d505bdee4e/12c35c65-e122-4991-9b08-0a10e289008a/d4exam-logo.png",
-  "original_filename": "d4exam-logo.png",
-  "size": 1554148,
   "content_type": "image/png",
-  "created_at": "2026-08-11T18:20:17Z"
+  "created_at": "2026-08-11T18:20:17Z",
+  "original_filename": "d4exam-logo.png",
+  "project_id": "55f8c6a1-bd4a-4c52-b8bf-c80633cd4183",
+  "r2_key": "a/v1/55f8c6a1-bd4a-4c52-b8bf-c80633cd4183/12c35c65-e122-4991-9b08-0a10e289008a/d4exam-logo.png",
+  "size": 1554148,
+  "url": "/__l5e/assets-v1/12c35c65-e122-4991-9b08-0a10e289008a/d4exam-logo.png",
+  "version": 1
 }
