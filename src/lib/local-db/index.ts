@@ -16,7 +16,9 @@ export {
 } from "./connection";
 export type { LocalDbExecutor, SqlResult } from "./connection";
 
-export { saveLocalSession, getLocalSession, clearLocalSession } from "./repositories/sessionRepo";
+export { saveLocalSession, getLocalSession,
+  getLocalSessionByEmail,
+  getMostRecentLocalSession, clearLocalSession } from "./repositories/sessionRepo";
 export {
   upsertLocalEntity,
   getLocalEntityById,

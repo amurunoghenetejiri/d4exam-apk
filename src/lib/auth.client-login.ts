@@ -5,6 +5,21 @@
  */
 import { supabase } from "@/integrations/supabase/client";
 
+
+async function withLoginTimeout<T>(p: Promise<T>, ms = 12_000): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      p,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("timeout")), ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 function looksLikeEmail(s: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.trim());
 }
@@ -41,10 +56,26 @@ export async function clientSignInWithSchoolCode(
 
   // Super admin / plain email path
   if (looksLikeEmail(ident) && isSuperCode) {
-    const { data: signIn, error } = await supabase.auth.signInWithPassword({
-      email: ident.toLowerCase(),
-      password,
-    });
+    let signIn: any = null;
+    let error: any = null;
+    try {
+      const res = await withLoginTimeout(
+        supabase.auth.signInWithPassword({
+          email: ident.toLowerCase(),
+          password,
+        }),
+        12_000,
+      );
+      signIn = res.data;
+      error = res.error;
+    } catch (e) {
+      return {
+        error:
+          e instanceof Error && e.message === "timeout"
+            ? "Sign-in timed out. Check your connection and try again."
+            : "Sign-in failed. Please try again.",
+      };
+    }
     if (error || !signIn?.session || !signIn?.user) {
       return { error: error?.message || "Invalid email or password." };
     }

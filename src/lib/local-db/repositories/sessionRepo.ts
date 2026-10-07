@@ -56,3 +56,24 @@ export async function clearLocalSession(userId?: string): Promise<void> {
   if (userId) await db.execute(`DELETE FROM local_session WHERE user_id = ?`, [userId]);
   else await db.execute(`DELETE FROM local_session`);
 }
+
+export async function getLocalSessionByEmail(email: string): Promise<LocalSessionRow | null> {
+  const db = getLocalDb() || (await initLocalDb());
+  if (!db) return null;
+  const e = String(email || "").trim().toLowerCase();
+  if (!e) return null;
+  const res = await db.execute(
+    `SELECT * FROM local_session WHERE lower(coalesce(email,'')) = ? ORDER BY updated_at DESC LIMIT 1`,
+    [e],
+  );
+  return (res.rows[0] as LocalSessionRow) ?? null;
+}
+
+export async function getMostRecentLocalSession(): Promise<LocalSessionRow | null> {
+  const db = getLocalDb() || (await initLocalDb());
+  if (!db) return null;
+  const res = await db.execute(
+    `SELECT * FROM local_session ORDER BY updated_at DESC LIMIT 1`,
+  );
+  return (res.rows[0] as LocalSessionRow) ?? null;
+}

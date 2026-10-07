@@ -424,10 +424,6 @@ function LoginPage() {
       return;
     }
     setError("");
-    if (typeof navigator !== "undefined" && navigator.onLine === false) {
-      setError("No network. Check your connection and try again.");
-      return;
-    }
     if (!identifier.trim() || !password.trim()) {
       setError("Please enter your login details.");
       return;
@@ -436,17 +432,74 @@ function LoginPage() {
     setLoading(true);
     let navigated = false;
     let lastServerMsg = "";
+    const offlineNow =
+      typeof navigator !== "undefined" && navigator.onLine === false;
+
+    // Offline APK: resume from saved session — no Vercel / no network required
+    if (offlineNow) {
+      try {
+        const { data: sess } = await supabase.auth.getSession();
+        if (sess?.session?.user) {
+          if (await resolveRoleAndGoHome()) {
+            navigated = true;
+            setLoading(false);
+            inFlight.current = false;
+            return;
+          }
+          const pref = readPreferredRole() || readPendingLoginRole() || "student";
+          if (pref in roleHome) {
+            navigated = true;
+            await goToRoleHome(pref as AppRole, remember);
+            setLoading(false);
+            inFlight.current = false;
+            return;
+          }
+        }
+      } catch { /* ignore */ }
+      try {
+        const { getLocalSessionByEmail, getMostRecentLocalSession } = await import(
+          "@/lib/local-db/repositories/sessionRepo"
+        );
+        const ident = identifier.trim().toLowerCase();
+        let row = ident.includes("@") ? await getLocalSessionByEmail(ident) : null;
+        if (!row) row = await getMostRecentLocalSession();
+        if (row) {
+          let role = (row.primary_role as string) || "";
+          if (!role && row.roles_json) {
+            try {
+              const roles = JSON.parse(String(row.roles_json)) as string[];
+              role = roles[0] || "";
+            } catch { /* ignore */ }
+          }
+          if (role && role in roleHome) {
+            try {
+              seedPendingLoginRole(role);
+              setPreferredRole(role as AppRole);
+              if (row.school_id) seedLoginSchoolContext(String(row.school_id), null);
+            } catch { /* ignore */ }
+            navigated = true;
+            await goToRoleHome(role as AppRole, remember);
+            setLoading(false);
+            inFlight.current = false;
+            return;
+          }
+        }
+      } catch { /* ignore */ }
+      setLoading(false);
+      inFlight.current = false;
+      setError(
+        "You're offline. Open the app online once to sign in, then you can use it offline.",
+      );
+      return;
+    }
+
     // Hard ceiling so the Sign in button never stays stuck
     const loginTimeout = window.setTimeout(() => {
       if (navigated) return;
       setLoading(false);
       inFlight.current = false;
-      if (typeof navigator !== "undefined" && navigator.onLine === false) {
-        setError("No network. Check your connection and try again.");
-      } else {
-        setError("Sign-in is taking longer than usual. Please try again.");
-      }
-    }, 15_000);
+      setError("Sign-in is taking longer than usual. Please try again.");
+    }, 12_000);
 
     try {
       const schoolCode = code.trim().toUpperCase();
@@ -457,11 +510,14 @@ function LoginPage() {
       try {
         // Always try client Supabase login first (APK has no reliable SSR; website benefits too)
         {
-          const nativeResult = await clientSignInWithSchoolCode({
-            schoolCode: schoolCode || "",
-            identifier: ident,
-            password: pass,
-          });
+          const nativeResult = await Promise.race([
+            clientSignInWithSchoolCode({
+              schoolCode: schoolCode || "",
+              identifier: ident,
+              password: pass,
+            }),
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), 12_000)),
+          ]);
           if (nativeResult && "ok" in nativeResult && nativeResult.ok && nativeResult.accessToken) {
             const { error: sessErr } = await supabase.auth.setSession({
               access_token: nativeResult.accessToken,
@@ -501,17 +557,19 @@ function LoginPage() {
           }
         }
 
-        // Cap server login so UI never hangs (client fallback still runs)
-        const result = await Promise.race([
-          loginFn({
-            data: {
-              schoolCode: schoolCode || "",
-              identifier: ident,
-              password: pass,
-            },
-          }),
-          new Promise<null>((resolve) => setTimeout(() => resolve(null), 10_000)),
-        ]);
+        // APK / native: never depend on Vercel server functions — client login only
+        const result = isNativeShell()
+          ? null
+          : await Promise.race([
+              loginFn({
+                data: {
+                  schoolCode: schoolCode || "",
+                  identifier: ident,
+                  password: pass,
+                },
+              }),
+              new Promise<null>((resolve) => setTimeout(() => resolve(null), 8_000)),
+            ]);
 
         if (result && "session" in result && result.session?.access_token) {
           if (result.role && result.role in roleHome) {
@@ -621,7 +679,7 @@ function LoginPage() {
         }
       }
 
-      if (looksEmail) {
+      if (looksEmail && !isNativeShell()) {
         try {
           const fixed = await Promise.race([
             ensureLoginFn({
@@ -653,9 +711,11 @@ function LoginPage() {
         }
       }
 
-      // Prefer network message when offline; otherwise short credentials message
+      // Offline: never show raw Failed / network spam after a soft resume attempt
       if (typeof navigator !== "undefined" && navigator.onLine === false) {
-        setError("No network. Check your connection and try again.");
+        setError(
+          "You're offline. Sign in once while online, then the app works offline.",
+        );
       } else {
         setError(friendlyLoginError(lastServerMsg || "Invalid login credentials."));
       }

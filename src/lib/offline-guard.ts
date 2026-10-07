@@ -45,5 +45,5 @@ export const ONLINE_REQUIRED = [
   "approvals",
   "admin_mutations",
   "push_delivery",
-  "auth_login",
+  "auth_first_login",  // first sign-in needs network; later offline resume is OK
 ] as const;
