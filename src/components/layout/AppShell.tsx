@@ -518,8 +518,15 @@ export function AppShell({
               <SheetContent
                 side="left"
                 hideClose
-                onPointerDownOutside={() => setOpen(false)}
-                onInteractOutside={() => setOpen(false)}
+                onInteractOutside={(e) => {
+                  const t = e.target as HTMLElement | null;
+                  // Ignore taps on the menu button itself — its onClick toggles.
+                  if (t?.closest?.(".sa-mobile-menu")) {
+                    e.preventDefault();
+                    return;
+                  }
+                  setOpen(false);
+                }}
                 onEscapeKeyDown={() => setOpen(false)}
                 className={cn(
                   "flex flex-col gap-0 border-r-0 bg-[#0b1b3a] p-0 text-white",
