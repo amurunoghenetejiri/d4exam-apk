@@ -85,7 +85,7 @@ export function PublicLayout({ children }: { children: ReactNode }) {
     <div className="relative flex min-h-dvh flex-col bg-white">
       <Watermark opacity={0.1} size="xl" />
 
-      <header className="d4-public-header fixed top-0 left-0 right-0 z-50 border-b border-slate-200 bg-white/90 backdrop-blur">
+      <header className="d4-public-header fixed top-0 left-0 right-0 z-50 border-b border-white/10 bg-[#0b1b3a] shadow-[0_4px_20px_rgba(11,27,58,0.35)]">
         <div className="mx-auto flex h-14 w-full max-w-[1180px] items-center justify-between gap-4 px-4 sm:h-[4.5rem] sm:px-6">
           <Link to="/" aria-label="D4EXAM home" className="shrink-0">
             <span className="inline-flex lg:hidden">
@@ -101,8 +101,8 @@ export function PublicLayout({ children }: { children: ReactNode }) {
               <Link
                 key={l.label}
                 to={l.to}
-                className="rounded-md px-3 py-2 text-sm font-semibold text-primary/80 transition-colors hover:text-primary"
-                activeProps={{ className: "text-primary" }}
+                className="rounded-md px-3 py-2 text-sm font-semibold text-white/85 transition-colors hover:text-white"
+                activeProps={{ className: "text-white" }}
               >
                 {l.label}
               </Link>
@@ -110,10 +110,10 @@ export function PublicLayout({ children }: { children: ReactNode }) {
           </nav>
 
           <div className="hidden shrink-0 items-center gap-2 lg:flex">
-            <Button variant="ghost" size="sm" className="font-semibold text-primary" asChild>
+            <Button variant="ghost" size="sm" className="font-semibold text-white hover:bg-white/10 hover:text-white" asChild>
               <Link to="/login">Login</Link>
             </Button>
-            <Button size="sm" className="rounded-full px-5 font-semibold" asChild>
+            <Button size="sm" className="rounded-full border border-white/30 bg-white/10 px-5 font-semibold text-white hover:bg-white/20" asChild>
               <Link to="/school-application">Apply Now</Link>
             </Button>
           </div>
@@ -123,7 +123,7 @@ export function PublicLayout({ children }: { children: ReactNode }) {
               <Button
                 variant="outline"
                 size="icon"
-                className="d4-public-menu lg:hidden"
+                className="d4-public-menu lg:hidden border-white/30 bg-white/5 text-white hover:bg-white/10 hover:text-white"
                 aria-label="Open menu"
               >
                 <Menu className="h-5 w-5" />

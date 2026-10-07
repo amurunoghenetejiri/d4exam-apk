@@ -49,7 +49,12 @@ export const Route = createFileRoute("/")({
           throw redirect({ to: home as never });
         }
       }
-      const session = await fetchSessionUser();
+      // Offline / slow network: never freeze home — short timeout then stay on marketing
+      const online = typeof navigator === "undefined" ? true : navigator.onLine !== false;
+      const session = await Promise.race([
+        fetchSessionUser(),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), online ? 3_500 : 400)),
+      ]);
       if (session?.role && session.role in roleHome) {
         throw redirect({ to: roleHome[session.role as AppRole] as never });
       }
