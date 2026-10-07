@@ -73,14 +73,14 @@ export default defineConfig({
   define: {
     "process.env.NODE_ENV": JSON.stringify("production"),
     "import.meta.env.SSR": "false",
-    "import.meta.env.VITE_SUPABASE_URL": JSON.stringify("https://rqjchjytqcqjmljahcdr.supabase.co"),
+    "import.meta.env.VITE_SUPABASE_URL": JSON.stringify("https://unojhweoayjxirngcmrm.supabase.co"),
     "import.meta.env.VITE_SUPABASE_ANON_KEY": JSON.stringify(
-      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJxamNoanl0cWNxam1samFoY2RyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcwMjAwMzMsImV4cCI6MjEwMjU5NjAzM30.JWffmq5TIUnizWR-DIhwLylmHPmuuks2kUuEDEidlE8",
+      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVub2pod2VvYXlqeGlybmdjbXJtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTEzNzIzMzksImV4cCI6MjEwNjk0ODMzOX0.2uf62fYsG1r7wt675RPpDRTuAPdeyvkX5_hU6hCQucQ",
     ),
     "import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY": JSON.stringify(
-      "sb_publishable_VQOWXfgqJsrehi2sJGkdig_Gr8Zilr2",
+      "sb_publishable_PsyD0VmPUjdcR5swJrXo_g_8-gzqLCi",
     ),
-    "import.meta.env.VITE_SUPABASE_PROJECT_ID": JSON.stringify("rqjchjytqcqjmljahcdr"),
+    "import.meta.env.VITE_SUPABASE_PROJECT_ID": JSON.stringify("unojhweoayjxirngcmrm"),
   },
   build: {
     outDir: "dist-capacitor",

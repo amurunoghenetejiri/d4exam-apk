@@ -244,12 +244,21 @@ jobs:
             fi
           done
           if [ -f android/app/src/main/assets/capacitor.config.json ]; then
-            if ! grep -E 'd4exam\.name\.ng|d4exam-platform\.vercel\.app' android/app/src/main/assets/capacitor.config.json; then
-              echo "FATAL: hybrid APK requires server.url to live site (Vercel / d4exam.name.ng)"
+            if grep -E '"url"[[:space:]]*:[[:space:]]*"https?://' android/app/src/main/assets/capacitor.config.json; then
+              echo "FATAL: standalone APK must NOT have server.url (Vercel remote shell)"
               cat android/app/src/main/assets/capacitor.config.json || true
               exit 1
             fi
-            echo "OK: hybrid APK assets — live UI + native plugins"
+            if grep -E 'vercel\.app' android/app/src/main/assets/capacitor.config.json; then
+              echo "FATAL: vercel URL still present in capacitor assets config"
+              cat android/app/src/main/assets/capacitor.config.json || true
+              exit 1
+            fi
+            if ! grep -q 'hostname' android/app/src/main/assets/capacitor.config.json; then
+              echo "FATAL: missing hostname localhost in assets config"
+              exit 1
+            fi
+            echo "OK: standalone APK assets — local dist/ only, NO server.url"
           fi
           # Native biometric must be linked after sync
           if ! grep -qi 'capgo-native-biometric\|native-biometric\|NativeBiometric' android/capacitor.settings.gradle android/app/capacitor.build.gradle 2>/dev/null; then
@@ -261,7 +270,7 @@ jobs:
           echo "OK: biometric plugin linked"
           chmod +x android/gradlew
           grep -q 'ExamImmersivePlugin' android/app/src/main/java/com/d4exam/app/MainActivity.java
-          echo "OK: sync complete — hybrid live UI (Vercel) + native plugins (biometric, screen, notif)"
+          echo "OK: sync complete — standalone local SPA + native plugins (biometric, screen, notif)"
 
       - name: Inject Google Services JSON
         env:

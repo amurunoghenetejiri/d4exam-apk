@@ -1,13 +1,10 @@
 #!/usr/bin/env python3
 """
-Configure Capacitor Android assets for hybrid APK:
+Configure Capacitor Android assets for a 100% STANDALONE local APK.
 
-  UI / menu / deep links  → live site (Vercel / d4exam.name.ng)
-  Permissions / biometrics / notifications / screen share → native Capacitor plugins
-
-server.url loads the production website inside the WebView so menus and pages
-match the live site. Native plugins (D4NativeAuth, D4ScreenShare, Capgo, etc.)
-still run in the APK process and can request real OS permissions.
+- Loads UI from bundled dist/ via https://localhost (NO server.url / NO Vercel)
+- Native plugins (biometric, splash, push, screen share) still work
+- errorPath = index.html so SPA deep links work offline
 """
 from __future__ import annotations
 
@@ -18,8 +15,6 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 CFG = ROOT / "android" / "app" / "src" / "main" / "assets" / "capacitor.config.json"
 
-LIVE_URL = "https://d4exam-platform.vercel.app"
-
 
 def main() -> int:
     if not CFG.exists():
@@ -29,17 +24,13 @@ def main() -> int:
     d = json.loads(CFG.read_text(encoding="utf-8"))
     server = dict(d.get("server") or {})
 
-    server["url"] = LIVE_URL
+    # CRITICAL: never inject a remote website shell
+    server.pop("url", None)
     server["androidScheme"] = "https"
     server["cleartext"] = False
-    server["errorPath"] = "offline.html"
-    # Hostname kept for local asset fallback when offline
     server["hostname"] = "localhost"
+    server["errorPath"] = "index.html"
     server["allowNavigation"] = [
-        "d4exam.name.ng",
-        "*.d4exam.name.ng",
-        "d4exam-platform.vercel.app",
-        "*.vercel.app",
         "*.supabase.co",
         "*.googleapis.com",
         "*.gstatic.com",
@@ -53,7 +44,7 @@ def main() -> int:
 
     plugins = dict(d.get("plugins") or {})
     plugins["SplashScreen"] = {
-        "launchShowDuration": 15000,
+        "launchShowDuration": 0,
         "launchAutoHide": False,
         "backgroundColor": "#0b1b3a",
         "androidSplashResourceName": "splash",
@@ -61,7 +52,7 @@ def main() -> int:
         "showSpinner": False,
         "splashFullScreen": True,
         "splashImmersive": True,
-        "launchFadeOutDuration": 300,
+        "launchFadeOutDuration": 250,
     }
     d["plugins"] = plugins
     d["webDir"] = "dist"
@@ -69,7 +60,11 @@ def main() -> int:
     d["appName"] = d.get("appName") or "D4EXAM"
 
     CFG.write_text(json.dumps(d, indent=2) + "\n", encoding="utf-8")
-    print("OK: hybrid APK — server.url =", LIVE_URL, "+ native plugins")
+
+    if "url" in (d.get("server") or {}):
+        print("FATAL: server.url still present after force-local")
+        return 1
+    print("OK: standalone APK — webDir=dist, hostname=localhost, NO server.url")
     return 0
 
 

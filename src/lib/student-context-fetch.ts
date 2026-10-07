@@ -1,8 +1,28 @@
 // @ts-nocheck
 import type { StudentContext, StudentCourse } from "@/lib/student";
 
+function isOfflineNow(): boolean {
+  return typeof navigator !== "undefined" && navigator.onLine === false;
+}
+
+async function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      p,
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 /**
- * Resolve student context: RPC (works on Cap SPA) → server fn → direct client queries.
+ * Resolve student context (local-first on APK):
+ * offline → null (caller uses IndexedDB/SQLite cache)
+ * online → RPC → direct Supabase client (never hang on Vercel server fn)
  */
 export async function fetchStudentContextClient(session: {
   userId?: string | null;
@@ -16,11 +36,20 @@ export async function fetchStudentContextClient(session: {
   const uid = session?.userId;
   if (!uid) return null;
 
+  // Fully offline: do not touch network — withOfflineCache will serve IndexedDB/SQLite
+  if (isOfflineNow()) return null;
+
   try {
     const { supabase } = await import("@/integrations/supabase/client");
-    const { data: rpcData, error: rpcErr } = await supabase.rpc(
-      "get_my_student_context" as never,
+    const rpcRes = await withTimeout(
+      supabase.rpc("get_my_student_context" as never),
+      4_000,
     );
+    if (!rpcRes) {
+      console.warn("[student-context] rpc timed out");
+    }
+    const rpcData = rpcRes?.data;
+    const rpcErr = rpcRes?.error;
     if (rpcErr) console.warn("[student-context] rpc", rpcErr.message);
     if (rpcData && typeof rpcData === "object") {
       const raw = rpcData as Record<string, unknown>;
@@ -62,12 +91,24 @@ export async function fetchStudentContextClient(session: {
     console.warn("[student-context] rpc failed", e);
   }
 
-  try {
-    const { getMyStudentContext } = await import("@/lib/student.server");
-    const ctx = (await getMyStudentContext()) as StudentContext | { error?: string } | null;
-    if (ctx && (ctx as StudentContext).studentId) return ctx as StudentContext;
-  } catch (e) {
-    console.warn("[student-context] server fn failed", e);
+  // Capacitor SPA: server fns are stubs — skip to avoid freeze / empty waits
+  // (RPC + direct client below cover online; offline uses withOfflineCache)
+  if (!isOfflineNow() && typeof window !== "undefined") {
+    const isNative =
+      Boolean((window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.()) ||
+      Boolean((window as unknown as { __D4_CAP_SPA?: boolean }).__D4_CAP_SPA);
+    if (!isNative) {
+      try {
+        const { getMyStudentContext } = await import("@/lib/student.server");
+        const ctx = (await withTimeout(
+          getMyStudentContext() as Promise<StudentContext | { error?: string } | null>,
+          3_000,
+        )) as StudentContext | { error?: string } | null;
+        if (ctx && (ctx as StudentContext).studentId) return ctx as StudentContext;
+      } catch (e) {
+        console.warn("[student-context] server fn failed", e);
+      }
+    }
   }
 
   try {

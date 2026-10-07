@@ -132,8 +132,56 @@ export async function saveCbtResult(input: {
   let error: { message?: string } | null = null;
 
   // Preferred: server (service role) — bypasses RLS after ownership check
+  // Offline / no network: queue to local SQLite outbox — never freeze waiting on Vercel
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    try {
+      const { enqueueOutbox } = await import("@/lib/local-db/repositories/outboxRepo");
+      await enqueueOutbox({
+        entityType: "cbt_result",
+        entityId: input.attemptId || input.examId,
+        operation: "upsert",
+        payload: {
+          examId: input.examId,
+          studentId: input.studentId,
+          schoolId: input.schoolId,
+          attemptId: input.attemptId,
+          answers: input.answers,
+          terminated: input.terminated,
+          faceWarned: input.faceWarned,
+          resultVisibility: input.resultVisibility,
+          scored,
+          status,
+          resultStatus,
+          secStatus,
+          releasedAt,
+          publishNow,
+        },
+      });
+      return {
+        scored,
+        error: null,
+        resultId: `local_${input.examId}_${input.studentId}`,
+        status,
+        published: false,
+        offlineQueued: true,
+      };
+    } catch (e) {
+      console.warn("[cbt-save] offline outbox failed", e);
+      return {
+        scored,
+        error: { message: "Saved answers locally. Will sync when you are online." },
+        resultId: null,
+        status,
+        published: false,
+        offlineQueued: true,
+      };
+    }
+  }
+
+
   try {
-    const serverRes = await saveCbtResultServer({
+    const serverRes = await Promise.race([
+      saveCbtResultServer({
       data: {
         examId: input.examId,
         studentId: input.studentId,
@@ -153,7 +201,9 @@ export async function saveCbtResult(input: {
         answers: input.answers,
         attemptStatus: (status === "terminated" ? "terminated" : "submitted") as "submitted" | "terminated" | "flagged",
       },
-    });
+    }),
+      new Promise((resolve) => setTimeout(() => resolve(null), 5_000)),
+    ]);
     if (serverRes?.resultId) {
       resultId = serverRes.resultId;
       error = null;
