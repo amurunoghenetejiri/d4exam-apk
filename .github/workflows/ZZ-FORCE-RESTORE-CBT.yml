@@ -1,3 +1,0 @@
-name: ZZ-FORCE-RESTORE-CBT
-on:
-  workflow_dispatch:

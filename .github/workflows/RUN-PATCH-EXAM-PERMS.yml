@@ -1,3 +1,0 @@
-name: RUN-PATCH-EXAM-PERMS
-on:
-  workflow_dispatch:

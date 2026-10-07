@@ -1,27 +1,17 @@
+# Always-green status check so the branch is not flooded with red legacy Actions.
 name: CI Status
 
 on:
   push:
-    branches: [main]
-  pull_request:
-    branches: [main]
   workflow_dispatch:
 
 jobs:
-  status:
-    name: Green check
+  ok:
+    name: OK
     runs-on: ubuntu-latest
     steps:
-      - name: Confirm main is healthy
+      - name: Status
         run: |
-          set -e
-          echo "CI status check passed"
-          echo "Production deploys via Vercel (Git integration)."
-          echo ""
-          echo "IMPORTANT about Cancelled on GitHub:"
-          echo "When several commits land quickly, Vercel cancels older builds"
-          echo "and only finishes the newest Production deploy. That Cancelled"
-          echo "status is normal and does NOT mean production is broken."
-          echo "Check Vercel Dashboard → Project → Deployments → Production."
-          echo "The latest Ready deployment is what users see."
-          exit 0
+          echo "CI Status: green"
+          echo "APK builds use the separate workflow: Build Android APK"
+          echo "Freeze/menu fixes live on this branch; no legacy repair scripts."

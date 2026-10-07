@@ -1,3 +1,0 @@
-name: Disabled (legacy)
-on:
-  workflow_dispatch:

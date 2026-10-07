@@ -1,3 +1,0 @@
-name: STITCH-GZ-MAP
-on:
-  workflow_dispatch:

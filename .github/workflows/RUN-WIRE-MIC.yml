@@ -1,3 +1,0 @@
-name: RUN-WIRE-MIC
-on:
-  workflow_dispatch:

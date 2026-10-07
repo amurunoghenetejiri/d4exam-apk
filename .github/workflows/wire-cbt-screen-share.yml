@@ -1,3 +1,0 @@
-name: wire-cbt-screen-share
-on:
-  workflow_dispatch:

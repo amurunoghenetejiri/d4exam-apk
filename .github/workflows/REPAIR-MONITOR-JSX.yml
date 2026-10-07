@@ -1,3 +1,0 @@
-name: REPAIR-MONITOR-JSX
-on:
-  workflow_dispatch:

@@ -1,3 +1,0 @@
-name: Z-RESTORE-OFFICER-NOW
-on:
-  workflow_dispatch:

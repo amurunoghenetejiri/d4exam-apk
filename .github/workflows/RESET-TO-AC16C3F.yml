@@ -1,4 +1,0 @@
-name: RESET-TO-AC16C3F
-
-on:
-  workflow_dispatch:

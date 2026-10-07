@@ -1,3 +1,0 @@
-name: NEUTRALIZE-AND-DEPLOY
-on:
-  workflow_dispatch:

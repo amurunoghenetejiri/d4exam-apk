@@ -1,3 +1,0 @@
-name: RUN-EXAM-PATCH
-on:
-  workflow_dispatch:
