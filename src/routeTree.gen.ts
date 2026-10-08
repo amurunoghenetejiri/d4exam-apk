@@ -29,6 +29,7 @@ import { Route as StudentRouteImport } from './routes/student'
 import { Route as SuperAdminRouteImport } from './routes/super-admin'
 import { Route as SupportRouteImport } from './routes/support'
 import { Route as TeacherRouteImport } from './routes/teacher'
+import { Route as ZzMenuTestRouteImport } from './routes/zz-menu-test'
 import { Route as AdminIndexRouteImport } from './routes/admin.index'
 import { Route as AdminCarryoversRouteImport } from './routes/admin.carryovers'
 import { Route as AdminCoursesRouteImport } from './routes/admin.courses'
@@ -208,6 +209,11 @@ const SupportRoute = SupportRouteImport.update({
 const TeacherRoute = TeacherRouteImport.update({
   id: '/teacher',
   path: '/teacher',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ZzMenuTestRoute = ZzMenuTestRouteImport.update({
+  id: '/zz-menu-test',
+  path: '/zz-menu-test',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminIndexRoute = AdminIndexRouteImport.update({
@@ -633,6 +639,7 @@ export interface FileRoutesByFullPath {
   '/super-admin': typeof SuperAdminRouteWithChildren
   '/support': typeof SupportRoute
   '/teacher': typeof TeacherRouteWithChildren
+  '/zz-menu-test': typeof ZzMenuTestRoute
   '/admin/carryovers': typeof AdminCarryoversRoute
   '/admin/courses': typeof AdminCoursesRoute
   '/admin/departments': typeof AdminDepartmentsRoute
@@ -730,6 +737,7 @@ export interface FileRoutesByTo {
   '/school-application': typeof SchoolApplicationRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/support': typeof SupportRoute
+  '/zz-menu-test': typeof ZzMenuTestRoute
   '/admin/carryovers': typeof AdminCarryoversRoute
   '/admin/courses': typeof AdminCoursesRoute
   '/admin/departments': typeof AdminDepartmentsRoute
@@ -832,6 +840,7 @@ export interface FileRoutesById {
   '/super-admin': typeof SuperAdminRouteWithChildren
   '/support': typeof SupportRoute
   '/teacher': typeof TeacherRouteWithChildren
+  '/zz-menu-test': typeof ZzMenuTestRoute
   '/admin/carryovers': typeof AdminCarryoversRoute
   '/admin/courses': typeof AdminCoursesRoute
   '/admin/departments': typeof AdminDepartmentsRoute
@@ -936,6 +945,7 @@ export interface FileRouteTypes {
     | '/super-admin'
     | '/support'
     | '/teacher'
+    | '/zz-menu-test'
     | '/admin/carryovers'
     | '/admin/courses'
     | '/admin/departments'
@@ -1033,6 +1043,7 @@ export interface FileRouteTypes {
     | '/school-application'
     | '/sitemap.xml'
     | '/support'
+    | '/zz-menu-test'
     | '/admin/carryovers'
     | '/admin/courses'
     | '/admin/departments'
@@ -1134,6 +1145,7 @@ export interface FileRouteTypes {
     | '/super-admin'
     | '/support'
     | '/teacher'
+    | '/zz-menu-test'
     | '/admin/carryovers'
     | '/admin/courses'
     | '/admin/departments'
@@ -1237,6 +1249,7 @@ export interface RootRouteChildren {
   SuperAdminRoute: typeof SuperAdminRouteWithChildren
   SupportRoute: typeof SupportRoute
   TeacherRoute: typeof TeacherRouteWithChildren
+  ZzMenuTestRoute: typeof ZzMenuTestRoute
   AuthCallbackRoute: typeof AuthCallbackRoute
 }
 
@@ -1380,6 +1393,13 @@ declare module '@tanstack/react-router' {
       path: '/teacher'
       fullPath: '/teacher'
       preLoaderRoute: typeof TeacherRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/zz-menu-test': {
+      id: '/zz-menu-test'
+      path: '/zz-menu-test'
+      fullPath: '/zz-menu-test'
+      preLoaderRoute: typeof ZzMenuTestRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/': {
@@ -2198,6 +2218,7 @@ const rootRouteChildren: RootRouteChildren = {
   SuperAdminRoute: SuperAdminRouteWithChildren,
   SupportRoute: SupportRoute,
   TeacherRoute: TeacherRouteWithChildren,
+  ZzMenuTestRoute: ZzMenuTestRoute,
   AuthCallbackRoute: AuthCallbackRoute,
 }
 export const routeTree = rootRouteImport
