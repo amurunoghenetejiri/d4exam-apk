@@ -308,15 +308,22 @@ function RootComponent() {
       document.documentElement.style.pointerEvents = "";
     } catch { /* ignore */ }
 
+    let clearTimer: number | undefined;
     const clearStuckPointerEvents = () => {
-      try {
-        if (document.body.style.pointerEvents === "none") {
-          document.body.style.pointerEvents = "";
-        }
-        if (document.documentElement.style.pointerEvents === "none") {
-          document.documentElement.style.pointerEvents = "";
-        }
-      } catch { /* ignore */ }
+      // Never fight Radix while a dialog/sheet is open or animating — only
+      // release the lock once nothing is open (a genuinely stuck lock).
+      if (clearTimer) window.clearTimeout(clearTimer);
+      clearTimer = window.setTimeout(() => {
+        try {
+          if (document.querySelector('[role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"]')) return;
+          if (document.body.style.pointerEvents === "none") {
+            document.body.style.pointerEvents = "";
+          }
+          if (document.documentElement.style.pointerEvents === "none") {
+            document.documentElement.style.pointerEvents = "";
+          }
+        } catch { /* ignore */ }
+      }, 400);
     };
 
     clearStuckPointerEvents();
@@ -333,6 +340,7 @@ function RootComponent() {
     return () => {
       try {
         observer.disconnect();
+        if (clearTimer) window.clearTimeout(clearTimer);
       } catch { /* ignore */ }
       window.removeEventListener("pointerdown", clearStuckPointerEvents);
       window.removeEventListener("click", clearStuckPointerEvents);

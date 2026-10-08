@@ -131,6 +131,7 @@ export function PublicLayout({ children }: { children: ReactNode }) {
             </SheetTrigger>
             <SheetContent
               side="right"
+              hideClose
               className="w-[min(100%,20rem)] border-l border-slate-200 bg-white p-0"
               // Ensure body scroll lock is released cleanly when we force-close via setOpen
               onCloseAutoFocus={(e) => e.preventDefault()}
