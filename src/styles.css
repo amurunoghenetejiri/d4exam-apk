@@ -3,9 +3,9 @@
 @import "./styles-material-reader.css";
 
 
-/* Fix Radix UI modal lock from freezing body pointer events */
-body[style*="pointer-events: none"],
-html[style*="pointer-events: none"] {
+/* Release a stuck Radix lock only when no dialog/sheet is actually open */
+body[style*="pointer-events: none"]:not(:has([role="dialog"][data-state="open"])),
+html[style*="pointer-events: none"]:not(:has([role="dialog"][data-state="open"])) {
   pointer-events: auto !important;
 }
 
