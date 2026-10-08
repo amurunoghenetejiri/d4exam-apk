@@ -340,6 +340,7 @@ function RootComponent() {
     return () => {
       try {
         observer.disconnect();
+        if (clearTimer) window.clearTimeout(clearTimer);
       } catch { /* ignore */ }
       window.removeEventListener("pointerdown", clearStuckPointerEvents);
       window.removeEventListener("click", clearStuckPointerEvents);
