@@ -134,6 +134,12 @@ export function PublicLayout({ children }: { children: ReactNode }) {
               className="w-[min(100%,20rem)] border-l border-slate-200 bg-white p-0"
               // Ensure body scroll lock is released cleanly when we force-close via setOpen
               onCloseAutoFocus={(e) => e.preventDefault()}
+              // On touch screens Radix fires "outside tap" on the following click, which
+              // re-closes the menu right after the menu button reopens it. Ignore the button.
+              onInteractOutside={(e) => {
+                const t = e.target as HTMLElement | null;
+                if (t?.closest?.(".d4-public-menu")) e.preventDefault();
+              }}
             >
               <SheetTitle className="sr-only">Menu</SheetTitle>
               <div className="flex h-14 items-center justify-between border-b border-slate-200 px-4">
