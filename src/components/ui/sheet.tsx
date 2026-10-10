@@ -55,14 +55,24 @@ interface SheetContentProps
     VariantProps<typeof sheetVariants> {
   /** Hide the built-in top-right close button (use when providing a custom one). */
   hideClose?: boolean;
+  /** For non-modal sheets: render a lookalike backdrop that closes on tap (no body lock). */
+  onBackdropClick?: () => void;
 }
 
 const SheetContent = React.forwardRef<
   React.ElementRef<typeof SheetPrimitive.Content>,
   SheetContentProps
->(({ side = "right", className, children, hideClose = false, ...props }, ref) => (
+>(({ side = "right", className, children, hideClose = false, onBackdropClick, ...props }, ref) => (
   <SheetPortal>
-    <SheetOverlay />
+    {onBackdropClick ? (
+      <div
+        aria-hidden
+        className="fixed inset-0 z-50 bg-black/80 animate-in fade-in-0"
+        onClick={onBackdropClick}
+      />
+    ) : (
+      <SheetOverlay />
+    )}
     <SheetPrimitive.Content ref={ref} className={cn(sheetVariants({ side }), className)} {...props}>
       {!hideClose ? (
         <SheetPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-secondary">

@@ -10,7 +10,6 @@ import {
   SheetClose,
   SheetContent,
   SheetTitle,
-  SheetTrigger,
 } from "@/components/ui/sheet";
 import { isAppLikeShell } from "@/native/platform";
 import { cn } from "@/lib/utils";
@@ -118,9 +117,10 @@ export function PublicLayout({ children }: { children: ReactNode }) {
             </Button>
           </div>
 
-          <Sheet open={open} onOpenChange={setOpen}>
-            <SheetTrigger asChild>
+          <Sheet open={open} onOpenChange={setOpen} modal={false}>
               <Button
+                type="button"
+                onClick={() => setOpen((v) => !v)}
                 variant="outline"
                 size="icon"
                 className="d4-public-menu lg:hidden border-white/30 bg-white/5 text-white hover:bg-white/10 hover:text-white"
@@ -128,10 +128,10 @@ export function PublicLayout({ children }: { children: ReactNode }) {
               >
                 <Menu className="h-5 w-5" />
               </Button>
-            </SheetTrigger>
             <SheetContent
               side="right"
               hideClose
+              onBackdropClick={() => setOpen(false)}
               className="w-[min(100%,20rem)] border-l border-slate-200 bg-white p-0"
               // Ensure body scroll lock is released cleanly when we force-close via setOpen
               onCloseAutoFocus={(e) => e.preventDefault()}
