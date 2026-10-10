@@ -10,7 +10,6 @@ import {
   SheetClose,
   SheetContent,
   SheetTitle,
-  SheetTrigger,
 } from "@/components/ui/sheet";
 import { isAppLikeShell } from "@/native/platform";
 import { cn } from "@/lib/utils";
